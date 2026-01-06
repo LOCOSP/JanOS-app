@@ -9,10 +9,7 @@ This is a simple **Python-based control script** designed to communicate with an
 It acts as a bridge between JanOS and external devices, enabling automation and simplified device management.
 
 ## How to use:
-1. Clone this repository:
-   ```
-   git clone https://github.com/D3h420/JanOS-app/
-   ```
+1. `git clone https://github.com/D3h420/JanOS-app/`
 2. `cd JanOS-app`
 3. `sudo chmod +x JanOS-app.py`
 4. `sudo python3 JanOS-app.py`

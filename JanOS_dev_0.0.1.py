@@ -2,7 +2,8 @@
 """
 JanOS Dev 0.0.1 - ESP32-C5 Controller
 
-Usage: ./JanOS_dev_0.0.1.py <device>
+Usage: ./JanOS_dev_0.0.1.py
+Optional: ./JanOS_dev_0.0.1.py <device>
 Example: ./JanOS_dev_0.0.1.py /dev/ttyUSB0
 """
 
@@ -10,6 +11,7 @@ import sys
 import os
 import time
 import serial
+from serial.tools import list_ports
 import threading
 import select
 import termios
@@ -96,6 +98,32 @@ def print_line(char: str = '═') -> None:
 def clear_screen() -> None:
     """Clear the terminal screen."""
     os.system('clear' if os.name != 'nt' else 'cls')
+
+def is_probable_esp32(port) -> bool:
+    """Heuristic check to guess ESP32 serial adapters."""
+    haystack = " ".join(filter(None, [port.description, port.manufacturer, port.hwid])).lower()
+    keywords = ["esp32", "cp210", "ch340", "silicon labs", "uart"]
+    return any(keyword in haystack for keyword in keywords)
+
+def list_serial_devices() -> List:
+    """Return a list of available serial devices."""
+    return list(list_ports.comports())
+
+def print_usage() -> None:
+    """Print CLI usage."""
+    print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
+    print()
+    print("Usage: ./JanOS_dev_0.0.1.py")
+    print("Optional: ./JanOS_dev_0.0.1.py <device>")
+    print()
+    print("Arguments:")
+    print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
+    print()
+    print("Examples:")
+    print("  ./JanOS_dev_0.0.1.py                      # Interactive selector")
+    print("  ./JanOS_dev_0.0.1.py /dev/ttyUSB0        # Linux")
+    print("  ./JanOS_dev_0.0.1.py /dev/cu.usbserial-0001  # macOS")
+    print()
 
 # ============================================================================
 # UI Components
@@ -354,6 +382,67 @@ class UI:
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
+
+def select_device_interactive() -> str:
+    """Interactive ESP32-C5 device selector."""
+    while True:
+        clear_screen()
+        UI.print_banner("Device setup", False, False, False, False, False, False, False)
+        print(f"{Colors.GRAY}Select the ESP32-C5 device to connect{Colors.NC}")
+        print()
+        
+        ports = list_serial_devices()
+        if not ports:
+            print(f"{Colors.RED}[!] No serial devices found{Colors.NC}")
+            print("Options: [r] rescan, [m] manual path, [q] quit")
+            choice = input("Select option: ").strip().lower()
+            if choice == 'r':
+                continue
+            if choice == 'm':
+                manual = input("Enter device path: ").strip()
+                if manual:
+                    return manual
+                continue
+            if choice == 'q':
+                sys.exit(0)
+            continue
+        
+        print(f"{Colors.CYAN}Available devices:{Colors.NC}")
+        for idx, port in enumerate(ports, 1):
+            mark = f"{Colors.GREEN}ESP32?{Colors.NC}" if is_probable_esp32(port) else f"{Colors.GRAY}unknown{Colors.NC}"
+            desc = port.description or "Unknown"
+            manuf = port.manufacturer or ""
+            extra = f" - {manuf}" if manuf else ""
+            print(f"  {idx}) {port.device}  {Colors.GRAY}{desc}{extra}{Colors.NC}  [{mark}]")
+        
+        print()
+        choice = input("Select device number, [r] rescan, [m] manual, [q] quit: ").strip().lower()
+        if choice == 'r':
+            continue
+        if choice == 'm':
+            manual = input("Enter device path: ").strip()
+            if manual:
+                return manual
+            continue
+        if choice == 'q':
+            sys.exit(0)
+        
+        if not choice.isdigit():
+            print(f"{Colors.RED}Invalid selection{Colors.NC}")
+            time.sleep(1)
+            continue
+        
+        index = int(choice) - 1
+        if index < 0 or index >= len(ports):
+            print(f"{Colors.RED}Selection out of range{Colors.NC}")
+            time.sleep(1)
+            continue
+        
+        selected = ports[index]
+        desc = selected.description or "Unknown"
+        confirm = input(f"Use {selected.device} ({desc})? [Y/n]: ").strip().lower()
+        if confirm in ['', 'y', 'yes']:
+            return selected.device
 
 # ============================================================================
 # Serial Communication
@@ -642,17 +731,7 @@ class JanOS:
     
     def show_usage(self) -> None:
         """Show usage information."""
-        print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
-        print()
-        print("Usage: ./JanOS_dev_0.0.1.py <device>")
-        print()
-        print("Arguments:")
-        print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
-        print()
-        print("Examples:")
-        print("  ./JanOS_dev_0.0.1.py /dev/ttyUSB0        # Linux")
-        print("  ./JanOS_dev_0.0.1.py /dev/cu.usbserial-0001  # macOS")
-        print()
+        print_usage()
     
     def update_sniffer_display(self, data: str) -> None:
         """Update sniffer packet count from received data."""
@@ -2576,13 +2655,15 @@ class JanOS:
 # Main Entry Point
 # ============================================================================
 def main():
-    # Check for device argument
-    if len(sys.argv) < 2:
-        app = JanOS("")
-        app.show_usage()
-        sys.exit(1)
+    device = None
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ['-h', '--help']:
+            print_usage()
+            sys.exit(0)
+        device = sys.argv[1]
     
-    device = sys.argv[1]
+    if not device:
+        device = select_device_interactive()
     
     # Create and run application
     app = JanOS(device)

@@ -18,7 +18,8 @@ It acts as a bridge between JanOS and external devices, enabling automation and 
 
 <img width="500" height="459" alt="Zrzut ekranu 2026-01-5 o 13 22 36" src="https://github.com/user-attachments/assets/dd496843-ff01-463c-8882-67ae65c92ead" />
 
-early v0.0.1
-
 🚧 Work in progress  
 More features, documentation, and supported boards will be added over time.
+
+## JanOS_dev status
+`JanOS_dev_0.0.1.py` is under active development and currently unstable.

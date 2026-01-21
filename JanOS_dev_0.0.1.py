@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-JanOS - ESP32-C5 Controller
+JanOS Dev 0.0.1 - ESP32-C5 Controller
 
-Usage: ./JanOS_app.py <device>
-Example: ./JanOS_app.py /dev/ttyUSB0
+Usage: ./JanOS_dev_0.0.1.py <device>
+Example: ./JanOS_dev_0.0.1.py /dev/ttyUSB0
 """
 
 import sys
@@ -188,6 +188,7 @@ class UI:
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Scan Menu                                         {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Sniffer Menu                                      {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  Attacks Menu                                      {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}4){Colors.NC}  System Menu                                       {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Exit                                               {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
@@ -331,6 +332,25 @@ class UI:
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Captured Data                               {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Attacks Menu                             {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
+        print()
+
+    @staticmethod
+    def print_system_menu() -> None:
+        """Print the system submenu."""
+        width = 60
+        
+        print()
+        print(f"{Colors.CYAN}╔════════════════════════════════════════════════════════════╗{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}                     {Colors.WHITE}{Colors.BOLD}SYSTEM MENU{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Reboot Device                                    {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Ping Host                                        {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  List SD Card                                     {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
+        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Main Menu                                {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
@@ -624,14 +644,14 @@ class JanOS:
         """Show usage information."""
         print(f"{Colors.CYAN}JanOS Controller{Colors.NC} - ESP32-C5 Wireless Controller")
         print()
-        print("Usage: ./janos_controller.py <device>")
+        print("Usage: ./JanOS_dev_0.0.1.py <device>")
         print()
         print("Arguments:")
         print("  device    Serial device path (e.g., /dev/ttyUSB0, /dev/cu.usbserial-*)")
         print()
         print("Examples:")
-        print("  ./janos_controller.py /dev/ttyUSB0        # Linux")
-        print("  ./janos_controller.py /dev/cu.usbserial-0001  # macOS")
+        print("  ./JanOS_dev_0.0.1.py /dev/ttyUSB0        # Linux")
+        print("  ./JanOS_dev_0.0.1.py /dev/cu.usbserial-0001  # macOS")
         print()
     
     def update_sniffer_display(self, data: str) -> None:
@@ -2308,6 +2328,110 @@ class JanOS:
                 print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
                 time.sleep(1)
                 break
+
+    def system_reboot(self) -> None:
+        """Reboot the device."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        confirm = input("Reboot device now? [y/N]: ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print(f"{Colors.GRAY}[-] Reboot cancelled{Colors.NC}")
+            time.sleep(1)
+            return
+        
+        print(f"{Colors.YELLOW}[*] Rebooting device...{Colors.NC}")
+        self.serial_mgr.send_command("reboot")
+        time.sleep(1)
+        print(f"{Colors.GREEN}[+] Reboot command sent{Colors.NC}")
+        print()
+        input("Press Enter to continue...")
+    
+    def system_ping(self) -> None:
+        """Ping a host from the device."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        host = input("Host to ping (IP or domain): ").strip()
+        if not host:
+            print(f"{Colors.RED}[!] Host cannot be empty{Colors.NC}")
+            time.sleep(1)
+            return
+        
+        print(f"{Colors.YELLOW}[*] Sending ping to {host}...{Colors.NC}")
+        self.serial_mgr.send_command(f"ping {host}")
+        time.sleep(0.5)
+        
+        print(f"{Colors.CYAN}[*] Response:{Colors.NC}")
+        lines = self.serial_mgr.read_response(timeout=5)
+        if not lines:
+            print(f"{Colors.GRAY}[-] No response received{Colors.NC}")
+        else:
+            for line in lines:
+                print(line)
+        print()
+        input("Press Enter to continue...")
+    
+    def system_list_sd(self) -> None:
+        """List SD card contents."""
+        clear_screen()
+        UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                       self.sniffer_running, self.sae_overflow_running,
+                       self.handshake_running, self.portal_running,
+                       self.evil_twin_running)
+        print()
+        print(f"{Colors.YELLOW}[*] Listing SD card contents...{Colors.NC}")
+        self.serial_mgr.send_command("list_sd")
+        time.sleep(0.5)
+        
+        lines = self.serial_mgr.read_response(timeout=5)
+        if not lines:
+            print(f"{Colors.GRAY}[-] No response received{Colors.NC}")
+        else:
+            for line in lines:
+                print(line)
+        print()
+        input("Press Enter to continue...")
+    
+    def system_menu(self) -> None:
+        """System submenu."""
+        while True:
+            try:
+                clear_screen()
+                UI.print_banner(self.device, self.attack_running, self.blackout_running, 
+                              self.sniffer_running, self.sae_overflow_running,
+                              self.handshake_running, self.portal_running,
+                              self.evil_twin_running)
+                UI.print_system_menu()
+                
+                choice = input("Select option: ").strip()
+                
+                if choice == '1':
+                    self.system_reboot()
+                elif choice == '2':
+                    self.system_ping()
+                elif choice == '3':
+                    self.system_list_sd()
+                elif choice == '0':
+                    return  # Back to main menu
+                else:
+                    print(f"{Colors.RED}Invalid option{Colors.NC}")
+                    time.sleep(1)
+                    
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                break
+            except EOFError:
+                print(f"\n{Colors.YELLOW}[*] Returning to main menu{Colors.NC}")
+                time.sleep(1)
+                break
     
     def main_menu(self) -> None:
         """Main menu loop."""
@@ -2362,6 +2486,8 @@ class JanOS:
                     self.sniffer_menu()
                 elif choice == '3':
                     self.attacks_menu()
+                elif choice == '4':
+                    self.system_menu()
                 elif choice in ['0', 'q', 'Q']:
                     if self.attack_running or self.blackout_running or self.sniffer_running or self.sae_overflow_running or self.handshake_running or self.portal_running or self.evil_twin_running:
                         print()

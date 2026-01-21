@@ -128,6 +128,8 @@ def print_usage() -> None:
 # ============================================================================
 # UI Components
 # ============================================================================
+COMPACT_BOX_WIDTH = 60
+
 class UI:
     @staticmethod
     def print_box_top() -> None:
@@ -383,6 +385,31 @@ class UI:
         print(f"{Colors.CYAN}╚════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
 
+    @staticmethod
+    def print_compact_box(title: str, lines: List[str], color: str = Colors.CYAN) -> None:
+        """Print a compact fixed-width box with centered title."""
+        width = COMPACT_BOX_WIDTH
+        inner = width - 2
+        print(f"{color}╔{'═' * inner}╗{Colors.NC}")
+        title_text = f" {title} "
+        title_len = len(strip_ansi(title_text))
+        if title_len > inner:
+            title_text = title_text[:inner]
+            title_len = len(strip_ansi(title_text))
+        left_pad = max(0, (inner - title_len) // 2)
+        right_pad = max(0, inner - title_len - left_pad)
+        print(f"{color}║{Colors.NC}{' ' * left_pad}{Colors.WHITE}{Colors.BOLD}{title_text}{Colors.NC}{' ' * right_pad}{color}║{Colors.NC}")
+        print(f"{color}╠{'═' * inner}╣{Colors.NC}")
+        for line in lines:
+            clean_len = len(strip_ansi(line))
+            if clean_len > inner - 2:
+                line = line[:inner - 2]
+                clean_len = len(strip_ansi(line))
+            padding = inner - 2 - clean_len
+            print(f"{color}║{Colors.NC} {line}{' ' * padding}{color}║{Colors.NC}")
+        print(f"{color}╚{'═' * inner}╝{Colors.NC}")
+        print()
+
 def select_device_interactive() -> str:
     """Interactive ESP32-C5 device selector."""
     while True:
@@ -536,9 +563,7 @@ class SerialManager:
                 try:
                     line = self.serial_conn.readline().decode('utf-8', errors='replace').strip()
                     if line:
-                        # Look for packet count in sniffer output
-                        if "packets" in line.lower() or "captured" in line.lower():
-                            update_callback(line)
+                        update_callback(line)
                 except Exception:
                     pass
             time.sleep(0.1)
@@ -735,16 +760,15 @@ class JanOS:
     
     def update_sniffer_display(self, data: str) -> None:
         """Update sniffer packet count from received data."""
-        # Try to extract packet count from the data
+        # Try to extract packet count from various formats
         import re
-        match = re.search(r'(\d+)\s+packets?', data, re.IGNORECASE)
+        match = re.search(r'(?:packets?|pkts?)\s*[:=]\s*(\d+)', data, re.IGNORECASE)
+        if not match:
+            match = re.search(r'(?:captured|capture)\s*[:=]?\s*(\d+)', data, re.IGNORECASE)
+        if not match:
+            match = re.search(r'(\d+)\s*(?:packets?|pkts?)', data, re.IGNORECASE)
         if match:
             self.sniffer_packets = int(match.group(1))
-        elif "captured" in data.lower():
-            # Another common format
-            match = re.search(r'captured:\s*(\d+)', data, re.IGNORECASE)
-            if match:
-                self.sniffer_packets = int(match.group(1))
     
     def update_portal_display(self, data: str) -> None:
         """Update portal display with real-time data."""
@@ -946,25 +970,21 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                      {Colors.WHITE}{Colors.BOLD}📡  SNIFFER MODE  📡{Colors.NC}                                  {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Starting WiFi packet sniffer...{Colors.NC}                                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}The sniffer will capture all WiFi packets in range.{Colors.NC}                            {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}Press ANY key to stop sniffing.{Colors.NC}                                             {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        UI.print_compact_box(
+            "SNIFFER MODE",
+            [
+                f"{Colors.YELLOW}Starting sniffer...{Colors.NC}",
+                f"{Colors.GRAY}Press any key to stop{Colors.NC}"
+            ],
+            Colors.CYAN
+        )
         
         # Check if we have scanned networks
         if self.network_mgr.network_count > 0:
-            print(f"{Colors.YELLOW}[*] Networks already scanned. Starting sniffer without scanning...{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Using existing scan results{Colors.NC}")
             self.serial_mgr.send_command("start_sniffer_noscan")
         else:
-            print(f"{Colors.YELLOW}[*] No networks scanned yet. Sniffer will scan networks first...{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Scanning before start...{Colors.NC}")
             self.serial_mgr.send_command("start_sniffer")
         
         # Reset packet counter
@@ -980,11 +1000,7 @@ class JanOS:
         self.sniffer_thread.daemon = True
         self.sniffer_thread.start()
         
-        print(f"{Colors.CYAN}[+] Sniffer started!{Colors.NC}")
-        print(f"{Colors.CYAN}[📡] Capturing packets...{Colors.NC}")
-        print()
-        print(f"{Colors.WHITE}Press ANY key to stop sniffing{Colors.NC}")
-        print()
+        print(f"{Colors.CYAN}[+] Sniffer running{Colors.NC}")
         
         # Dynamic packet counter display
         last_packet_count = -1
@@ -1013,7 +1029,7 @@ class JanOS:
                     # Update display if packet count changed
                     if self.sniffer_packets != last_packet_count:
                         elapsed = int(time.time() - start_time)
-                        print(f"\r{Colors.CYAN}[📡] Packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.CYAN} | Time: {elapsed}s{Colors.NC}", end="", flush=True)
+                        print(f"\r{Colors.CYAN}Packets: {Colors.WHITE}{self.sniffer_packets}{Colors.CYAN} | Time: {elapsed}s{Colors.NC}", end="", flush=True)
                         last_packet_count = self.sniffer_packets
                     
                     time.sleep(SNIFFER_UPDATE_INTERVAL)
@@ -1035,9 +1051,7 @@ class JanOS:
             if self.sniffer_thread:
                 self.sniffer_thread.join(timeout=2)
             
-            print(f"{Colors.GREEN}[+] Sniffer stopped{Colors.NC}")
-            print(f"{Colors.GREEN}[+] Total packets captured: {self.sniffer_packets}{Colors.NC}")
-            print()
+            print(f"{Colors.GREEN}[+] Sniffer stopped ({self.sniffer_packets} packets){Colors.NC}")
             input("Press Enter to continue...")
     
     def show_sniffer_results(self) -> None:
@@ -1047,81 +1061,37 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                   {Colors.WHITE}{Colors.BOLD}📡  SNIFFER RESULTS  📡{Colors.NC}                                 {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        if self.sniffer_running:
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Sniffer is currently running. Stopping to show results...{Colors.NC}                     {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Total packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.NC}{' ' * (40 - len(str(self.sniffer_packets)))}{Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
+        UI.print_compact_box(
+            "SNIFFER RESULTS",
+            [f"{Colors.YELLOW}Packets: {self.sniffer_packets}{Colors.NC}"],
+            Colors.CYAN
+        )
         
         # Stop sniffer if it's running to get results
         if self.sniffer_running:
-            print(f"{Colors.YELLOW}[*] Stopping sniffer to show results...{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Stopping sniffer...{Colors.NC}")
             self.serial_mgr.send_command("stop")
             self.sniffer_running = False
             self.stop_sniffer_event.set()
             time.sleep(1)
         
         # Request results from ESP32
-        print(f"{Colors.CYAN}[*] Requesting sniffer results from device...{Colors.NC}")
+        print(f"{Colors.CYAN}[*] Requesting results...{Colors.NC}")
         self.serial_mgr.send_command("show_sniffer_results")
         
         # Read and display results
-        print(f"{Colors.CYAN}[*] Reading results...{Colors.NC}")
         print()
         
         lines = self.serial_mgr.read_response(timeout=5)
         
         if lines:
-            # Parse and display results in a table
-            print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}Type{Colors.NC}       {Colors.WHITE}Source MAC{Colors.NC}         {Colors.WHITE}Destination MAC{Colors.NC}    {Colors.WHITE}Size{Colors.NC}  {Colors.WHITE}Info{Colors.NC}      {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-            
+            print(f"{Colors.CYAN}Sniffer output:{Colors.NC}")
             packet_count = 0
             for line in lines:
                 if line and not line.startswith("Sniffer") and not line.startswith("Total"):  # Filter header lines
-                    # Try to parse different packet formats
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        # Common WiFi packet format
-                        pkt_type = parts[0]
-                        src_mac = parts[1] if len(parts) > 1 else "N/A"
-                        dst_mac = parts[2] if len(parts) > 2 else "N/A"
-                        size = parts[3] if len(parts) > 3 else "N/A"
-                        info = " ".join(parts[4:]) if len(parts) > 4 else ""
-                        
-                        # Color code packet types
-                        if "BEACON" in pkt_type.upper():
-                            pkt_color = Colors.GREEN
-                        elif "PROBE" in pkt_type.upper():
-                            pkt_color = Colors.YELLOW
-                        elif "DATA" in pkt_type.upper():
-                            pkt_color = Colors.CYAN
-                        elif "AUTH" in pkt_type.upper() or "DEAUTH" in pkt_type.upper():
-                            pkt_color = Colors.RED
-                        else:
-                            pkt_color = Colors.GRAY
-                        
-                        # Truncate if too long
-                        if len(info) > 15:
-                            info = info[:12] + "..."
-                        
-                        print(f"{Colors.CYAN}║{Colors.NC}  {pkt_color}{pkt_type:<10}{Colors.NC} {src_mac:<17} {dst_mac:<17} {size:<5} {info:<15}{Colors.CYAN}║{Colors.NC}")
-                        packet_count += 1
-                    elif line.strip():  # Show any non-empty line
-                        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}{line:<70}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
-            
-            print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-            print()
+                    print(line)
+                    packet_count += 1
+
             print(f"{Colors.GREEN}[+] Displayed {packet_count} packets{Colors.NC}")
         else:
             print(f"{Colors.YELLOW}[!] No results received from device{Colors.NC}")
@@ -1855,12 +1825,41 @@ class JanOS:
         
         target_ssid = target_network.get('ssid', 'Unknown')
         target_channel = target_network.get('channel', '1')
+        target_index = target_network.get('index', '')
         
         print(f"{Colors.GREEN}[+] Target network selected: {target_ssid} (Channel: {target_channel}){Colors.NC}")
         print()
         
+        # Ensure device has fresh scan data and selected target
+        print(f"{Colors.MAGENTA}[*] Step 2: Sync target selection to device...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Sending: scan_networks{Colors.NC}")
+        self.serial_mgr.send_command("scan_networks")
+        scan_complete = False
+        start_time = time.time()
+        while time.time() - start_time < SCAN_TIMEOUT:
+            lines = self.serial_mgr.read_response(timeout=1)
+            for line in lines:
+                if "Scan results printed" in line:
+                    scan_complete = True
+                    break
+            if scan_complete:
+                break
+        if not scan_complete:
+            print(f"{Colors.YELLOW}[!] Scan may not have completed (continuing)...{Colors.NC}")
+        
+        if target_index:
+            print(f"{Colors.MAGENTA}[*] Sending: select_networks {target_index}{Colors.NC}")
+            self.serial_mgr.send_command(f"select_networks {target_index}")
+            time.sleep(1)
+            lines = self.serial_mgr.read_response(timeout=2)
+            for line in lines:
+                if "selected" in line.lower():
+                    print(f"{Colors.GREEN}[+] {line}{Colors.NC}")
+        else:
+            print(f"{Colors.YELLOW}[!] No target index available for select_networks{Colors.NC}")
+        
         # Step 2: Get HTML files from SD card
-        print(f"{Colors.MAGENTA}[*] Step 2: Loading HTML files from SD card...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Step 3: Loading HTML files from SD card...{Colors.NC}")
         if not self.get_html_files_from_sd():
             print(f"{Colors.YELLOW}[!] Cannot proceed without HTML files{Colors.NC}")
             print()
@@ -1868,7 +1867,7 @@ class JanOS:
             return
         
         # Step 3: Select HTML file
-        print(f"{Colors.MAGENTA}[*] Step 3: Select HTML file for Evil Twin portal{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Step 4: Select HTML file for Evil Twin portal{Colors.NC}")
         if not self.select_html_file_menu():
             print(f"{Colors.YELLOW}[!] No HTML file selected{Colors.NC}")
             print()
@@ -1877,7 +1876,7 @@ class JanOS:
         
         # Step 4: Confirm and start Evil Twin
         print()
-        print(f"{Colors.MAGENTA}[*] Step 4: Starting Evil Twin attack...{Colors.NC}")
+        print(f"{Colors.MAGENTA}[*] Step 5: Starting Evil Twin attack...{Colors.NC}")
         print(f"{Colors.MAGENTA}[*] Target SSID: {target_ssid}{Colors.NC}")
         print(f"{Colors.MAGENTA}[*] Target Channel: {target_channel}{Colors.NC}")
         print(f"{Colors.MAGENTA}[*] HTML file: {self.selected_html_name}{Colors.NC}")

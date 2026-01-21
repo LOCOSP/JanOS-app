@@ -749,6 +749,7 @@ class JanOS:
         self.evil_twin_captured_data = []
         self.evil_twin_client_count = 0
         self.os_type = detect_os()
+        self.last_sniffer_line = ""
         
         if self.os_type == 'unknown':
             print(f"{Colors.RED}Error: Unsupported operating system{Colors.NC}")
@@ -762,6 +763,10 @@ class JanOS:
         """Update sniffer packet count from received data."""
         # Try to extract packet count from various formats
         import re
+        if not data or data == self.last_sniffer_line:
+            return
+        self.last_sniffer_line = data
+
         match = re.search(r'(?:packets?|pkts?)\s*[:=]\s*(\d+)', data, re.IGNORECASE)
         if not match:
             match = re.search(r'(?:captured|capture)\s*[:=]?\s*(\d+)', data, re.IGNORECASE)
@@ -769,6 +774,23 @@ class JanOS:
             match = re.search(r'(\d+)\s*(?:packets?|pkts?)', data, re.IGNORECASE)
         if match:
             self.sniffer_packets = int(match.group(1))
+            return
+
+        # Fallback: count lines that look like packet data
+        if re.search(r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})', data):
+            self.sniffer_packets += 1
+            return
+
+        lower = data.lower()
+        ignore_prefixes = (
+            "sniffer", "total", "starting", "stopping", "scan",
+            "wifi", "channel", "packets", "probe", "error", "failed"
+        )
+        if lower.startswith(ignore_prefixes) or data.startswith(">"):
+            return
+
+        if data.strip():
+            self.sniffer_packets += 1
     
     def update_portal_display(self, data: str) -> None:
         """Update portal display with real-time data."""
@@ -1061,11 +1083,6 @@ class JanOS:
                        self.sniffer_running, self.sae_overflow_running,
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
-        UI.print_compact_box(
-            "SNIFFER RESULTS",
-            [f"{Colors.YELLOW}Packets: {self.sniffer_packets}{Colors.NC}"],
-            Colors.CYAN
-        )
         
         # Stop sniffer if it's running to get results
         if self.sniffer_running:
@@ -1083,16 +1100,24 @@ class JanOS:
         print()
         
         lines = self.serial_mgr.read_response(timeout=5)
+        packet_lines = []
+        for line in lines:
+            if line and not line.startswith("Sniffer") and not line.startswith("Total") and not line.startswith(">"):
+                packet_lines.append(line)
         
-        if lines:
+        if packet_lines:
+            self.sniffer_packets = max(self.sniffer_packets, len(packet_lines))
+        UI.print_compact_box(
+            "SNIFFER RESULTS",
+            [f"{Colors.YELLOW}Packets: {self.sniffer_packets}{Colors.NC}"],
+            Colors.CYAN
+        )
+        
+        if packet_lines:
             print(f"{Colors.CYAN}Sniffer output:{Colors.NC}")
-            packet_count = 0
-            for line in lines:
-                if line and not line.startswith("Sniffer") and not line.startswith("Total"):  # Filter header lines
-                    print(line)
-                    packet_count += 1
-
-            print(f"{Colors.GREEN}[+] Displayed {packet_count} packets{Colors.NC}")
+            for line in packet_lines:
+                print(line)
+            print(f"{Colors.GREEN}[+] Displayed {len(packet_lines)} packets{Colors.NC}")
         else:
             print(f"{Colors.YELLOW}[!] No results received from device{Colors.NC}")
             print(f"{Colors.YELLOW}[*] Try starting the sniffer first to capture packets{Colors.NC}")
@@ -1108,19 +1133,6 @@ class JanOS:
                        self.handshake_running, self.portal_running,
                        self.evil_twin_running)
         print()
-        print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                    {Colors.WHITE}{Colors.BOLD}📡  PROBE REQUESTS  📡{Colors.NC}                                 {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        if self.sniffer_running:
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Sniffer is currently running. Stopping to show probe requests...{Colors.NC}              {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        
-        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}Total packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.NC}{' ' * (40 - len(str(self.sniffer_packets)))}{Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}                                                                              {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-        print()
         
         # Stop sniffer if it's running to get results
         if self.sniffer_running:
@@ -1135,94 +1147,91 @@ class JanOS:
         self.serial_mgr.send_command("show_probes")
         
         # Read and display results
-        print(f"{Colors.CYAN}[*] Reading probe requests...{Colors.NC}")
         print()
         
         lines = self.serial_mgr.read_response(timeout=5)
         
-        if lines:
-            # Parse and display probe requests in a table
-            print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}  {Colors.WHITE}Client MAC{Colors.NC}             {Colors.WHITE}SSID{Colors.NC}                           {Colors.WHITE}RSSI{Colors.NC}   {Colors.WHITE}Time{Colors.NC}    {Colors.CYAN}║{Colors.NC}")
-            print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-            
+        probe_lines = []
+        for line in lines:
+            if line and not line.startswith("Probe") and not line.startswith("Total") and not line.startswith(">"):
+                probe_lines.append(line)
+        
+        UI.print_compact_box(
+            "PROBE REQUESTS",
+            [f"{Colors.YELLOW}Probes: {len(probe_lines)}{Colors.NC}"],
+            Colors.CYAN
+        )
+        
+        if probe_lines:
+            print(f"{Colors.CYAN}Probe output:{Colors.NC}")
             probe_count = 0
-            for line in lines:
-                if line and not line.startswith("Probe") and not line.startswith("Total"):  # Filter header lines
-                    probe_count += 1
-                    
-                    # Try different parsing formats for probe requests
-                    # Format 1: "Client: AA:BB:CC:DD:EE:FF, SSID: MyNetwork, RSSI: -45"
-                    # Format 2: "AA:BB:CC:DD:EE:FF -> MyNetwork (-55dBm)"
-                    # Format 3: "Probe: AA:BB:CC:DD:EE:FF looking for SSID"
-                    
-                    client_mac = "N/A"
-                    ssid = "<hidden>"
-                    rssi = "N/A"
-                    timestamp = ""
-                    
-                    # Parse MAC address (look for XX:XX:XX:XX:XX:XX pattern)
-                    mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
-                    mac_match = re.search(mac_pattern, line)
-                    if mac_match:
-                        client_mac = mac_match.group(0)
-                    
-                    # Parse SSID (look for text after "SSID:", "->", or "looking for")
-                    if "SSID:" in line:
-                        ssid_part = line.split("SSID:")[1].split(",")[0].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    elif "->" in line:
-                        ssid_part = line.split("->")[1].split("(")[0].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    elif "looking for" in line:
-                        ssid_part = line.split("looking for")[1].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    
-                    # Parse RSSI (look for numbers with minus sign or "dBm")
-                    rssi_pattern = r'(-?\d+)\s*dBm?'
-                    rssi_match = re.search(rssi_pattern, line, re.IGNORECASE)
-                    if rssi_match:
-                        rssi = rssi_match.group(1) + "dBm"
-                    
-                    # Parse timestamp if present
-                    time_pattern = r'\[(\d+:\d+:\d+)\]'
-                    time_match = re.search(time_pattern, line)
-                    if time_match:
-                        timestamp = time_match.group(1)
-                    
-                    # Truncate SSID if too long
-                    if len(ssid) > 30:
-                        ssid = ssid[:27] + "..."
-                    
-                    # Color code RSSI
-                    if rssi != "N/A" and "dBm" in rssi:
-                        try:
-                            rssi_val = int(rssi.replace("dBm", "").strip())
-                            if rssi_val >= -50:
-                                rssi_color = Colors.GREEN
-                            elif rssi_val >= -70:
-                                rssi_color = Colors.YELLOW
-                            else:
-                                rssi_color = Colors.RED
-                        except:
-                            rssi_color = Colors.GRAY
-                    else:
+            for line in probe_lines:
+                probe_count += 1
+                
+                # Try different parsing formats for probe requests
+                # Format 1: "Client: AA:BB:CC:DD:EE:FF, SSID: MyNetwork, RSSI: -45"
+                # Format 2: "AA:BB:CC:DD:EE:FF -> MyNetwork (-55dBm)"
+                # Format 3: "Probe: AA:BB:CC:DD:EE:FF looking for SSID"
+                
+                client_mac = "N/A"
+                ssid = "<hidden>"
+                rssi = "N/A"
+                timestamp = ""
+                
+                # Parse MAC address (look for XX:XX:XX:XX:XX:XX pattern)
+                mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
+                mac_match = re.search(mac_pattern, line)
+                if mac_match:
+                    client_mac = mac_match.group(0)
+                
+                # Parse SSID (look for text after "SSID:", "->", or "looking for")
+                if "SSID:" in line:
+                    ssid_part = line.split("SSID:")[1].split(",")[0].strip()
+                    if ssid_part and ssid_part not in ["N/A", "unknown"]:
+                        ssid = ssid_part
+                elif "->" in line:
+                    ssid_part = line.split("->")[1].split("(")[0].strip()
+                    if ssid_part and ssid_part not in ["N/A", "unknown"]:
+                        ssid = ssid_part
+                elif "looking for" in line:
+                    ssid_part = line.split("looking for")[1].strip()
+                    if ssid_part and ssid_part not in ["N/A", "unknown"]:
+                        ssid = ssid_part
+                
+                # Parse RSSI (look for numbers with minus sign or "dBm")
+                rssi_pattern = r'(-?\d+)\s*dBm?'
+                rssi_match = re.search(rssi_pattern, line, re.IGNORECASE)
+                if rssi_match:
+                    rssi = rssi_match.group(1) + "dBm"
+                
+                # Parse timestamp if present
+                time_pattern = r'\[(\d+:\d+:\d+)\]'
+                time_match = re.search(time_pattern, line)
+                if time_match:
+                    timestamp = time_match.group(1)
+                
+                # Truncate SSID if too long
+                if len(ssid) > 30:
+                    ssid = ssid[:27] + "..."
+                
+                # Color code RSSI
+                if rssi != "N/A" and "dBm" in rssi:
+                    try:
+                        rssi_val = int(rssi.replace("dBm", "").strip())
+                        if rssi_val >= -50:
+                            rssi_color = Colors.GREEN
+                        elif rssi_val >= -70:
+                            rssi_color = Colors.YELLOW
+                        else:
+                            rssi_color = Colors.RED
+                    except:
                         rssi_color = Colors.GRAY
-                    
-                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GREEN}{probe_count:<2}{Colors.NC} {Colors.GRAY}{client_mac:<17}{Colors.NC} {ssid:<30} {rssi_color}{rssi:<6}{Colors.NC} {timestamp:<8}  {Colors.CYAN}║{Colors.NC}")
-            
-            print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
-            print()
+                else:
+                    rssi_color = Colors.GRAY
+                
+                print(f"{probe_count:>2}. {client_mac}  {ssid}  {rssi_color}{rssi}{Colors.NC} {timestamp}".rstrip())
+
             print(f"{Colors.GREEN}[+] Found {probe_count} probe requests{Colors.NC}")
-            
-            # Show summary
-            if probe_count > 0:
-                print(f"{Colors.CYAN}[*] Probe request summary:{Colors.NC}")
-                print(f"{Colors.CYAN}    - Shows devices searching for WiFi networks{Colors.NC}")
-                print(f"{Colors.CYAN}    - Useful for discovering hidden networks and client behavior{Colors.NC}")
         else:
             print(f"{Colors.YELLOW}[!] No probe requests received from device{Colors.NC}")
             print(f"{Colors.YELLOW}[*] Try starting the sniffer first to capture probe requests{Colors.NC}")

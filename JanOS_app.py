@@ -235,8 +235,12 @@ class UI:
         print(f"{Colors.CYAN}╠════════════════════════════════════════════════════════════╣{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}1){Colors.NC}  Start Sniffer                                     {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Results                                      {Colors.CYAN}║{Colors.NC}")
-        print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  Show Probes                                       {Colors.CYAN}║{Colors.NC}")
+        if sniffer_running:
+            print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}2){Colors.NC}  Show Results                                      {Colors.CYAN}║{Colors.NC}")
+            print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GREEN}3){Colors.NC}  Show Probes                                       {Colors.CYAN}║{Colors.NC}")
+        else:
+            print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}2){Colors.NC}  Show Results  {Colors.YELLOW}(start sniffer first){Colors.NC}           {Colors.CYAN}║{Colors.NC}")
+            print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}3){Colors.NC}  Show Probes   {Colors.YELLOW}(start sniffer first){Colors.NC}           {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}   {Colors.GRAY}0){Colors.NC}  Back to Main Menu                                {Colors.CYAN}║{Colors.NC}")
         print(f"{Colors.CYAN}║{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
@@ -988,23 +992,35 @@ class JanOS:
         print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
         
-        # Stop sniffer if it's running to get results
-        if self.sniffer_running:
-            print(f"{Colors.YELLOW}[*] Stopping sniffer to show results...{Colors.NC}")
-            self.serial_mgr.send_command("stop")
-            self.sniffer_running = False
-            self.stop_sniffer_event.set()
-            time.sleep(1)
-        
+        # IMPORTANT: request results WHILE sniffer is still running.
+        # The ESP32 clears sniffer data after 'stop', and calling
+        # show_sniffer_results immediately after stop causes a firmware crash.
+        if not self.sniffer_running:
+            print(f"{Colors.YELLOW}[!] Sniffer is not running — data may no longer be available.{Colors.NC}")
+            print(f"{Colors.YELLOW}    Start the sniffer and request results while it is running.{Colors.NC}")
+            print()
+
         # Request results from ESP32
         print(f"{Colors.CYAN}[*] Requesting sniffer results from device...{Colors.NC}")
         self.serial_mgr.send_command("show_sniffer_results")
-        
+
         # Read and display results
         print(f"{Colors.CYAN}[*] Reading results...{Colors.NC}")
         print()
-        
+
         lines = self.serial_mgr.read_response(timeout=5, idle_timeout=1.5)
+
+        # Filter out firmware crash dump lines
+        crash_keywords = ('Guru Meditation', 'Core  0 panic', 'MEPC', 'Rebooting...',
+                          'ESP-ROM:', '=== APP_MAIN', 'Stack memory:')
+        crash_detected = any(any(k in l for k in crash_keywords) for l in lines)
+        if crash_detected:
+            print(f"{Colors.RED}[!] ESP32 firmware crash detected in response.{Colors.NC}")
+            print(f"{Colors.YELLOW}[*] Please wait for device to reboot, then start a new sniffer session.{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+        lines = [l for l in lines if l and l != '>']
 
         # If device sent nothing, fall back to the data we buffered during capture
         if not lines:
@@ -1078,23 +1094,31 @@ class JanOS:
         print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
         
-        # Stop sniffer if it's running to get results
-        if self.sniffer_running:
-            print(f"{Colors.YELLOW}[*] Stopping sniffer to show probe requests...{Colors.NC}")
-            self.serial_mgr.send_command("stop")
-            self.sniffer_running = False
-            self.stop_sniffer_event.set()
-            time.sleep(1)
-        
+        # IMPORTANT: request results WHILE sniffer is still running (same reason as show_sniffer_results)
+        if not self.sniffer_running:
+            print(f"{Colors.YELLOW}[!] Sniffer is not running — probe data may no longer be available.{Colors.NC}")
+            print(f"{Colors.YELLOW}    Start the sniffer and request results while it is running.{Colors.NC}")
+            print()
+
         # Request probe results from ESP32
         print(f"{Colors.CYAN}[*] Requesting probe requests from device...{Colors.NC}")
         self.serial_mgr.send_command("show_probes")
-        
+
         # Read and display results
         print(f"{Colors.CYAN}[*] Reading probe requests...{Colors.NC}")
         print()
-        
-        lines = self.serial_mgr.read_response(timeout=5)
+
+        lines = self.serial_mgr.read_response(timeout=5, idle_timeout=1.5)
+
+        # Filter crash dump lines
+        crash_keywords = ('Guru Meditation', 'Core  0 panic', 'MEPC', 'Rebooting...',
+                          'ESP-ROM:', '=== APP_MAIN', 'Stack memory:')
+        if any(any(k in l for k in crash_keywords) for l in lines):
+            print(f"{Colors.RED}[!] ESP32 firmware crash detected. Please wait for device to reboot.{Colors.NC}")
+            print()
+            input("Press Enter to continue...")
+            return
+        lines = [l for l in lines if l and l != '>']
         
         if lines:
             # Parse and display probe requests in a table

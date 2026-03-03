@@ -930,6 +930,12 @@ class JanOS:
                 # Set terminal to raw mode
                 tty.setraw(sys.stdin.fileno())
 
+                # Wait briefly then drain anything that arrived after mode switch
+                # (terminal emulators may respond with escape sequences)
+                time.sleep(0.3)
+                while select.select([sys.stdin], [], [], 0)[0]:
+                    os.read(sys.stdin.fileno(), 1024)
+
                 while True:
                     # Check for any key press
                     if select.select([sys.stdin], [], [], 0.1)[0]:

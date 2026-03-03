@@ -925,6 +925,8 @@ class JanOS:
             # Save terminal settings
             old_settings = termios.tcgetattr(sys.stdin)
             try:
+                # Drain any leftover input from menu selection (e.g. Enter key)
+                termios.tcflush(sys.stdin, termios.TCIFLUSH)
                 # Set terminal to raw mode
                 tty.setraw(sys.stdin.fileno())
 

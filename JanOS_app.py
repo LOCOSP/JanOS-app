@@ -1015,52 +1015,40 @@ class JanOS:
                 print()
 
         if lines:
-            # Parse and display results in a table
+            # ESP32 format: "SSID, CHxx: N" header then MAC lines per client
+            # e.g.: "eduroam, CH64: 2" / "0A:F1:E6:6E:5D:01" / "8A:B5:5F:5A:4C:C7"
+            ap_pattern = re.compile(r'^(.+),\s*CH(\d+):\s*(\d+)$')
+            mac_pattern = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
+
             print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
-            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}Type{Colors.NC}       {Colors.WHITE}Source MAC{Colors.NC}         {Colors.WHITE}Destination MAC{Colors.NC}    {Colors.WHITE}Size{Colors.NC}  {Colors.WHITE}Info{Colors.NC}      {Colors.CYAN}║{Colors.NC}")
+            print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}AP / Client{Colors.NC}                                                            {Colors.CYAN}║{Colors.NC}")
             print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
 
-            packet_count = 0
+            ap_count = 0
+            client_count = 0
+            current_ap = None
             for line in lines:
-                if not line:
+                if not line or line == '>':
                     continue
-                # Try to parse structured packet format (5+ fields)
-                parts = line.split()
-                if len(parts) >= 5:
-                    pkt_type = parts[0]
-                    src_mac = parts[1]
-                    dst_mac = parts[2]
-                    size = parts[3]
-                    info = " ".join(parts[4:])
-
-                    # Color code packet types
-                    if "BEACON" in pkt_type.upper():
-                        pkt_color = Colors.GREEN
-                    elif "PROBE" in pkt_type.upper():
-                        pkt_color = Colors.YELLOW
-                    elif "DATA" in pkt_type.upper():
-                        pkt_color = Colors.CYAN
-                    elif "AUTH" in pkt_type.upper() or "DEAUTH" in pkt_type.upper():
-                        pkt_color = Colors.RED
-                    else:
-                        pkt_color = Colors.GRAY
-
-                    if len(info) > 15:
-                        info = info[:12] + "..."
-
-                    print(f"{Colors.CYAN}║{Colors.NC}  {pkt_color}{pkt_type:<10}{Colors.NC} {src_mac:<17} {dst_mac:<17} {size:<5} {info:<15}{Colors.CYAN}║{Colors.NC}")
-                    packet_count += 1
-                else:
-                    # Show any non-empty line as raw text
-                    truncated = line[:70] if len(line) > 70 else line
-                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}{truncated:<70}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
+                m = ap_pattern.match(line)
+                if m:
+                    ssid, ch, n_clients = m.group(1), m.group(2), m.group(3)
+                    current_ap = ssid
+                    ap_count += 1
+                    label = f"AP: {ssid}  (CH {ch})  — {n_clients} client(s)"
+                    truncated = label[:72] if len(label) > 72 else label
+                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GREEN}{truncated:<72}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
+                elif mac_pattern.match(line):
+                    client_count += 1
+                    print(f"{Colors.CYAN}║{Colors.NC}    {Colors.GRAY}└─ {line:<69}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
+                elif not line.startswith('show_sniffer'):
+                    # Show other lines (status messages etc.) as dimmed info
+                    truncated = line[:72] if len(line) > 72 else line
+                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.DIM}{truncated:<72}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
 
             print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
             print()
-            if packet_count:
-                print(f"{Colors.GREEN}[+] Displayed {packet_count} parsed packets{Colors.NC}")
-            else:
-                print(f"{Colors.YELLOW}[*] Raw data displayed — packet format did not match expected structure{Colors.NC}")
+            print(f"{Colors.GREEN}[+] {ap_count} AP(s) with {client_count} associated client(s){Colors.NC}")
         else:
             print(f"{Colors.YELLOW}[!] No results received from device{Colors.NC}")
             print(f"{Colors.YELLOW}[*] Try starting the sniffer first to capture packets{Colors.NC}")
@@ -1114,73 +1102,32 @@ class JanOS:
             print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}#{Colors.NC}  {Colors.WHITE}Client MAC{Colors.NC}             {Colors.WHITE}SSID{Colors.NC}                           {Colors.WHITE}RSSI{Colors.NC}   {Colors.WHITE}Time{Colors.NC}    {Colors.CYAN}║{Colors.NC}")
             print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
             
+            # ESP32 probe format: "Probe requests: N" header, then "SSID (MAC)" lines
+            # e.g.: "CNTp4ny (04:D6:F4:C9:57:86)"
+            probe_entry_pattern = re.compile(
+                r'^(.+?)\s*\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)$'
+            )
+
             probe_count = 0
             for line in lines:
-                if line and not line.startswith("Probe") and not line.startswith("Total"):  # Filter header lines
+                if not line or line == '>' or line.startswith('show_probes'):
+                    continue
+                # Show header line (e.g. "Probe requests: 2") as info
+                if line.lower().startswith('probe requests'):
+                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.YELLOW}{line:<72}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
+                    continue
+
+                m = probe_entry_pattern.match(line)
+                if m:
                     probe_count += 1
-                    
-                    # Try different parsing formats for probe requests
-                    # Format 1: "Client: AA:BB:CC:DD:EE:FF, SSID: MyNetwork, RSSI: -45"
-                    # Format 2: "AA:BB:CC:DD:EE:FF -> MyNetwork (-55dBm)"
-                    # Format 3: "Probe: AA:BB:CC:DD:EE:FF looking for SSID"
-                    
-                    client_mac = "N/A"
-                    ssid = "<hidden>"
-                    rssi = "N/A"
-                    timestamp = ""
-                    
-                    # Parse MAC address (look for XX:XX:XX:XX:XX:XX pattern)
-                    mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
-                    mac_match = re.search(mac_pattern, line)
-                    if mac_match:
-                        client_mac = mac_match.group(0)
-                    
-                    # Parse SSID (look for text after "SSID:", "->", or "looking for")
-                    if "SSID:" in line:
-                        ssid_part = line.split("SSID:")[1].split(",")[0].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    elif "->" in line:
-                        ssid_part = line.split("->")[1].split("(")[0].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    elif "looking for" in line:
-                        ssid_part = line.split("looking for")[1].strip()
-                        if ssid_part and ssid_part not in ["N/A", "unknown"]:
-                            ssid = ssid_part
-                    
-                    # Parse RSSI (look for numbers with minus sign or "dBm")
-                    rssi_pattern = r'(-?\d+)\s*dBm?'
-                    rssi_match = re.search(rssi_pattern, line, re.IGNORECASE)
-                    if rssi_match:
-                        rssi = rssi_match.group(1) + "dBm"
-                    
-                    # Parse timestamp if present
-                    time_pattern = r'\[(\d+:\d+:\d+)\]'
-                    time_match = re.search(time_pattern, line)
-                    if time_match:
-                        timestamp = time_match.group(1)
-                    
-                    # Truncate SSID if too long
+                    ssid = m.group(1).strip()
+                    client_mac = m.group(2)
                     if len(ssid) > 30:
                         ssid = ssid[:27] + "..."
-                    
-                    # Color code RSSI
-                    if rssi != "N/A" and "dBm" in rssi:
-                        try:
-                            rssi_val = int(rssi.replace("dBm", "").strip())
-                            if rssi_val >= -50:
-                                rssi_color = Colors.GREEN
-                            elif rssi_val >= -70:
-                                rssi_color = Colors.YELLOW
-                            else:
-                                rssi_color = Colors.RED
-                        except:
-                            rssi_color = Colors.GRAY
-                    else:
-                        rssi_color = Colors.GRAY
-                    
-                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GREEN}{probe_count:<2}{Colors.NC} {Colors.GRAY}{client_mac:<17}{Colors.NC} {ssid:<30} {rssi_color}{rssi:<6}{Colors.NC} {timestamp:<8}  {Colors.CYAN}║{Colors.NC}")
+                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GREEN}{probe_count:<2}{Colors.NC} {Colors.GRAY}{client_mac:<17}{Colors.NC} {ssid:<52}  {Colors.CYAN}║{Colors.NC}")
+                else:
+                    truncated = line[:72] if len(line) > 72 else line
+                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.DIM}{truncated:<72}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
             
             print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
             print()

@@ -394,45 +394,52 @@ class SerialManager:
         except Exception as e:
             print(f"{Colors.RED}Error sending command: {e}{Colors.NC}")
     
-    def read_response(self, timeout: float = SCAN_TIMEOUT) -> List[str]:
-        """Read response from ESP32 with timeout."""
+    def read_response(self, timeout: float = SCAN_TIMEOUT, idle_timeout: float = 1.5) -> List[str]:
+        """Read response from ESP32 with timeout and idle detection.
+
+        Stops early if no new data arrives for *idle_timeout* seconds after
+        at least one line has been received, so callers don't always have to
+        wait the full *timeout* duration.
+        """
         if not self.serial_conn:
             return []
-        
+
         lines = []
         start_time = time.time()
-        
+        last_data_time = time.time()
+
         while time.time() - start_time < timeout:
             if self.serial_conn.in_waiting:
                 try:
                     line = self.serial_conn.readline().decode('utf-8', errors='replace').strip()
                     if line:
                         lines.append(line)
+                        last_data_time = time.time()
                 except Exception as e:
                     print(f"{Colors.YELLOW}Read error: {e}{Colors.NC}")
                     continue
             else:
-                # Small sleep to prevent CPU spinning
-                time.sleep(0.1)
-        
+                # Early exit: data was received but nothing new for idle_timeout
+                if lines and (time.time() - last_data_time) >= idle_timeout:
+                    break
+                time.sleep(0.05)
+
         return lines
     
     def read_sniffer_data(self, update_callback, stop_event) -> None:
         """Read sniffer data with dynamic update."""
         if not self.serial_conn:
             return
-        
+
         while not stop_event.is_set():
             if self.serial_conn.in_waiting:
                 try:
                     line = self.serial_conn.readline().decode('utf-8', errors='replace').strip()
                     if line:
-                        # Look for packet count in sniffer output
-                        if "packets" in line.lower() or "captured" in line.lower():
-                            update_callback(line)
+                        update_callback(line)
                 except Exception:
                     pass
-            time.sleep(0.1)
+            time.sleep(0.05)
     
     def read_portal_data(self, update_callback, stop_event) -> None:
         """Read portal data with real-time updates."""
@@ -598,6 +605,8 @@ class JanOS:
         self.portal_running = False
         self.evil_twin_running = False
         self.sniffer_packets = 0
+        self.sniffer_lock = threading.Lock()
+        self.sniffer_buffer = []
         self.sniffer_thread = None
         self.stop_sniffer_event = threading.Event()
         self.portal_thread = None
@@ -635,17 +644,32 @@ class JanOS:
         print()
     
     def update_sniffer_display(self, data: str) -> None:
-        """Update sniffer packet count from received data."""
-        # Try to extract packet count from the data
-        import re
-        match = re.search(r'(\d+)\s+packets?', data, re.IGNORECASE)
-        if match:
-            self.sniffer_packets = int(match.group(1))
-        elif "captured" in data.lower():
-            # Another common format
-            match = re.search(r'captured:\s*(\d+)', data, re.IGNORECASE)
+        """Update sniffer packet count from received data and buffer raw lines."""
+        with self.sniffer_lock:
+            self.sniffer_buffer.append(data)
+
+        # Try various patterns to extract cumulative packet count
+        count_patterns = [
+            r'(\d+)\s+packets?',        # "15 packets" / "15 packet"
+            r'captured[:\s]+(\d+)',     # "captured: 15" / "captured 15"
+            r'total[:\s]+(\d+)',        # "total: 15"
+            r'pkts[:\s]+(\d+)',         # "pkts: 15"
+            r'count[:\s]+(\d+)',        # "count: 15"
+            r'packets captured[:\s]+(\d+)',  # "packets captured: 15"
+            r'\bpkt\s*#?\s*(\d+)',      # "pkt 15" / "pkt#15"
+        ]
+        for pattern in count_patterns:
+            match = re.search(pattern, data, re.IGNORECASE)
             if match:
-                self.sniffer_packets = int(match.group(1))
+                with self.sniffer_lock:
+                    self.sniffer_packets = int(match.group(1))
+                return
+
+        # If no cumulative count found, treat each line that looks like a
+        # packet (contains a MAC-address-like pattern) as one captured packet
+        if re.search(r'[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}', data):
+            with self.sniffer_lock:
+                self.sniffer_packets += 1
     
     def update_portal_display(self, data: str) -> None:
         """Update portal display with real-time data."""
@@ -860,19 +884,13 @@ class JanOS:
         print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
         print()
         
-        # Check if we have scanned networks
-        if self.network_mgr.network_count > 0:
-            print(f"{Colors.YELLOW}[*] Networks already scanned. Starting sniffer without scanning...{Colors.NC}")
-            self.serial_mgr.send_command("start_sniffer_noscan")
-        else:
-            print(f"{Colors.YELLOW}[*] No networks scanned yet. Sniffer will scan networks first...{Colors.NC}")
-            self.serial_mgr.send_command("start_sniffer")
-        
-        # Reset packet counter
-        self.sniffer_packets = 0
+        # Reset packet counter and buffer
+        with self.sniffer_lock:
+            self.sniffer_packets = 0
+            self.sniffer_buffer = []
         self.sniffer_running = True
-        
-        # Start background thread for reading sniffer data
+
+        # Start background reader BEFORE sending command so no data is missed
         self.stop_sniffer_event.clear()
         self.sniffer_thread = threading.Thread(
             target=self.serial_mgr.read_sniffer_data,
@@ -880,64 +898,71 @@ class JanOS:
         )
         self.sniffer_thread.daemon = True
         self.sniffer_thread.start()
-        
+
+        # Check if we have scanned networks, then send start command
+        if self.network_mgr.network_count > 0:
+            print(f"{Colors.YELLOW}[*] Networks already scanned. Starting sniffer without scanning...{Colors.NC}")
+            self.serial_mgr.send_command("start_sniffer_noscan")
+        else:
+            print(f"{Colors.YELLOW}[*] No networks scanned yet. Sniffer will scan networks first...{Colors.NC}")
+            self.serial_mgr.send_command("start_sniffer")
+
         print(f"{Colors.CYAN}[+] Sniffer started!{Colors.NC}")
         print(f"{Colors.CYAN}[📡] Capturing packets...{Colors.NC}")
         print()
         print(f"{Colors.WHITE}Press ANY key to stop sniffing{Colors.NC}")
         print()
-        
+
         # Dynamic packet counter display
         last_packet_count = -1
         start_time = time.time()
-        
+
         try:
-            # Wait for any key press
-            print(f"{Colors.GRAY}Waiting for key press to stop...{Colors.NC}")
-            import sys
-            import termios
-            import tty
-            
             # Save terminal settings
             old_settings = termios.tcgetattr(sys.stdin)
             try:
                 # Set terminal to raw mode
                 tty.setraw(sys.stdin.fileno())
-                
+
                 while True:
                     # Check for any key press
                     if select.select([sys.stdin], [], [], 0.1)[0]:
                         key = sys.stdin.read(1)
                         if key:  # Any key pressed
                             break
-                    
+
                     # Update display if packet count changed
-                    if self.sniffer_packets != last_packet_count:
+                    with self.sniffer_lock:
+                        current_packets = self.sniffer_packets
+                    if current_packets != last_packet_count:
                         elapsed = int(time.time() - start_time)
-                        print(f"\r{Colors.CYAN}[📡] Packets captured: {Colors.WHITE}{self.sniffer_packets}{Colors.CYAN} | Time: {elapsed}s{Colors.NC}", end="", flush=True)
-                        last_packet_count = self.sniffer_packets
-                    
+                        print(f"\r{Colors.CYAN}[📡] Packets captured: {Colors.WHITE}{current_packets}{Colors.CYAN} | Time: {elapsed}s{Colors.NC}", end="", flush=True)
+                        last_packet_count = current_packets
+
                     time.sleep(SNIFFER_UPDATE_INTERVAL)
-            
+
             finally:
                 # Restore terminal settings
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-        
+
         except KeyboardInterrupt:
             pass
-        
+
         finally:
             # Stop sniffer
             print(f"\n{Colors.YELLOW}[*] Stopping sniffer...{Colors.NC}")
             self.serial_mgr.send_command("stop")
+            time.sleep(0.5)  # Give ESP32 time to process the stop command
             self.sniffer_running = False
             self.stop_sniffer_event.set()
-            
-            if self.sniffer_thread:
-                self.sniffer_thread.join(timeout=2)
-            
+
+            if self.sniffer_thread and self.sniffer_thread.is_alive():
+                self.sniffer_thread.join(timeout=3)
+
+            with self.sniffer_lock:
+                final_count = self.sniffer_packets
             print(f"{Colors.GREEN}[+] Sniffer stopped{Colors.NC}")
-            print(f"{Colors.GREEN}[+] Total packets captured: {self.sniffer_packets}{Colors.NC}")
+            print(f"{Colors.GREEN}[+] Total packets captured: {final_count}{Colors.NC}")
             print()
             input("Press Enter to continue...")
     
@@ -979,51 +1004,63 @@ class JanOS:
         print(f"{Colors.CYAN}[*] Reading results...{Colors.NC}")
         print()
         
-        lines = self.serial_mgr.read_response(timeout=5)
-        
+        lines = self.serial_mgr.read_response(timeout=5, idle_timeout=1.5)
+
+        # If device sent nothing, fall back to the data we buffered during capture
+        if not lines:
+            with self.sniffer_lock:
+                lines = list(self.sniffer_buffer)
+            if lines:
+                print(f"{Colors.YELLOW}[!] No live response from device — showing buffered capture data{Colors.NC}")
+                print()
+
         if lines:
             # Parse and display results in a table
             print(f"{Colors.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.NC}")
             print(f"{Colors.CYAN}║{Colors.NC}  {Colors.WHITE}Type{Colors.NC}       {Colors.WHITE}Source MAC{Colors.NC}         {Colors.WHITE}Destination MAC{Colors.NC}    {Colors.WHITE}Size{Colors.NC}  {Colors.WHITE}Info{Colors.NC}      {Colors.CYAN}║{Colors.NC}")
             print(f"{Colors.CYAN}╠══════════════════════════════════════════════════════════════════════════════╣{Colors.NC}")
-            
+
             packet_count = 0
             for line in lines:
-                if line and not line.startswith("Sniffer") and not line.startswith("Total"):  # Filter header lines
-                    # Try to parse different packet formats
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        # Common WiFi packet format
-                        pkt_type = parts[0]
-                        src_mac = parts[1] if len(parts) > 1 else "N/A"
-                        dst_mac = parts[2] if len(parts) > 2 else "N/A"
-                        size = parts[3] if len(parts) > 3 else "N/A"
-                        info = " ".join(parts[4:]) if len(parts) > 4 else ""
-                        
-                        # Color code packet types
-                        if "BEACON" in pkt_type.upper():
-                            pkt_color = Colors.GREEN
-                        elif "PROBE" in pkt_type.upper():
-                            pkt_color = Colors.YELLOW
-                        elif "DATA" in pkt_type.upper():
-                            pkt_color = Colors.CYAN
-                        elif "AUTH" in pkt_type.upper() or "DEAUTH" in pkt_type.upper():
-                            pkt_color = Colors.RED
-                        else:
-                            pkt_color = Colors.GRAY
-                        
-                        # Truncate if too long
-                        if len(info) > 15:
-                            info = info[:12] + "..."
-                        
-                        print(f"{Colors.CYAN}║{Colors.NC}  {pkt_color}{pkt_type:<10}{Colors.NC} {src_mac:<17} {dst_mac:<17} {size:<5} {info:<15}{Colors.CYAN}║{Colors.NC}")
-                        packet_count += 1
-                    elif line.strip():  # Show any non-empty line
-                        print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}{line:<70}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
-            
+                if not line:
+                    continue
+                # Try to parse structured packet format (5+ fields)
+                parts = line.split()
+                if len(parts) >= 5:
+                    pkt_type = parts[0]
+                    src_mac = parts[1]
+                    dst_mac = parts[2]
+                    size = parts[3]
+                    info = " ".join(parts[4:])
+
+                    # Color code packet types
+                    if "BEACON" in pkt_type.upper():
+                        pkt_color = Colors.GREEN
+                    elif "PROBE" in pkt_type.upper():
+                        pkt_color = Colors.YELLOW
+                    elif "DATA" in pkt_type.upper():
+                        pkt_color = Colors.CYAN
+                    elif "AUTH" in pkt_type.upper() or "DEAUTH" in pkt_type.upper():
+                        pkt_color = Colors.RED
+                    else:
+                        pkt_color = Colors.GRAY
+
+                    if len(info) > 15:
+                        info = info[:12] + "..."
+
+                    print(f"{Colors.CYAN}║{Colors.NC}  {pkt_color}{pkt_type:<10}{Colors.NC} {src_mac:<17} {dst_mac:<17} {size:<5} {info:<15}{Colors.CYAN}║{Colors.NC}")
+                    packet_count += 1
+                else:
+                    # Show any non-empty line as raw text
+                    truncated = line[:70] if len(line) > 70 else line
+                    print(f"{Colors.CYAN}║{Colors.NC}  {Colors.GRAY}{truncated:<70}{Colors.NC}  {Colors.CYAN}║{Colors.NC}")
+
             print(f"{Colors.CYAN}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.NC}")
             print()
-            print(f"{Colors.GREEN}[+] Displayed {packet_count} packets{Colors.NC}")
+            if packet_count:
+                print(f"{Colors.GREEN}[+] Displayed {packet_count} parsed packets{Colors.NC}")
+            else:
+                print(f"{Colors.YELLOW}[*] Raw data displayed — packet format did not match expected structure{Colors.NC}")
         else:
             print(f"{Colors.YELLOW}[!] No results received from device{Colors.NC}")
             print(f"{Colors.YELLOW}[*] Try starting the sniffer first to capture packets{Colors.NC}")

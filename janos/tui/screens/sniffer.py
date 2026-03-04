@@ -117,6 +117,9 @@ class SnifferScreen(urwid.WidgetWrap):
             return
 
     def _start_sniffer(self) -> None:
+        # Ensure ESP32 is idle (previous action may still be cleaning up)
+        self.serial.send_command(CMD_STOP)
+        self.state.stop_all()
         self.state.reset_sniffer()
         self.state.sniffer_running = True
         self.serial.send_command(CMD_START_SNIFFER)

@@ -239,6 +239,9 @@ class PortalScreen(urwid.WidgetWrap):
         self._app.show_overlay(dialog, 60, 8)
 
     def _do_start(self) -> None:
+        # Ensure ESP32 is idle (previous action may still be cleaning up)
+        self.serial.send_command(CMD_STOP)
+        self.state.stop_all()
         self.state.reset_portal()
         self.state.portal_ssid = self._ssid
         self.state.portal_running = True

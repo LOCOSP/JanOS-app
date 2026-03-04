@@ -223,6 +223,9 @@ class EvilTwinScreen(urwid.WidgetWrap):
         self._app.show_overlay(dialog, 60, 8)
 
     def _do_start(self) -> None:
+        # Ensure ESP32 is idle (previous action may still be cleaning up)
+        self.serial.send_command(CMD_STOP)
+        self.state.stop_all()
         self.state.reset_evil_twin()
         self.state.evil_twin_ssid = self._target_ssid
         self.state.evil_twin_running = True

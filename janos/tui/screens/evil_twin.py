@@ -14,7 +14,6 @@ from ...config import (
     CMD_SELECT_NETWORKS,
     CMD_START_EVIL_TWIN,
     CMD_STOP,
-    CMD_SHOW_PASS,
 )
 from ..widgets.log_viewer import LogViewer
 from ..widgets.file_picker import FilePicker
@@ -61,6 +60,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
         self._html_files: list[dict] = []
         self._fetch_lines: list[str] = []
         self._fetching_files = False
+        self._file_load_timeout = None
 
     def refresh(self) -> None:
         if self.state.evil_twin_running:
@@ -142,11 +142,30 @@ class EvilTwinScreen(urwid.WidgetWrap):
     def _load_html_files(self) -> None:
         self._fetching_files = True
         self._fetch_lines = []
-        self._status.set_text(("warning", "  Loading HTML files from SD card..."))
+        self._status.set_text(("warning", "  Checking SD card for HTML files..."))
         self.serial.send_command(CMD_LIST_SD)
+        # Timeout: if no response in 3 seconds, assume no SD card
+        loop = self._app._loop
+        if loop:
+            self._file_load_timeout = loop.set_alarm_in(
+                3.0, lambda *_: self._sd_timeout()
+            )
+
+    def _sd_timeout(self) -> None:
+        """Called if SD card doesn't respond — use default HTML."""
+        if not self._fetching_files:
+            return
+        self._fetching_files = False
+        self._file_load_timeout = None
+        self._confirm_start_default()
 
     def _finish_file_load(self) -> None:
         self._fetching_files = False
+        # Cancel timeout if pending
+        if self._file_load_timeout and self._app._loop:
+            self._app._loop.remove_alarm(self._file_load_timeout)
+            self._file_load_timeout = None
+
         self._html_files = []
         for line in self._fetch_lines:
             if re.search(r"^\s*\d+\s+\S+\.html\s*$", line):
@@ -155,7 +174,8 @@ class EvilTwinScreen(urwid.WidgetWrap):
                     self._html_files.append({"number": parts[0], "name": parts[1]})
 
         if not self._html_files:
-            self._status.set_text(("error", "  No HTML files found on SD card"))
+            # No SD card or no HTML files — use firmware default
+            self._confirm_start_default()
             return
 
         names = [f["name"] for f in self._html_files]
@@ -173,6 +193,21 @@ class EvilTwinScreen(urwid.WidgetWrap):
 
         picker = FilePicker(names, on_pick)
         self._app.show_overlay(picker, 50, min(len(names) + 6, 20))
+
+    def _confirm_start_default(self) -> None:
+        """Confirm start with firmware's built-in default portal HTML."""
+        self.state.selected_html_name = "(default)"
+        msg = f"Start Evil Twin? Target={self._target_ssid} (using built-in HTML)"
+
+        def on_confirm(yes):
+            self._app.dismiss_overlay()
+            if not yes:
+                self._status.set_text(("dim", "  Evil Twin cancelled"))
+                return
+            self._do_start()
+
+        dialog = ConfirmDialog(msg, on_confirm)
+        self._app.show_overlay(dialog, 60, 8)
 
     def _confirm_start(self) -> None:
         msg = f"Start Evil Twin? Target={self._target_ssid} HTML={self.state.selected_html_name}"
@@ -203,6 +238,16 @@ class EvilTwinScreen(urwid.WidgetWrap):
         n = len(self.state.evil_twin_captured_data)
         self._status.set_text(("dim", f"  Stopped. Captured: {n}"))
 
+    def _show_captured(self) -> None:
+        if not self.state.evil_twin_captured_data:
+            self._status.set_text(("dim", "  No captured data yet"))
+            return
+        # Show data from local log (show_pass requires SD card)
+        self._body.original_widget = self._log
+        self._log.append("=== Captured Data ===", "success")
+        for line in self.state.evil_twin_captured_data:
+            self._log.append(mask_line(line), "success")
+
     def keypress(self, size, key):
         if key == "s" and not self.state.evil_twin_running:
             self._start_wizard()
@@ -211,6 +256,6 @@ class EvilTwinScreen(urwid.WidgetWrap):
             self._stop_attack()
             return None
         if key == "d":
-            self.serial.send_command(CMD_SHOW_PASS)
+            self._show_captured()
             return None
         return super().keypress(size, key)

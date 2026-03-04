@@ -6,6 +6,7 @@ from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
+from ...privacy import register_ssids
 from ...config import CMD_SCAN_NETWORKS, CMD_SELECT_NETWORKS, CMD_UNSELECT_NETWORKS
 from ..widgets.network_table import NetworkTable
 
@@ -81,6 +82,8 @@ class ScanScreen(urwid.WidgetWrap):
         if "Scan results printed" in line:
             self._scanning = False
             self.state.scan_done = True
+            # Register SSIDs for privacy masking
+            register_ssids([n.ssid for n in self.state.networks])
             # Auto-save scan results to loot
             if self._loot:
                 self._loot.save_scan_results(self.state.networks)

@@ -12,8 +12,13 @@ Usage:
 """
 
 import re
+from typing import Set
 
 _private_mode: bool = False
+
+# Known SSIDs collected from scan results — used by mask_line()
+# to mask SSIDs appearing anywhere in text (file paths, logs, etc.)
+_known_ssids: Set[str] = set()
 
 
 def set_private_mode(enabled: bool) -> None:
@@ -23,6 +28,16 @@ def set_private_mode(enabled: bool) -> None:
 
 def is_private() -> bool:
     return _private_mode
+
+
+def register_ssids(ssids: list) -> None:
+    """Register known SSIDs for line-level masking.
+
+    Call this after scanning networks so that mask_line() can find
+    and mask SSIDs anywhere in text (file paths, error messages, etc.).
+    """
+    global _known_ssids
+    _known_ssids = set(s for s in ssids if s and len(s) > 2)
 
 
 # ------------------------------------------------------------------
@@ -106,14 +121,27 @@ _SSID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# MAC without colons (hex string like 336C4D or 70bc48336c4d)
+_HEX_MAC_RE = re.compile(
+    r'([0-9a-fA-F]{6,12})'
+)
+
 
 def mask_line(line: str) -> str:
     """Apply all masking rules to a free-form text line.
 
-    Masks MAC addresses, IP addresses, passwords, and SSID references.
+    Masks MAC addresses, IP addresses, passwords, SSID references,
+    and any known SSIDs found anywhere in the text (file paths, etc.).
     """
     if not _private_mode or not line:
         return line
+
+    # Mask known SSIDs anywhere in text (file paths, error messages, etc.)
+    # Do this FIRST before other regexes might alter the line
+    for ssid in sorted(_known_ssids, key=len, reverse=True):
+        if ssid in line:
+            masked = ssid[:2] + "*" * (len(ssid) - 2)
+            line = line.replace(ssid, masked)
 
     # Mask MAC addresses (keep first 2 octets)
     line = _MAC_RE.sub(r'\1:**:**:**:**', line)
@@ -125,6 +153,7 @@ def mask_line(line: str) -> str:
     line = _PASSWORD_RE.sub(lambda m: m.group(1) + "********", line)
 
     # Mask SSIDs in "SSID: xxx" or "SSID=xxx" patterns
+    # (catches SSIDs not in the known set)
     def _mask_ssid_match(m):
         prefix = m.group(1)
         ssid_val = m.group(2)

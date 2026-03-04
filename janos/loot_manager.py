@@ -84,39 +84,46 @@ class LootManager:
     # Handshake detection from serial stream
     # ------------------------------------------------------------------
 
+    # Keywords that START handshake collection
+    _HS_START_KW = ("message pair:", "message_pair:", "ANonce present")
+
+    # Keywords that belong to a handshake block (keep collecting)
+    _HS_RELATED_KW = (
+        "message pair:", "message_pair:", "ANonce present", "SNonce present",
+        "Key MIC", "AP MAC:", "STA MAC:", "EAPOL data:", "SSID:",
+        "HANDSHAKE IS COMPLETE", "HANDSHAKE IS VALID",
+        "Handshake #", "captured!", "Created ", "Failed ",
+        "Cycle:", "networks captured", "attack cleanup",
+        "cleanup complete", "task finished",
+        "=====",  # separator lines
+    )
+
+    # Keywords that END handshake collection (save after this line)
+    _HS_END_KW = ("task finished", "cleanup complete")
+
     def _detect_handshake(self, line: str) -> None:
-        """Collect handshake metadata from serial and save when complete."""
+        """Collect handshake metadata from serial and save when complete.
+
+        Collects from 'message pair:' through 'task finished', saves ONCE.
+        """
         stripped = line.strip()
 
-        # Start collecting on handshake indicators
-        if any(kw in stripped for kw in (
-            "message pair:", "ANonce present", "SNonce present",
-            "Key MIC present", "EAPOL data:", "AP MAC:", "STA MAC:",
-            "HANDSHAKE IS COMPLETE", "Handshake #",
-        )):
-            if not self._hs_collecting:
+        # Start collecting on handshake start indicators
+        if not self._hs_collecting:
+            if any(kw in stripped for kw in self._HS_START_KW):
                 self._hs_collecting = True
-                self._hs_buffer = []
-            self._hs_buffer.append(stripped)
-
-            # Save when we see the completion marker
-            if "HANDSHAKE IS COMPLETE" in stripped or "captured!" in stripped:
-                self._save_handshake_buffer()
+                self._hs_buffer = [stripped]
             return
 
-        # If collecting, keep appending related lines
-        if self._hs_collecting:
-            if any(kw in stripped for kw in (
-                "SSID:", "captured!", "Created", "Failed", "Cycle:",
-                "networks captured", "cleanup", "task finished",
-            )):
-                self._hs_buffer.append(stripped)
-                if "task finished" in stripped or "cleanup complete" in stripped:
-                    self._save_handshake_buffer()
-            else:
-                # Unrelated line — stop collecting
-                if self._hs_buffer:
-                    self._save_handshake_buffer()
+        # We are collecting — check if this line belongs to the block
+        if any(kw in stripped for kw in self._HS_RELATED_KW) or not stripped:
+            self._hs_buffer.append(stripped)
+            # Check for end marker
+            if any(kw in stripped for kw in self._HS_END_KW):
+                self._save_handshake_buffer()
+        else:
+            # Unrelated line — save what we have and stop
+            self._save_handshake_buffer()
 
     def _save_handshake_buffer(self) -> None:
         """Write collected handshake metadata to a file."""

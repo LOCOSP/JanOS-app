@@ -126,7 +126,7 @@ class SnifferScreen(urwid.WidgetWrap):
 
     def _stop_sniffer(self) -> None:
         self.serial.send_command(CMD_STOP)
-        self.state.sniffer_running = False
+        self.state.stop_all()
         self._status.set_text(("warning", "  Sniffer stopped. Use [r]/[p] to view buffered data."))
 
     def _fetch_results(self) -> None:

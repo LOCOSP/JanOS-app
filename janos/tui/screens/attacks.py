@@ -175,10 +175,7 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _stop_all(self) -> None:
         self.serial.send_command(CMD_STOP)
-        self.state.attack_running = False
-        self.state.blackout_running = False
-        self.state.sae_overflow_running = False
-        self.state.handshake_running = False
+        self.state.stop_all()
         self._log.append(">>> All attacks STOPPED", "warning")
         self._status.set_text(("success", "  All attacks stopped"))
         self._last_flags = ""  # force rebuild

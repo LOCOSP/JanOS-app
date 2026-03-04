@@ -171,13 +171,7 @@ class JanOSTUI:
         widget = urwid.AttrMap(box, "crash")
         self.show_overlay(widget, 65, 10)
         # Reset all running states
-        self.state.sniffer_running = False
-        self.state.attack_running = False
-        self.state.blackout_running = False
-        self.state.sae_overflow_running = False
-        self.state.handshake_running = False
-        self.state.portal_running = False
-        self.state.evil_twin_running = False
+        self.state.stop_all()
         self._refresh_ui()
 
     def _dispatch_line(self, line: str) -> None:
@@ -240,10 +234,10 @@ class JanOSTUI:
             self._attacks._last_flags = ""
             self._refresh_ui()
             return True
-        if key == "tab":
+        if key in ("tab", "right"):
             self._tab_bar.next_tab()
             return True
-        if key == "shift tab":
+        if key in ("shift tab", "left"):
             self._tab_bar.prev_tab()
             return True
         # Number keys switch tabs (1-5)
@@ -255,13 +249,7 @@ class JanOSTUI:
         # Stop all
         if key == "9":
             self.serial.send_command("stop")
-            self.state.attack_running = False
-            self.state.blackout_running = False
-            self.state.sae_overflow_running = False
-            self.state.handshake_running = False
-            self.state.sniffer_running = False
-            self.state.portal_running = False
-            self.state.evil_twin_running = False
+            self.state.stop_all()
             self._refresh_ui()
             return True
         return False
@@ -271,9 +259,15 @@ class JanOSTUI:
     # ------------------------------------------------------------------
 
     def _quit(self) -> None:
-        if self.state.any_attack_running() or self.state.sniffer_running:
+        # Always send stop — even if flags are out of sync with ESP32 state
+        try:
             self.serial.send_command("stop")
-            time.sleep(0.2)
+            time.sleep(0.3)
+            # Second stop for good measure (some modes need it)
+            self.serial.send_command("stop")
+            time.sleep(0.1)
+        except Exception:
+            pass
         self.loot.close()
         self.serial.close()
         raise urwid.ExitMainLoop()

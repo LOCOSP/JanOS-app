@@ -233,7 +233,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
 
     def _stop_attack(self) -> None:
         self.serial.send_command(CMD_STOP)
-        self.state.evil_twin_running = False
+        self.state.stop_all()
         self._log.append("Evil Twin stopped.", "warning")
         n = len(self.state.evil_twin_captured_data)
         self._status.set_text(("dim", f"  Stopped. Captured: {n}"))

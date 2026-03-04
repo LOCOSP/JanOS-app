@@ -87,6 +87,16 @@ class AppState:
             self.evil_twin_running,
         ])
 
+    def stop_all(self) -> None:
+        """Reset all running flags. ESP32 'stop' halts everything."""
+        self.attack_running = False
+        self.blackout_running = False
+        self.sae_overflow_running = False
+        self.handshake_running = False
+        self.sniffer_running = False
+        self.portal_running = False
+        self.evil_twin_running = False
+
     def reset_sniffer(self) -> None:
         self.sniffer_running = False
         self.sniffer_packets = 0

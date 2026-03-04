@@ -249,7 +249,7 @@ class PortalScreen(urwid.WidgetWrap):
 
     def _stop_portal(self) -> None:
         self.serial.send_command(CMD_STOP)
-        self.state.portal_running = False
+        self.state.stop_all()
         self._log.append("Portal stopped.", "warning")
         self._status.set_text(("dim", f"  Stopped. Forms: {self.state.submitted_forms}"))
 

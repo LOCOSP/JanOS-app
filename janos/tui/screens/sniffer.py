@@ -1,5 +1,6 @@
 """Sniffer screen — live packet counter, AP results, probe requests."""
 
+import time
 import urwid
 
 from ...app_state import AppState
@@ -21,6 +22,7 @@ class SnifferScreen(urwid.WidgetWrap):
     - [r] fetch & show AP results
     - [p] fetch & show probe requests
     - [x] clear results
+    - [l] switch to live view
     """
 
     VIEW_LIVE = 0
@@ -35,6 +37,7 @@ class SnifferScreen(urwid.WidgetWrap):
         self._fetching_results = False
         self._fetching_probes = False
         self._fetch_lines: list[str] = []
+        self._fetch_start: float = 0
 
         # Live counter view — ListBox so the widget is selectable (keys work)
         self._live_text = urwid.Text(("sniffer_live", "  Sniffer idle"), align="left")
@@ -71,33 +74,41 @@ class SnifferScreen(urwid.WidgetWrap):
                      f"  Sniffer RUNNING\n\n"
                      f"  Packets captured: {self.state.sniffer_packets}\n"
                      f"  Buffer lines: {len(self.state.sniffer_buffer)}\n\n"
-                     f"  Press [r] to fetch AP results, [p] for probes")
+                     f"  [r] AP results  [p] Probes  [s] Stop")
                 )
             else:
                 self._live_text.set_text(
                     ("sniffer_live", "  Sniffer idle\n\n  Press [s] to start")
                 )
 
-        running = self.state.sniffer_running
-        tag = "RUNNING" if running else "idle"
-        hints = [f"  [{'' if running else 's]Start  '}"]
-        if running:
-            hints = ["  [s]Stop  "]
+        # Timeout-based fetch completion (3 seconds)
+        if self._fetching_results and self._fetch_start > 0:
+            if time.time() - self._fetch_start > 3:
+                self._finish_results()
+        if self._fetching_probes and self._fetch_start > 0:
+            if time.time() - self._fetch_start > 3:
+                self._finish_probes()
+
+        # Update status hints
+        if self._fetching_results:
+            self._status.set_text(("warning", f"  Fetching results... ({len(self._fetch_lines)} lines)"))
+        elif self._fetching_probes:
+            self._status.set_text(("warning", f"  Fetching probes... ({len(self._fetch_lines)} lines)"))
+        elif self.state.sniffer_running:
+            self._status.set_text(("dim", "  [s]Stop  [r]Results  [p]Probes  [x]Clear  [l]Live"))
         else:
-            hints = ["  [s]Start  "]
-        hints.append("[r]Results  [p]Probes  [x]Clear")
-        self._status.set_text(("dim", "".join(hints)))
+            self._status.set_text(("dim", "  [s]Start  [r]Results(buf)  [p]Probes(buf)  [x]Clear"))
 
     def handle_serial_line(self, line: str) -> None:
         """Handle lines while sniffer tab is active."""
         if self._fetching_results:
             self._fetch_lines.append(line)
-            if "printed" in line.lower() or len(self._fetch_lines) > 500:
+            if "printed" in line.lower():
                 self._finish_results()
             return
         if self._fetching_probes:
             self._fetch_lines.append(line)
-            if "printed" in line.lower() or len(self._fetch_lines) > 500:
+            if "printed" in line.lower():
                 self._finish_probes()
             return
 
@@ -107,21 +118,28 @@ class SnifferScreen(urwid.WidgetWrap):
         self.serial.send_command(CMD_START_SNIFFER)
         self._view = self.VIEW_LIVE
         self._body.original_widget = self._live_view
+        self._status.set_text(("success", "  Sniffer started!"))
 
     def _stop_sniffer(self) -> None:
         self.serial.send_command(CMD_STOP)
         self.state.sniffer_running = False
+        self._status.set_text(("warning", "  Sniffer stopped. Use [r]/[p] to view buffered data."))
 
     def _fetch_results(self) -> None:
-        if not self.state.sniffer_running:
-            self._status.set_text(("warning", "  Start sniffer first before fetching results"))
-            return
         self._fetching_results = True
         self._fetch_lines = []
-        self.serial.send_command(CMD_SHOW_SNIFFER_RESULTS)
+        self._fetch_start = time.time()
+        if self.state.sniffer_running:
+            self.serial.send_command(CMD_SHOW_SNIFFER_RESULTS)
+            self._status.set_text(("warning", "  Fetching AP results from device..."))
+        else:
+            # Use buffered data
+            self._fetch_lines = list(self.state.sniffer_buffer)
+            self._finish_results()
 
     def _finish_results(self) -> None:
         self._fetching_results = False
+        self._fetch_start = 0
         self.net_mgr.parse_sniffer_results(self._fetch_lines)
         rows = []
         for ap in self.state.sniffer_aps:
@@ -140,18 +158,23 @@ class SnifferScreen(urwid.WidgetWrap):
         self._view = self.VIEW_RESULTS
         self._body.original_widget = self._results_table
         n = len(self.state.sniffer_aps)
-        self._status.set_text(("success", f"  {n} APs found | [s]Stop  [r]Refresh  [p]Probes"))
+        self._status.set_text(("success", f"  {n} APs found | [r]Refresh  [p]Probes  [l]Live"))
 
     def _fetch_probes(self) -> None:
-        if not self.state.sniffer_running:
-            self._status.set_text(("warning", "  Start sniffer first before fetching probes"))
-            return
         self._fetching_probes = True
         self._fetch_lines = []
-        self.serial.send_command(CMD_SHOW_PROBES)
+        self._fetch_start = time.time()
+        if self.state.sniffer_running:
+            self.serial.send_command(CMD_SHOW_PROBES)
+            self._status.set_text(("warning", "  Fetching probes from device..."))
+        else:
+            # Use buffered data
+            self._fetch_lines = list(self.state.sniffer_buffer)
+            self._finish_probes()
 
     def _finish_probes(self) -> None:
         self._fetching_probes = False
+        self._fetch_start = 0
         self.net_mgr.parse_probes(self._fetch_lines)
         rows = []
         for p in self.state.sniffer_probes:
@@ -163,12 +186,13 @@ class SnifferScreen(urwid.WidgetWrap):
         self._view = self.VIEW_PROBES
         self._body.original_widget = self._probes_table
         n = len(self.state.sniffer_probes)
-        self._status.set_text(("success", f"  {n} probes | [s]Stop  [r]Results  [p]Refresh"))
+        self._status.set_text(("success", f"  {n} probes | [p]Refresh  [r]Results  [l]Live"))
 
     def _clear_results(self) -> None:
         self.serial.send_command(CMD_CLEAR_SNIFFER_RESULTS)
         self.state.sniffer_aps.clear()
         self.state.sniffer_probes.clear()
+        self.state.sniffer_buffer.clear()
         self._results_table.clear()
         self._probes_table.clear()
         self._status.set_text(("dim", "  Results cleared"))
@@ -190,7 +214,6 @@ class SnifferScreen(urwid.WidgetWrap):
             self._clear_results()
             return None
         if key == "l":
-            # Switch to live view
             self._view = self.VIEW_LIVE
             self._body.original_widget = self._live_view
             return None

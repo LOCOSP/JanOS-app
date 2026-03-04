@@ -37,10 +37,13 @@ class DataTable(urwid.WidgetWrap):
         super().__init__(pile)
 
     def set_rows(self, rows: list[list[tuple]]) -> None:
-        """Replace all rows. Each row is a list of (option, width, widget) tuples."""
+        """Replace all rows, preserving focus position."""
+        _, old_focus = self._listbox.get_focus()
         self._walker.clear()
         for row_cols in rows:
             self._walker.append(DataRow(row_cols))
+        if old_focus is not None and self._walker:
+            self._listbox.set_focus(min(old_focus, len(self._walker) - 1))
 
     def clear(self) -> None:
         self._walker.clear()

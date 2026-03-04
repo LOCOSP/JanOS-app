@@ -4,6 +4,7 @@ import urwid
 
 from .. import __version__
 from ..app_state import AppState
+from ..privacy import is_private
 
 
 class HeaderWidget(urwid.WidgetWrap):
@@ -27,4 +28,6 @@ class HeaderWidget(urwid.WidgetWrap):
             parts.append(("header_device", f"// {self.state.device} "))
         if not self.state.connected:
             parts.append(("footer_alert", "// DISCONNECTED "))
+        if is_private():
+            parts.append(("header_private", " // PRIVATE MODE "))
         self._text.set_text(parts)

@@ -7,6 +7,7 @@ from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
+from ...privacy import mask_ssid, mask_mac
 from ...config import (
     CMD_START_SNIFFER,
     CMD_STOP,
@@ -147,13 +148,13 @@ class SnifferScreen(urwid.WidgetWrap):
         rows = []
         for ap in self.state.sniffer_aps:
             rows.append([
-                ("weight", 2, urwid.Text(ap.ssid)),
+                ("weight", 2, urwid.Text(mask_ssid(ap.ssid))),
                 ("fixed", 4,  urwid.Text(str(ap.channel))),
                 ("fixed", 8,  urwid.Text(str(ap.client_count))),
             ])
             for mac in ap.clients:
                 rows.append([
-                    ("weight", 2, urwid.Text(("dim", f"  {mac}"))),
+                    ("weight", 2, urwid.Text(("dim", f"  {mask_mac(mac)}"))),
                     ("fixed", 4,  urwid.Text("")),
                     ("fixed", 8,  urwid.Text("")),
                 ])
@@ -185,8 +186,8 @@ class SnifferScreen(urwid.WidgetWrap):
         rows = []
         for p in self.state.sniffer_probes:
             rows.append([
-                ("weight", 2, urwid.Text(p.ssid)),
-                ("fixed", 20, urwid.Text(("dim", p.mac))),
+                ("weight", 2, urwid.Text(mask_ssid(p.ssid))),
+                ("fixed", 20, urwid.Text(("dim", mask_mac(p.mac)))),
             ])
         self._probes_table.set_rows(rows)
         self._view = self.VIEW_PROBES

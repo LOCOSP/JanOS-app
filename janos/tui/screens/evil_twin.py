@@ -7,6 +7,7 @@ from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
+from ...privacy import mask_line, mask_ssid
 from ...config import (
     CMD_LIST_SD,
     CMD_SELECT_HTML,
@@ -65,7 +66,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
         if self.state.evil_twin_running:
             self._info.set_text(
                 ("attack_active",
-                 f"  Evil Twin RUNNING | Target: {self.state.evil_twin_ssid}"
+                 f"  Evil Twin RUNNING | Target: {mask_ssid(self.state.evil_twin_ssid)}"
                  f" | Captured: {len(self.state.evil_twin_captured_data)}"
                  f" | Clients: {self.state.evil_twin_client_count}")
             )
@@ -84,7 +85,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
         if self.state.evil_twin_running:
             self.state.evil_twin_log.append(line)
             self._route_event(line)
-            self._log.append(line, self._event_attr(line))
+            self._log.append(mask_line(line), self._event_attr(line))
 
     def _route_event(self, line: str) -> None:
         if "Client connected" in line:

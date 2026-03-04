@@ -4,6 +4,7 @@ import urwid
 
 from ...app_state import Network
 from ...network_manager import NetworkManager
+from ...privacy import mask_ssid, mask_mac
 
 
 COLUMNS = [
@@ -26,10 +27,13 @@ class NetworkRow(urwid.WidgetWrap):
 
         rssi_attr = "rssi_" + NetworkManager.rssi_level(net.rssi)
 
+        display_ssid = mask_ssid(net.ssid)
+        display_bssid = mask_mac(net.bssid)
+
         cols = urwid.Columns([
             ("fixed", 4,  urwid.Text(net.index[:3])),
-            ("weight", 3, urwid.Text(self._trunc(net.ssid, 26))),
-            ("fixed", 18, urwid.Text(("dim", net.bssid))),
+            ("weight", 3, urwid.Text(self._trunc(display_ssid, 26))),
+            ("fixed", 18, urwid.Text(("dim", display_bssid))),
             ("fixed", 4,  urwid.Text(net.channel[:3])),
             ("fixed", 6,  urwid.Text((rssi_attr, net.rssi[:5]))),
             ("weight", 1, urwid.Text(self._trunc(net.auth, 12))),

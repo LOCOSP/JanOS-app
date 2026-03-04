@@ -5,6 +5,7 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...loot_manager import LootManager
+from ...privacy import mask_line
 from ...config import (
     CMD_START_DEAUTH,
     CMD_START_BLACKOUT,
@@ -111,7 +112,7 @@ class AttacksScreen(urwid.WidgetWrap):
         """Display serial output in the log viewer during active attacks."""
         if not self.state.any_attack_running():
             return
-        # Color-code output
+        # Color-code output (use raw line for detection, masked for display)
         line_lower = line.lower()
         if "error" in line_lower or "fail" in line_lower:
             attr = "error"
@@ -121,7 +122,7 @@ class AttacksScreen(urwid.WidgetWrap):
             attr = "success"
         else:
             attr = "dim"
-        self._log.append(line.strip(), attr)
+        self._log.append(mask_line(line.strip()), attr)
 
     def _start_attack(self, idx: int) -> None:
         if idx >= len(ATTACKS):

@@ -6,6 +6,7 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
+from ...loot_manager import LootManager
 from ...config import (
     CMD_LIST_SD,
     CMD_SELECT_HTML,
@@ -27,11 +28,13 @@ class EvilTwinScreen(urwid.WidgetWrap):
     - [x/Esc] stop attack
     """
 
-    def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager, app) -> None:
+    def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager, app,
+                 loot: LootManager | None = None) -> None:
         self.state = state
         self.serial = serial
         self.net_mgr = net_mgr
         self._app = app
+        self._loot = loot
 
         self._log = LogViewer()
         self._status = urwid.Text(("dim", "  [s]Setup evil twin"))
@@ -90,6 +93,9 @@ class EvilTwinScreen(urwid.WidgetWrap):
             pass  # logged
         elif "Password:" in line or "Handshake captured" in line:
             self.state.evil_twin_captured_data.append(line)
+            # Save to loot
+            if self._loot:
+                self._loot.save_evil_twin_event(line)
 
     @staticmethod
     def _event_attr(line: str) -> str:

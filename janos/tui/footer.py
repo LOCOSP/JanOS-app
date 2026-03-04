@@ -9,8 +9,9 @@ from ..app_state import AppState
 class StatusBar(urwid.WidgetWrap):
     """Bottom status bar: packets, runtime, alerts, hotkey hints."""
 
-    def __init__(self, state: AppState) -> None:
+    def __init__(self, state: AppState, loot_path: str = "") -> None:
         self.state = state
+        self._loot_path = loot_path
         self._text = urwid.Text("")
         widget = urwid.AttrMap(self._text, "footer")
         super().__init__(widget)
@@ -67,5 +68,8 @@ class StatusBar(urwid.WidgetWrap):
         parts.append(("footer", ":Switch "))
         parts.append(("footer_key", "q"))
         parts.append(("footer", ":Quit "))
+        if self._loot_path:
+            parts.append(("footer", "| "))
+            parts.append(("dim", f"loot:{self._loot_path} "))
 
         self._text.set_text(parts)

@@ -1,4 +1,4 @@
-"""Attacks screen — start/stop attack types with confirmation."""
+"""Attacks screen — start/stop attack types with confirmation + live log."""
 
 import urwid
 
@@ -12,6 +12,7 @@ from ...config import (
     CMD_STOP,
 )
 from ..widgets.confirm_dialog import ConfirmDialog
+from ..widgets.log_viewer import LogViewer
 
 
 ATTACKS = [
@@ -41,7 +42,8 @@ class AttackItem(urwid.WidgetWrap):
 
 
 class AttacksScreen(urwid.WidgetWrap):
-    """Attack list — number keys start attacks (with confirm), 9 stops all."""
+    """Attack list — number keys start attacks (with confirm), 9 stops all.
+    Includes a live serial log showing ESP32 feedback during attacks."""
 
     def __init__(self, state: AppState, serial: SerialManager, app) -> None:
         self.state = state
@@ -50,11 +52,18 @@ class AttacksScreen(urwid.WidgetWrap):
 
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
-        self._status = urwid.Text(("dim", "  [1-4]Start  [9]Stop all"))
+        self._log = LogViewer(max_lines=200)
+        self._status = urwid.Text(("dim", "  [1-4]Start  [9]Stop all  [x]Clear log"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
+        log_label = urwid.AttrMap(
+            urwid.Text(("dim", "  ── ESP32 Output ──")), "default"
+        )
+
         self._container = urwid.Pile([
-            self._listbox,
+            ("fixed", 6, self._listbox),
+            ("pack", log_label),
+            self._log,
             ("pack", urwid.Divider("─")),
             ("pack", self._status),
         ])
@@ -69,8 +78,15 @@ class AttacksScreen(urwid.WidgetWrap):
             self._rebuild()
 
         sel = self.state.selected_networks
-        if sel:
-            self._status.set_text(("dim", f"  Target: {sel} | [1-4]Start  [9]Stop all"))
+        running = [label for _, label, _, flag in ATTACKS
+                   if getattr(self.state, flag, False)]
+        if running:
+            run_str = ", ".join(running)
+            self._status.set_text(
+                ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear log")
+            )
+        elif sel:
+            self._status.set_text(("dim", f"  Target: {sel} | [1-4]Start  [9]Stop all  [x]Clear log"))
         else:
             self._status.set_text(("warning", "  No networks selected! Go to Scan tab first"))
 
@@ -87,6 +103,22 @@ class AttacksScreen(urwid.WidgetWrap):
             self._walker.append(AttackItem(key, label, active))
         if old_focus is not None and self._walker:
             self._listbox.set_focus(min(old_focus, len(self._walker) - 1))
+
+    def handle_serial_line(self, line: str) -> None:
+        """Display serial output in the log viewer during active attacks."""
+        if not self.state.any_attack_running():
+            return
+        # Color-code output
+        line_lower = line.lower()
+        if "error" in line_lower or "fail" in line_lower:
+            attr = "error"
+        elif "deauth" in line_lower or "handshake" in line_lower or "capture" in line_lower:
+            attr = "attack_active"
+        elif "sent" in line_lower or "ok" in line_lower or "success" in line_lower:
+            attr = "success"
+        else:
+            attr = "dim"
+        self._log.append(line.strip(), attr)
 
     def _start_attack(self, idx: int) -> None:
         if idx >= len(ATTACKS):
@@ -107,6 +139,7 @@ class AttacksScreen(urwid.WidgetWrap):
                 self.serial.send_command(cmd)
                 setattr(self.state, flag, True)
                 self._status.set_text(("attack_active", f"  {label} STARTED"))
+                self._log.append(f">>> {label} started — waiting for ESP32 output...", "attack_active")
                 self._last_flags = ""  # force rebuild
             else:
                 self._status.set_text(("dim", f"  {label} cancelled"))
@@ -120,6 +153,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self.state.blackout_running = False
         self.state.sae_overflow_running = False
         self.state.handshake_running = False
+        self._log.append(">>> All attacks STOPPED", "warning")
         self._status.set_text(("success", "  All attacks stopped"))
         self._last_flags = ""  # force rebuild
 
@@ -129,5 +163,8 @@ class AttacksScreen(urwid.WidgetWrap):
             return None
         if key == "9":
             self._stop_all()
+            return None
+        if key == "x":
+            self._log.clear()
             return None
         return super().keypress(size, key)

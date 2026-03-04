@@ -42,6 +42,10 @@ class StatusBar(urwid.WidgetWrap):
             alerts.append("DEAUTH")
         if self.state.blackout_running:
             alerts.append("BLACKOUT")
+        if self.state.sae_overflow_running:
+            alerts.append("SAE_OVF")
+        if self.state.handshake_running:
+            alerts.append("HANDSHAKE")
         if self.state.sniffer_running:
             alerts.append("SNIFF")
         if self.state.portal_running:

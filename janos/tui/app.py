@@ -186,6 +186,10 @@ class JanOSTUI:
         if hasattr(screen, "handle_serial_line"):
             screen.handle_serial_line(line)
 
+        # Also route to attacks screen when attacks are running (even from other tabs)
+        if self.state.any_attack_running() and screen is not self._attacks:
+            self._attacks.handle_serial_line(line)
+
     # ------------------------------------------------------------------
     # Periodic refresh
     # ------------------------------------------------------------------

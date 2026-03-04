@@ -11,6 +11,7 @@ from ...config import (
     CMD_START_BLACKOUT,
     CMD_SAE_OVERFLOW,
     CMD_START_HANDSHAKE,
+    CMD_START_HANDSHAKE_SERIAL,
     CMD_STOP,
 )
 from ..widgets.confirm_dialog import ConfirmDialog
@@ -18,10 +19,11 @@ from ..widgets.log_viewer import LogViewer
 
 
 ATTACKS = [
-    ("1", "Deauth Attack",       CMD_START_DEAUTH,    "attack_running"),
-    ("2", "Blackout Attack",     CMD_START_BLACKOUT,   "blackout_running"),
-    ("3", "WPA3 SAE Overflow",   CMD_SAE_OVERFLOW,     "sae_overflow_running"),
-    ("4", "Handshake Capture",   CMD_START_HANDSHAKE,  "handshake_running"),
+    ("1", "Deauth Attack",           CMD_START_DEAUTH,           "attack_running"),
+    ("2", "Blackout Attack",         CMD_START_BLACKOUT,          "blackout_running"),
+    ("3", "WPA3 SAE Overflow",       CMD_SAE_OVERFLOW,            "sae_overflow_running"),
+    ("4", "Handshake Capture",       CMD_START_HANDSHAKE,         "handshake_running"),
+    ("5", "Handshake → Serial PCAP", CMD_START_HANDSHAKE_SERIAL,  "handshake_running"),
 ]
 
 
@@ -57,7 +59,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [1-4]Start  [9]Stop all  [x]Clear log"))
+        self._status = urwid.Text(("dim", "  [1-5]Start  [9]Stop all  [x]Clear log"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         log_label = urwid.AttrMap(
@@ -82,15 +84,20 @@ class AttacksScreen(urwid.WidgetWrap):
             self._rebuild()
 
         sel = self.state.selected_networks
-        running = [label for _, label, _, flag in ATTACKS
-                   if getattr(self.state, flag, False)]
+        # Deduplicate running labels (handshake modes share same flag)
+        seen = set()
+        running = []
+        for _, label, _, flag in ATTACKS:
+            if getattr(self.state, flag, False) and flag not in seen:
+                seen.add(flag)
+                running.append(label)
         if running:
             run_str = ", ".join(running)
             self._status.set_text(
                 ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear log")
             )
         elif sel:
-            self._status.set_text(("dim", f"  Target: {sel} | [1-4]Start  [9]Stop all  [x]Clear log"))
+            self._status.set_text(("dim", f"  Target: {sel} | [1-5]Start  [9]Stop all  [x]Clear log"))
         else:
             self._status.set_text(("warning", "  No networks selected! Go to Scan tab first"))
 
@@ -129,7 +136,9 @@ class AttacksScreen(urwid.WidgetWrap):
             return
         key, label, cmd, flag = ATTACKS[idx]
 
-        if not self.state.selected_networks:
+        # Handshake Serial mode attacks all visible networks — no selection needed
+        serial_mode = (cmd == CMD_START_HANDSHAKE_SERIAL)
+        if not serial_mode and not self.state.selected_networks:
             self._status.set_text(("error", "  Select networks first (Scan tab)"))
             return
 
@@ -143,15 +152,26 @@ class AttacksScreen(urwid.WidgetWrap):
                 self.serial.send_command(cmd)
                 setattr(self.state, flag, True)
                 self._status.set_text(("attack_active", f"  {label} STARTED"))
-                self._log.append(f">>> {label} started — waiting for ESP32 output...", "attack_active")
+                if serial_mode:
+                    self._log.append(
+                        ">>> Handshake Serial started — PCAP will be saved to loot/handshakes/ automatically",
+                        "attack_active"
+                    )
+                else:
+                    self._log.append(f">>> {label} started — waiting for ESP32 output...", "attack_active")
                 self._last_flags = ""  # force rebuild
                 if self._loot:
-                    self._loot.log_attack_event(f"STARTED: {label} (targets: {self.state.selected_networks})")
+                    targets = self.state.selected_networks if not serial_mode else "all"
+                    self._loot.log_attack_event(f"STARTED: {label} (targets: {targets})")
             else:
                 self._status.set_text(("dim", f"  {label} cancelled"))
 
-        dialog = ConfirmDialog(f"Start {label}?", on_confirm)
-        self._app.show_overlay(dialog, 40, 8)
+        confirm_msg = (
+            f"Start {label}?\nWill attack all visible networks.\nPCAP saved to loot/handshakes/"
+            if serial_mode else f"Start {label}?"
+        )
+        dialog = ConfirmDialog(confirm_msg, on_confirm)
+        self._app.show_overlay(dialog, 55, 10 if serial_mode else 8)
 
     def _stop_all(self) -> None:
         self.serial.send_command(CMD_STOP)
@@ -166,7 +186,7 @@ class AttacksScreen(urwid.WidgetWrap):
             self._loot.log_attack_event("STOPPED: All attacks")
 
     def keypress(self, size, key):
-        if key in ("1", "2", "3", "4"):
+        if key in ("1", "2", "3", "4", "5"):
             self._start_attack(int(key) - 1)
             return None
         if key == "9":

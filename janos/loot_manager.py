@@ -8,11 +8,14 @@ Session directory layout:
         sniffer_probes.csv       – probe requests captured
         handshakes/
             <ssid>_<bssid>.txt   – handshake metadata from serial
+            <ssid>_<bssid>.pcap  – real pcap (from start_handshake_serial)
+            <ssid>_<bssid>.hccapx – hashcat format (from start_handshake_serial)
         portal_passwords.log     – portal form submissions
         evil_twin_capture.log    – evil twin captured data
         attacks.log              – attack start/stop events
 """
 
+import base64
 import csv
 import io
 import logging
@@ -38,9 +41,26 @@ class LootManager:
         self._handshake_dir: Optional[Path] = None
         self._session_active = False
 
-        # Handshake parser state
+        # Handshake metadata parser state (from serial log keywords)
         self._hs_buffer: List[str] = []
         self._hs_collecting = False
+
+        # PCAP base64 parser state (from start_handshake_serial command)
+        # Firmware outputs:
+        #   --- PCAP BEGIN ---
+        #   <base64 lines>
+        #   --- PCAP END ---
+        #   PCAP_SIZE: <N>
+        #   --- HCCAPX BEGIN ---
+        #   <base64 lines>
+        #   --- HCCAPX END ---
+        #   SSID: <ssid>  AP: <bssid>
+        self._pcap_collecting = False
+        self._pcap_b64_lines: List[str] = []
+        self._hccapx_collecting = False
+        self._hccapx_b64_lines: List[str] = []
+        self._pcap_meta_ssid = "unknown"
+        self._pcap_meta_bssid = "unknown"
 
         try:
             self._session.mkdir(parents=True, exist_ok=True)
@@ -77,8 +97,10 @@ class LootManager:
         except OSError:
             pass
 
-        # Check for handshake data in serial stream
+        # Check for handshake metadata in serial stream
         self._detect_handshake(line)
+        # Check for pcap base64 data from start_handshake_serial
+        self._detect_pcap_stream(line)
 
     # ------------------------------------------------------------------
     # Handshake detection from serial stream
@@ -163,6 +185,125 @@ class LootManager:
 
         self._hs_collecting = False
         self._hs_buffer = []
+
+    # ------------------------------------------------------------------
+    # PCAP base64 stream parser (start_handshake_serial output)
+    # ------------------------------------------------------------------
+
+    def _detect_pcap_stream(self, line: str) -> None:
+        """Parse base64-encoded pcap/hccapx blocks from serial stream.
+
+        Triggered by start_handshake_serial firmware command which outputs:
+            --- PCAP BEGIN ---
+            <base64 lines>
+            --- PCAP END ---
+            PCAP_SIZE: <N>
+            --- HCCAPX BEGIN ---
+            <base64 lines>
+            --- HCCAPX END ---
+            SSID: <ssid>  AP: <bssid>
+        """
+        stripped = line.strip()
+
+        # PCAP block
+        if "--- PCAP BEGIN ---" in stripped:
+            self._pcap_collecting = True
+            self._pcap_b64_lines = []
+            return
+
+        if self._pcap_collecting:
+            if "--- PCAP END ---" in stripped:
+                self._pcap_collecting = False
+            else:
+                # Collect only valid base64 chars
+                clean = stripped.replace(" ", "")
+                if clean:
+                    self._pcap_b64_lines.append(clean)
+            return
+
+        # HCCAPX block
+        if "--- HCCAPX BEGIN ---" in stripped:
+            self._hccapx_collecting = True
+            self._hccapx_b64_lines = []
+            return
+
+        if self._hccapx_collecting:
+            if "--- HCCAPX END ---" in stripped:
+                self._hccapx_collecting = False
+            else:
+                clean = stripped.replace(" ", "")
+                if clean:
+                    self._hccapx_b64_lines.append(clean)
+            return
+
+        # Metadata line: firmware prints SSID and AP MAC after the blocks
+        if "SSID:" in stripped and "AP:" in stripped:
+            try:
+                parts = stripped.split("SSID:")
+                if len(parts) > 1:
+                    rest = parts[1].strip()
+                    if "AP:" in rest:
+                        ssid_part, ap_part = rest.split("AP:", 1)
+                        self._pcap_meta_ssid = ssid_part.strip()
+                        self._pcap_meta_bssid = ap_part.strip().replace(":", "")[:12]
+                    else:
+                        self._pcap_meta_ssid = rest.strip().split()[0]
+            except Exception:
+                pass
+            # Save when we have both pcap and hccapx (or at least pcap)
+            if self._pcap_b64_lines:
+                self._save_pcap_from_b64()
+            return
+
+        # Fallback: if we got hccapx end and pcap is ready, save after short wait
+        # (in case firmware doesn't print SSID/AP line)
+        if self._pcap_b64_lines and self._hccapx_b64_lines and not self._hccapx_collecting:
+            # Check if this is an unrelated line that signals end of block
+            if not any(c in stripped for c in ("BEGIN", "END", "SIZE:", "PCAP", "HCCAPX")):
+                self._save_pcap_from_b64()
+
+    def _save_pcap_from_b64(self) -> None:
+        """Decode and save accumulated base64 pcap/hccapx data as binary files."""
+        if not self._handshake_dir or not self._pcap_b64_lines:
+            self._pcap_b64_lines = []
+            self._hccapx_b64_lines = []
+            self._pcap_meta_ssid = "unknown"
+            self._pcap_meta_bssid = "unknown"
+            return
+
+        ts = datetime.now().strftime("%H%M%S")
+        safe_ssid = "".join(
+            c if c.isalnum() or c in "-_" else "_"
+            for c in self._pcap_meta_ssid
+        )
+        base_name = f"{safe_ssid}_{self._pcap_meta_bssid}_{ts}"
+
+        # Save .pcap
+        try:
+            pcap_data = base64.b64decode("".join(self._pcap_b64_lines))
+            pcap_path = self._handshake_dir / f"{base_name}.pcap"
+            with open(pcap_path, "wb") as fh:
+                fh.write(pcap_data)
+            log.info("PCAP saved: %s (%d bytes)", pcap_path, len(pcap_data))
+        except Exception as exc:
+            log.error("Cannot save PCAP: %s", exc)
+
+        # Save .hccapx (if present)
+        if self._hccapx_b64_lines:
+            try:
+                hccapx_data = base64.b64decode("".join(self._hccapx_b64_lines))
+                hccapx_path = self._handshake_dir / f"{base_name}.hccapx"
+                with open(hccapx_path, "wb") as fh:
+                    fh.write(hccapx_data)
+                log.info("HCCAPX saved: %s (%d bytes)", hccapx_path, len(hccapx_data))
+            except Exception as exc:
+                log.error("Cannot save HCCAPX: %s", exc)
+
+        # Reset state
+        self._pcap_b64_lines = []
+        self._hccapx_b64_lines = []
+        self._pcap_meta_ssid = "unknown"
+        self._pcap_meta_bssid = "unknown"
 
     # ------------------------------------------------------------------
     # Scan results

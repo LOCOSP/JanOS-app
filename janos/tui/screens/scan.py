@@ -12,9 +12,9 @@ from ..widgets.network_table import NetworkTable
 class ScanScreen(urwid.WidgetWrap):
     """Full scan workflow:
     - s : start scan
-    - Space/Enter : toggle network selection
-    - a : apply selection (send to ESP32)
+    - Space/Enter : toggle network selection (auto-sent to ESP32)
     - c : clear selection
+    - u : unselect all on device
     """
 
     def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager) -> None:
@@ -27,7 +27,7 @@ class ScanScreen(urwid.WidgetWrap):
         self._table = NetworkTable()
         self._status = urwid.Text(("dim", "  Press [s] to scan networks"))
         self._hint = urwid.Text(
-            ("dim", "  [s]Scan  [Space]Select  [a]Apply  [c]Clear  [u]Unselect all")
+            ("dim", "  [s]Scan  [Space]Select  [c]Clear  [u]Unselect all")
         )
 
         pile = urwid.Pile([
@@ -41,7 +41,6 @@ class ScanScreen(urwid.WidgetWrap):
 
     def refresh(self) -> None:
         """Called every second by the main app tick."""
-        # Only rebuild table when network count actually changes
         n = len(self.state.networks)
         if n != self._last_net_count and not self._scanning:
             self._last_net_count = n
@@ -63,6 +62,7 @@ class ScanScreen(urwid.WidgetWrap):
             return
         self._scanning = True
         self.net_mgr.clear()
+        self._last_net_count = 0
         self._table.clear_selection()
         self.serial.send_command(CMD_SCAN_NETWORKS)
         self._status.set_text(("warning", "  Scanning..."))
@@ -74,43 +74,44 @@ class ScanScreen(urwid.WidgetWrap):
         if line.startswith('"'):
             self.net_mgr.add_network(line)
             self._table.update(self.state.networks)
+            self._last_net_count = len(self.state.networks)
         if "Scan results printed" in line:
             self._scanning = False
             self.state.scan_done = True
 
-    def _apply_selection(self) -> None:
+    def _sync_selection(self) -> None:
+        """Send current selection to ESP32 and update state."""
         indices = self._table.get_selected_indices()
-        if not indices:
-            self._status.set_text(("warning", "  No networks selected"))
-            return
-        selection_str = ",".join(indices)
-        self.serial.send_command(f"{CMD_SELECT_NETWORKS} {selection_str}")
-        self.state.selected_networks = selection_str
-        self._status.set_text(("success", f"  Selected networks: {selection_str}"))
+        if indices:
+            selection_str = ",".join(indices)
+            self.serial.send_command(f"{CMD_SELECT_NETWORKS} {selection_str}")
+            self.state.selected_networks = selection_str
+            self._status.set_text(("success", f"  Selected: {selection_str}"))
+        else:
+            self.serial.send_command(CMD_UNSELECT_NETWORKS)
+            self.state.selected_networks = ""
+            self._status.set_text(("dim", "  Selection cleared"))
 
     def _clear_selection(self) -> None:
         self._table.clear_selection()
         self._table.update(self.state.networks)
-        self._status.set_text(("dim", "  Selection cleared"))
-
-    def _unselect_all(self) -> None:
         self.serial.send_command(CMD_UNSELECT_NETWORKS)
-        self._table.clear_selection()
-        self._table.update(self.state.networks)
         self.state.selected_networks = ""
-        self._status.set_text(("dim", "  All networks unselected"))
+        self._status.set_text(("dim", "  Selection cleared"))
 
     def keypress(self, size, key):
         if key == "s":
             self._start_scan()
             return None
-        if key == "a":
-            self._apply_selection()
+        if key in (" ", "enter"):
+            # Let table handle the toggle, then auto-send to ESP32
+            super().keypress(size, key)
+            self._sync_selection()
             return None
         if key == "c":
             self._clear_selection()
             return None
         if key == "u":
-            self._unselect_all()
+            self._clear_selection()
             return None
         return super().keypress(size, key)

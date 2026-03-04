@@ -46,12 +46,12 @@ class AttacksScreen(urwid.WidgetWrap):
     def __init__(self, state: AppState, serial: SerialManager, app) -> None:
         self.state = state
         self.serial = serial
-        self._app = app  # reference to JanOSTUI for overlay management
+        self._app = app
 
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._status = urwid.Text(("dim", "  [1-4]Start  [9]Stop all"))
-        self._overlay_active = False
+        self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         self._container = urwid.Pile([
             self._listbox,
@@ -62,18 +62,31 @@ class AttacksScreen(urwid.WidgetWrap):
         self._rebuild()
 
     def refresh(self) -> None:
-        self._rebuild()
+        # Only rebuild when attack flags actually change
+        flags = self._get_flags_key()
+        if flags != self._last_flags:
+            self._last_flags = flags
+            self._rebuild()
+
         sel = self.state.selected_networks
         if sel:
             self._status.set_text(("dim", f"  Target: {sel} | [1-4]Start  [9]Stop all"))
         else:
             self._status.set_text(("warning", "  No networks selected! Go to Scan tab first"))
 
+    def _get_flags_key(self) -> str:
+        return ",".join(
+            str(getattr(self.state, flag, False)) for _, _, _, flag in ATTACKS
+        )
+
     def _rebuild(self) -> None:
+        _, old_focus = self._listbox.get_focus()
         self._walker.clear()
         for key, label, cmd, flag in ATTACKS:
             active = getattr(self.state, flag, False)
             self._walker.append(AttackItem(key, label, active))
+        if old_focus is not None and self._walker:
+            self._listbox.set_focus(min(old_focus, len(self._walker) - 1))
 
     def _start_attack(self, idx: int) -> None:
         if idx >= len(ATTACKS):
@@ -88,14 +101,13 @@ class AttacksScreen(urwid.WidgetWrap):
             self._status.set_text(("warning", f"  {label} already running"))
             return
 
-        # Show confirm dialog via overlay
         def on_confirm(yes: bool) -> None:
             self._app.dismiss_overlay()
             if yes:
                 self.serial.send_command(cmd)
                 setattr(self.state, flag, True)
                 self._status.set_text(("attack_active", f"  {label} STARTED"))
-                self._rebuild()
+                self._last_flags = ""  # force rebuild
             else:
                 self._status.set_text(("dim", f"  {label} cancelled"))
 
@@ -109,7 +121,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self.state.sae_overflow_running = False
         self.state.handshake_running = False
         self._status.set_text(("success", "  All attacks stopped"))
-        self._rebuild()
+        self._last_flags = ""  # force rebuild
 
     def keypress(self, size, key):
         if key in ("1", "2", "3", "4"):

@@ -1,6 +1,7 @@
 """Portal screen — setup wizard + live monitoring via LogViewer."""
 
 import re
+import time
 import urwid
 
 from ...app_state import AppState
@@ -239,9 +240,11 @@ class PortalScreen(urwid.WidgetWrap):
         self._app.show_overlay(dialog, 60, 8)
 
     def _do_start(self) -> None:
-        # Ensure ESP32 is idle (previous action may still be cleaning up)
+        # Ensure ESP32 is idle — stop + wait for cleanup (pcap dump ~1s)
         self.serial.send_command(CMD_STOP)
         self.state.stop_all()
+        time.sleep(1.5)
+        self.serial.read_available()  # drain stale data
         self.state.reset_portal()
         self.state.portal_ssid = self._ssid
         self.state.portal_running = True

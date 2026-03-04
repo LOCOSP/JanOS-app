@@ -1,6 +1,7 @@
 """Evil Twin screen — target selection, setup wizard, live monitoring."""
 
 import re
+import time
 import urwid
 
 from ...app_state import AppState
@@ -223,9 +224,11 @@ class EvilTwinScreen(urwid.WidgetWrap):
         self._app.show_overlay(dialog, 60, 8)
 
     def _do_start(self) -> None:
-        # Ensure ESP32 is idle (previous action may still be cleaning up)
+        # Ensure ESP32 is idle — stop + wait for cleanup (pcap dump ~1s)
         self.serial.send_command(CMD_STOP)
         self.state.stop_all()
+        time.sleep(1.5)
+        self.serial.read_available()  # drain stale data
         self.state.reset_evil_twin()
         self.state.evil_twin_ssid = self._target_ssid
         self.state.evil_twin_running = True

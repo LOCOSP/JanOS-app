@@ -1,5 +1,6 @@
 """Attacks screen — start/stop attack types with confirmation + live log."""
 
+import time
 import urwid
 
 from ...app_state import AppState
@@ -149,9 +150,11 @@ class AttacksScreen(urwid.WidgetWrap):
         def on_confirm(yes: bool) -> None:
             self._app.dismiss_overlay()
             if yes:
-                # Ensure ESP32 is idle (previous action may still be cleaning up)
+                # Ensure ESP32 is idle — stop + wait for cleanup (pcap dump ~1s)
                 self.serial.send_command(CMD_STOP)
                 self.state.stop_all()
+                time.sleep(1.5)
+                self.serial.read_available()  # drain stale data
                 self.serial.send_command(cmd)
                 setattr(self.state, flag, True)
                 self._status.set_text(("attack_active", f"  {label} STARTED"))

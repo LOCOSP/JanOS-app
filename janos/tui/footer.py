@@ -66,10 +66,9 @@ class StatusBar(urwid.WidgetWrap):
         # Hotkey hints
         parts.append(("footer_key", "Tab"))
         parts.append(("footer", ":Switch "))
+        parts.append(("footer_key", "P"))
+        parts.append(("footer", ":Private "))
         parts.append(("footer_key", "q"))
         parts.append(("footer", ":Quit "))
-        if self._loot_path:
-            parts.append(("footer", "| "))
-            parts.append(("dim", f"loot:{self._loot_path} "))
 
         self._text.set_text(parts)

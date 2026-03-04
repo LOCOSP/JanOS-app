@@ -27,6 +27,7 @@ python3 -m janos /dev/ttyUSB0
 | `l` | Switch to live sniffer view |
 | `x` | Clear results / clear log (context-dependent) |
 | `d` | Show captured data (Portal / Evil Twin) |
+| `P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all attacks |
 | `q` | Quit |
 
@@ -39,6 +40,7 @@ python3 -m janos /dev/ttyUSB0
 - **Crash detection** — automatic firmware crash alert overlay, state reset
 - **Serial event loop** — no background threads, uses urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** — all captured data auto-saved to disk (see below)
+- **Private Mode** — press `P` to mask SSIDs, MACs, IPs, and passwords on screen (for recording/streaming). Loot files are NOT affected
 
 ### Loot System
 

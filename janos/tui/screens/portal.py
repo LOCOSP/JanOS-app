@@ -6,6 +6,7 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...loot_manager import LootManager
+from ...privacy import mask_line, mask_ssid
 from ...config import CMD_LIST_SD, CMD_SELECT_HTML, CMD_START_PORTAL, CMD_STOP
 from ..widgets.log_viewer import LogViewer
 from ..widgets.text_input_dialog import TextInputDialog
@@ -66,7 +67,7 @@ class PortalScreen(urwid.WidgetWrap):
         if self.state.portal_running:
             self._info.set_text(
                 ("success",
-                 f"  Portal RUNNING | SSID: {self.state.portal_ssid}"
+                 f"  Portal RUNNING | SSID: {mask_ssid(self.state.portal_ssid)}"
                  f" | Forms: {self.state.submitted_forms}"
                  f" | Clients: {self.state.portal_client_count}")
             )
@@ -88,7 +89,7 @@ class PortalScreen(urwid.WidgetWrap):
         if self.state.portal_running:
             self.state.portal_log.append(line)
             self._route_portal_event(line)
-            self._log.append(line, self._event_attr(line))
+            self._log.append(mask_line(line), self._event_attr(line))
 
     def _route_portal_event(self, line: str) -> None:
         if "Client connected" in line:

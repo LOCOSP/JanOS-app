@@ -11,6 +11,7 @@ from ..app_state import AppState
 from ..serial_manager import SerialManager
 from ..network_manager import NetworkManager
 from ..loot_manager import LootManager
+from .. import privacy
 from ..config import CRASH_KEYWORDS
 from .palette import PALETTE
 from .header import HeaderWidget
@@ -230,6 +231,14 @@ class JanOSTUI:
 
         if key in ("q", "Q"):
             self._quit()
+            return True
+        # Private mode toggle
+        if key == "P":
+            privacy.set_private_mode(not privacy.is_private())
+            # Force full UI rebuild (tables need redrawing with masked data)
+            self._scan._last_net_count = -1
+            self._attacks._last_flags = ""
+            self._refresh_ui()
             return True
         if key == "tab":
             self._tab_bar.next_tab()

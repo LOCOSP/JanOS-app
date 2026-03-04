@@ -11,6 +11,7 @@ PALETTE = [
     ("banner",        "light magenta,bold", "black"),
     ("header",        "light cyan,bold", "dark magenta"),
     ("header_device", "white,bold",   "dark magenta"),
+    ("header_private", "yellow,bold", "dark magenta"),
 
     # Tab bar
     ("tab_active",    "white,bold",   "dark magenta"),

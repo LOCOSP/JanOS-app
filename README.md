@@ -21,21 +21,54 @@ python3 -m janos /dev/ttyUSB0
 | `1-5` | Switch tabs (Scan, Sniffer, Attacks, Portal, Evil Twin) |
 | `Tab` / `Shift+Tab` | Cycle tabs |
 | `s` | Start scan / sniffer / setup wizard (context-dependent) |
-| `Space` / `Enter` | Select / toggle item in tables |
-| `a` | Apply network selection (Scan tab) |
+| `Space` / `Enter` | Select / toggle item in tables (auto-sends to ESP32) |
 | `r` | Fetch sniffer AP results |
 | `p` | Fetch probe requests |
+| `l` | Switch to live sniffer view |
+| `x` | Clear results / clear log (context-dependent) |
+| `d` | Show captured data (Portal / Evil Twin) |
 | `9` | Stop all attacks |
 | `q` | Quit |
 
 ### Features
 - **Scan** — scan networks, browse results with RSSI colors, select targets
 - **Sniffer** — live packet counter, AP/client results, probe requests
-- **Attacks** — deauth, blackout, WPA3 SAE overflow, handshake capture (with confirmation dialogs)
+- **Attacks** — deauth, blackout, WPA3 SAE overflow, handshake capture with live ESP32 output log
 - **Portal** — captive portal setup wizard (SSID, HTML file pick from SD card), live monitoring
 - **Evil Twin** — target network selection, HTML pick, live monitoring with captured data
 - **Crash detection** — automatic firmware crash alert overlay, state reset
 - **Serial event loop** — no background threads, uses urwid `watch_file()` for non-blocking serial I/O
+- **Loot system** — all captured data auto-saved to disk (see below)
+
+### Loot System
+
+Every session automatically saves captured data to `loot/<timestamp>/`:
+
+```
+loot/
+  2025-03-04_15-30-00/
+    serial_full.log           # every ESP32 serial line (timestamped)
+    scan_results.csv          # networks found during scan
+    sniffer_aps.csv           # access points from sniffer
+    sniffer_probes.csv        # captured probe requests
+    handshakes/               # auto-detected handshake metadata
+      eduroam_0af1e66e5d01_153042.txt
+    portal_passwords.log      # portal form submissions (passwords, emails)
+    evil_twin_capture.log     # evil twin captured data
+    attacks.log               # attack start/stop events
+    session_info.txt          # session summary (written on exit)
+```
+
+**What is saved automatically:**
+- **Full serial log** — every line from ESP32 with timestamp, always
+- **Scan results** — CSV with SSID, BSSID, channel, auth, RSSI, band, vendor
+- **Sniffer data** — APs (with client MACs) and probe requests as CSV
+- **Handshakes** — auto-detected from serial stream (EAPOL, AP/STA MAC, SSID, message pair)
+- **Portal passwords** — form submissions, usernames, emails
+- **Evil Twin captures** — passwords, handshakes
+- **Attack events** — start/stop with target info
+
+The loot path is displayed in the footer status bar. Each app launch creates a new session directory.
 
 ### Flags
 ```

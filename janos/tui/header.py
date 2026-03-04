@@ -18,12 +18,13 @@ class HeaderWidget(urwid.WidgetWrap):
 
     def refresh(self) -> None:
         parts = [
-            ("header", " JanOS "),
-            ("header_device", f"v{__version__}"),
-            ("header", "  "),
+            ("header", " [ "),
+            ("header_device", "JanOS"),
+            ("header", " ] "),
+            ("header", f"v{__version__} "),
         ]
         if self.state.device:
-            parts.append(("header_device", f"Device: {self.state.device}"))
+            parts.append(("header_device", f"// {self.state.device} "))
         if not self.state.connected:
-            parts.append(("footer_alert", " [DISCONNECTED]"))
+            parts.append(("footer_alert", "// DISCONNECTED "))
         self._text.set_text(parts)

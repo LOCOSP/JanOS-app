@@ -23,6 +23,7 @@ class ScanScreen(urwid.WidgetWrap):
         self.net_mgr = net_mgr
 
         self._scanning = False
+        self._last_net_count = 0
         self._table = NetworkTable()
         self._status = urwid.Text(("dim", "  Press [s] to scan networks"))
         self._hint = urwid.Text(
@@ -40,7 +41,10 @@ class ScanScreen(urwid.WidgetWrap):
 
     def refresh(self) -> None:
         """Called every second by the main app tick."""
-        if self.state.networks and not self._scanning:
+        # Only rebuild table when network count actually changes
+        n = len(self.state.networks)
+        if n != self._last_net_count and not self._scanning:
+            self._last_net_count = n
             self._table.update(self.state.networks)
 
         if self._scanning:

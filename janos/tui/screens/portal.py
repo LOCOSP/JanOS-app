@@ -39,12 +39,10 @@ class PortalScreen(urwid.WidgetWrap):
         self._status = urwid.Text(("dim", "  [s]Setup portal"))
         self._info = urwid.Text(("portal", "  Captive Portal — idle"))
 
-        self._body = urwid.WidgetPlaceholder(
-            urwid.Filler(
-                urwid.Text(("portal", "  Press [s] to start portal setup wizard"), align="left"),
-                valign="top",
-            )
-        )
+        self._idle_view = urwid.ListBox(urwid.SimpleFocusListWalker([
+            urwid.Text(("portal", "  Press [s] to start portal setup wizard")),
+        ]))
+        self._body = urwid.WidgetPlaceholder(self._idle_view)
 
         pile = urwid.Pile([
             ("pack", self._info),

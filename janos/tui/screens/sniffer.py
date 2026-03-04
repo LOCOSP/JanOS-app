@@ -36,9 +36,9 @@ class SnifferScreen(urwid.WidgetWrap):
         self._fetching_probes = False
         self._fetch_lines: list[str] = []
 
-        # Live counter view
+        # Live counter view — ListBox so the widget is selectable (keys work)
         self._live_text = urwid.Text(("sniffer_live", "  Sniffer idle"), align="left")
-        self._live_view = urwid.Filler(self._live_text, valign="top")
+        self._live_view = urwid.ListBox(urwid.SimpleFocusListWalker([self._live_text]))
 
         # Results table
         self._results_table = DataTable([

@@ -1,30 +1,30 @@
-"""16-color urwid palette — safe for serial terminals and SSH."""
+"""Cyberpunk neon urwid palette — 16-color safe for serial terminals."""
 
 PALETTE = [
     # (name, foreground, background)
     # General
-    ("default",       "white",        "black"),
-    ("bold",          "white,bold",   "black"),
-    ("dim",           "dark gray",    "black"),
+    ("default",       "light cyan",   "black"),
+    ("bold",          "light cyan,bold", "black"),
+    ("dim",           "dark cyan",    "black"),
 
     # Header / banner
-    ("banner",        "light cyan",   "black"),
-    ("header",        "white,bold",   "dark blue"),
-    ("header_device", "yellow",       "dark blue"),
+    ("banner",        "light magenta,bold", "black"),
+    ("header",        "light cyan,bold", "dark magenta"),
+    ("header_device", "white,bold",   "dark magenta"),
 
     # Tab bar
-    ("tab_active",    "white,bold",   "dark cyan"),
-    ("tab_inactive",  "light gray",   "dark gray"),
+    ("tab_active",    "white,bold",   "dark magenta"),
+    ("tab_inactive",  "dark cyan",    "black"),
 
     # Footer / status bar
-    ("footer",        "white",        "dark blue"),
-    ("footer_key",    "yellow,bold",  "dark blue"),
-    ("footer_alert",  "light red,bold", "dark blue"),
+    ("footer",        "light cyan",   "dark blue"),
+    ("footer_key",    "light magenta,bold", "dark blue"),
+    ("footer_alert",  "yellow,bold",  "dark blue"),
 
     # Tables
-    ("table_header",  "white,bold",   "dark gray"),
-    ("table_row",     "white",        "black"),
-    ("table_row_sel", "white,bold",   "dark cyan"),
+    ("table_header",  "light magenta,bold", "black"),
+    ("table_row",     "light cyan",   "black"),
+    ("table_row_sel", "white,bold",   "dark magenta"),
 
     # RSSI colors
     ("rssi_good",     "light green",  "black"),
@@ -33,20 +33,20 @@ PALETTE = [
 
     # Attack status
     ("attack_active", "light red,bold", "black"),
-    ("attack_idle",   "dark gray",    "black"),
+    ("attack_idle",   "dark cyan",    "black"),
 
     # Sniffer
-    ("sniffer_live",  "light cyan",   "black"),
-    ("sniffer_count", "light green",  "black"),
+    ("sniffer_live",  "dark cyan",    "black"),
+    ("sniffer_count", "light green,bold", "black"),
 
     # Portal / Evil Twin
-    ("portal",        "light blue",   "black"),
+    ("portal",        "light cyan",   "black"),
     ("evil_twin",     "light magenta", "black"),
 
     # Dialogs
-    ("dialog",        "white",        "dark gray"),
-    ("dialog_title",  "white,bold",   "dark gray"),
-    ("dialog_btn",    "white,bold",   "dark cyan"),
+    ("dialog",        "light cyan",   "dark blue"),
+    ("dialog_title",  "light magenta,bold", "dark blue"),
+    ("dialog_btn",    "white,bold",   "dark magenta"),
     ("dialog_btn_f",  "white,bold",   "dark red"),
 
     # Crash / error overlay

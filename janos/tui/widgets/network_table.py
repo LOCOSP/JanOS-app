@@ -85,11 +85,18 @@ class NetworkTable(urwid.WidgetWrap):
         super().__init__(pile)
 
     def update(self, networks: list[Network]) -> None:
-        """Rebuild the table rows from network list."""
+        """Rebuild the table rows from network list, preserving focus."""
+        # Save current focus
+        _, old_focus = self._listbox.get_focus()
+
         self._walker.clear()
         for net in networks:
             sel = net.index in self._selected
             self._walker.append(NetworkRow(net, selected=sel))
+
+        # Restore focus
+        if old_focus is not None and self._walker:
+            self._listbox.set_focus(min(old_focus, len(self._walker) - 1))
 
     def toggle_selection(self) -> None:
         """Toggle selection of the focused row."""

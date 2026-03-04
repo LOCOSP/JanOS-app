@@ -37,14 +37,11 @@ class EvilTwinScreen(urwid.WidgetWrap):
         self._status = urwid.Text(("dim", "  [s]Setup evil twin"))
         self._info = urwid.Text(("evil_twin", "  Evil Twin — idle"))
 
-        self._body = urwid.WidgetPlaceholder(
-            urwid.Filler(
-                urwid.Text(("evil_twin", "  Press [s] to start evil twin setup\n"
-                                          "  Requires scanned networks (Scan tab)"),
-                           align="left"),
-                valign="top",
-            )
-        )
+        self._idle_view = urwid.ListBox(urwid.SimpleFocusListWalker([
+            urwid.Text(("evil_twin", "  Press [s] to start evil twin setup\n"
+                                      "  Requires scanned networks (Scan tab)")),
+        ]))
+        self._body = urwid.WidgetPlaceholder(self._idle_view)
 
         pile = urwid.Pile([
             ("pack", self._info),

@@ -1,6 +1,7 @@
 """Main TUI application — urwid.MainLoop, serial watcher, tab routing."""
 
 import logging
+import os
 import re
 import time
 
@@ -9,6 +10,7 @@ import urwid
 from ..app_state import AppState
 from ..serial_manager import SerialManager
 from ..network_manager import NetworkManager
+from ..loot_manager import LootManager
 from ..config import CRASH_KEYWORDS
 from .palette import PALETTE
 from .header import HeaderWidget
@@ -34,6 +36,10 @@ class JanOSTUI:
         self.serial = SerialManager(device)
         self.net_mgr = NetworkManager(self.state)
 
+        # Loot manager — save captured data to disk
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.loot = LootManager(app_dir)
+
         # Connect serial
         try:
             self.serial.setup()
@@ -43,11 +49,11 @@ class JanOSTUI:
             self.state.connected = False
 
         # Real screens
-        self._scan = ScanScreen(self.state, self.serial, self.net_mgr)
-        self._sniffer = SnifferScreen(self.state, self.serial, self.net_mgr)
-        self._attacks = AttacksScreen(self.state, self.serial, self)
-        self._portal = PortalScreen(self.state, self.serial, self)
-        self._evil_twin = EvilTwinScreen(self.state, self.serial, self.net_mgr, self)
+        self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot)
+        self._sniffer = SnifferScreen(self.state, self.serial, self.net_mgr, self.loot)
+        self._attacks = AttacksScreen(self.state, self.serial, self, self.loot)
+        self._portal = PortalScreen(self.state, self.serial, self, self.loot)
+        self._evil_twin = EvilTwinScreen(self.state, self.serial, self.net_mgr, self, self.loot)
 
         self._screens: list = [
             self._scan,
@@ -60,7 +66,10 @@ class JanOSTUI:
         # Widgets
         self._header = HeaderWidget(self.state)
         self._tab_bar = TabBar(TAB_LABELS, on_switch=self._on_tab_switch)
-        self._footer = StatusBar(self.state)
+        self._footer = StatusBar(
+            self.state,
+            loot_path=self.loot.session_path if self.loot.active else "",
+        )
         self._body = urwid.WidgetPlaceholder(self._screens[0])
 
         # Layout: header + tab_bar + body + footer
@@ -133,6 +142,8 @@ class JanOSTUI:
 
         for line in lines:
             log.debug("RX: %s", line)
+            # Log every serial line to loot
+            self.loot.log_serial(line)
             # Crash detection
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True
@@ -254,6 +265,7 @@ class JanOSTUI:
         if self.state.any_attack_running() or self.state.sniffer_running:
             self.serial.send_command("stop")
             time.sleep(0.2)
+        self.loot.close()
         self.serial.close()
         raise urwid.ExitMainLoop()
 

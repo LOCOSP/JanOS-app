@@ -5,6 +5,7 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
+from ...loot_manager import LootManager
 from ...config import CMD_SCAN_NETWORKS, CMD_SELECT_NETWORKS, CMD_UNSELECT_NETWORKS
 from ..widgets.network_table import NetworkTable
 
@@ -17,10 +18,12 @@ class ScanScreen(urwid.WidgetWrap):
     - u : unselect all on device
     """
 
-    def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager) -> None:
+    def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager,
+                 loot: LootManager | None = None) -> None:
         self.state = state
         self.serial = serial
         self.net_mgr = net_mgr
+        self._loot = loot
 
         self._scanning = False
         self._last_net_count = 0
@@ -78,6 +81,9 @@ class ScanScreen(urwid.WidgetWrap):
         if "Scan results printed" in line:
             self._scanning = False
             self.state.scan_done = True
+            # Auto-save scan results to loot
+            if self._loot:
+                self._loot.save_scan_results(self.state.networks)
 
     def _sync_selection(self) -> None:
         """Send current selection to ESP32 and update state."""

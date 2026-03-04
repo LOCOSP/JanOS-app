@@ -4,6 +4,7 @@ import urwid
 
 from ...app_state import AppState
 from ...serial_manager import SerialManager
+from ...loot_manager import LootManager
 from ...config import (
     CMD_START_DEAUTH,
     CMD_START_BLACKOUT,
@@ -45,10 +46,12 @@ class AttacksScreen(urwid.WidgetWrap):
     """Attack list — number keys start attacks (with confirm), 9 stops all.
     Includes a live serial log showing ESP32 feedback during attacks."""
 
-    def __init__(self, state: AppState, serial: SerialManager, app) -> None:
+    def __init__(self, state: AppState, serial: SerialManager, app,
+                 loot: LootManager | None = None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
+        self._loot = loot
 
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
@@ -141,6 +144,8 @@ class AttacksScreen(urwid.WidgetWrap):
                 self._status.set_text(("attack_active", f"  {label} STARTED"))
                 self._log.append(f">>> {label} started — waiting for ESP32 output...", "attack_active")
                 self._last_flags = ""  # force rebuild
+                if self._loot:
+                    self._loot.log_attack_event(f"STARTED: {label} (targets: {self.state.selected_networks})")
             else:
                 self._status.set_text(("dim", f"  {label} cancelled"))
 
@@ -156,6 +161,8 @@ class AttacksScreen(urwid.WidgetWrap):
         self._log.append(">>> All attacks STOPPED", "warning")
         self._status.set_text(("success", "  All attacks stopped"))
         self._last_flags = ""  # force rebuild
+        if self._loot:
+            self._loot.log_attack_event("STOPPED: All attacks")
 
     def keypress(self, size, key):
         if key in ("1", "2", "3", "4"):

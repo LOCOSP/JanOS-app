@@ -6,6 +6,7 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
+from ...loot_manager import LootManager
 from ...config import (
     CMD_START_SNIFFER,
     CMD_STOP,
@@ -29,10 +30,12 @@ class SnifferScreen(urwid.WidgetWrap):
     VIEW_RESULTS = 1
     VIEW_PROBES = 2
 
-    def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager) -> None:
+    def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager,
+                 loot: LootManager | None = None) -> None:
         self.state = state
         self.serial = serial
         self.net_mgr = net_mgr
+        self._loot = loot
         self._view = self.VIEW_LIVE
         self._fetching_results = False
         self._fetching_probes = False
@@ -159,6 +162,9 @@ class SnifferScreen(urwid.WidgetWrap):
         self._body.original_widget = self._results_table
         n = len(self.state.sniffer_aps)
         self._status.set_text(("success", f"  {n} APs found | [r]Refresh  [p]Probes  [l]Live"))
+        # Auto-save to loot
+        if self._loot:
+            self._loot.save_sniffer_aps(self.state.sniffer_aps)
 
     def _fetch_probes(self) -> None:
         self._fetching_probes = True
@@ -187,6 +193,9 @@ class SnifferScreen(urwid.WidgetWrap):
         self._body.original_widget = self._probes_table
         n = len(self.state.sniffer_probes)
         self._status.set_text(("success", f"  {n} probes | [p]Refresh  [r]Results  [l]Live"))
+        # Auto-save to loot
+        if self._loot:
+            self._loot.save_sniffer_probes(self.state.sniffer_probes)
 
     def _clear_results(self) -> None:
         self.serial.send_command(CMD_CLEAR_SNIFFER_RESULTS)

@@ -5,6 +5,7 @@ import urwid
 
 from ...app_state import AppState
 from ...serial_manager import SerialManager
+from ...loot_manager import LootManager
 from ...config import CMD_LIST_SD, CMD_SELECT_HTML, CMD_START_PORTAL, CMD_STOP
 from ..widgets.log_viewer import LogViewer
 from ..widgets.text_input_dialog import TextInputDialog
@@ -29,10 +30,12 @@ class PortalScreen(urwid.WidgetWrap):
     - [d] show captured data
     """
 
-    def __init__(self, state: AppState, serial: SerialManager, app) -> None:
+    def __init__(self, state: AppState, serial: SerialManager, app,
+                 loot: LootManager | None = None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
+        self._loot = loot
         self._wizard_state = STATE_IDLE
 
         self._log = LogViewer()
@@ -99,9 +102,15 @@ class PortalScreen(urwid.WidgetWrap):
             m = re.search(r"Password:\s*(.+)$", line)
             if m:
                 self.state.last_submitted_data = f"Password: {m.group(1)}"
+            # Save to loot
+            if self._loot:
+                self._loot.save_portal_event(line)
         elif any(kw in line.lower() for kw in ("form data:", "username:", "email:")):
             self.state.submitted_forms += 1
             self.state.last_submitted_data = line
+            # Save to loot
+            if self._loot:
+                self._loot.save_portal_event(line)
 
     @staticmethod
     def _event_attr(line: str) -> str:

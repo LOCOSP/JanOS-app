@@ -23,6 +23,7 @@ from .screens.sniffer import SnifferScreen
 from .screens.attacks import AttacksScreen
 from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
+from .widgets.confirm_dialog import ConfirmDialog
 
 log = logging.getLogger(__name__)
 
@@ -87,10 +88,10 @@ class JanOSTUI:
             header=self._tab_bar,
         )
 
-        # Main area: left panel + sidebar
+        # Main area: sidebar + right panel
         self._columns = urwid.Columns([
-            ("weight", 65, self._left_panel),
             ("weight", 35, self._sidebar),
+            ("weight", 65, self._left_panel),
         ], dividechars=1)
 
         # Layout: header + columns + footer
@@ -256,7 +257,7 @@ class JanOSTUI:
             return False
 
         if key in ("q", "Q"):
-            self._quit()
+            self._confirm_quit()
             return True
         # Private mode toggle
         if key == "P":
@@ -293,6 +294,14 @@ class JanOSTUI:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def _confirm_quit(self) -> None:
+        def _on_answer(yes: bool) -> None:
+            self.dismiss_overlay()
+            if yes:
+                self._quit()
+        dialog = ConfirmDialog("Quit JanOS?", _on_answer)
+        self.show_overlay(dialog, 35, 7)
 
     def _quit(self) -> None:
         # Always send stop — even if flags are out of sync with ESP32 state

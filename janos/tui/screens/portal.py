@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import time
-from urllib.parse import unquote_plus
+from urllib.parse import unquote_plus, parse_qs
 
 import urwid
 
@@ -94,12 +94,15 @@ class PortalScreen(urwid.WidgetWrap):
             self._info.set_text(("portal", "  Captive Portal — idle"))
             self._status.set_text(("dim", "  [s]Setup portal"))
 
+    # Keywords that indicate form-data lines from firmware
+    _FORM_KW = ("post data:", "form data:", "password:", "username:", "email:")
+
     def handle_serial_line(self, line: str) -> None:
         """Process serial lines when portal tab is active."""
         if self.state.portal_running:
             # URL-decode form data lines for display & storage
             ll = line.lower()
-            if any(kw in ll for kw in ("form data:", "password:", "username:", "email:")):
+            if any(kw in ll for kw in self._FORM_KW):
                 line = self._url_decode(line)
             self.state.portal_log.append(line)
             self._route_portal_event(line)
@@ -113,6 +116,17 @@ class PortalScreen(urwid.WidgetWrap):
         except Exception:
             return line
 
+    @staticmethod
+    def _parse_post_data(line: str) -> dict:
+        """Extract key=value pairs from 'Received POST data: k=v&k2=v2'."""
+        m = re.search(r"[Pp]ost data:\s*(.+)$", line)
+        if not m:
+            return {}
+        try:
+            return {k: v[0] for k, v in parse_qs(m.group(1)).items()}
+        except Exception:
+            return {}
+
     def _route_portal_event(self, line: str) -> None:
         if "Client connected" in line:
             self.state.portal_client_count += 1
@@ -120,27 +134,41 @@ class PortalScreen(urwid.WidgetWrap):
             m = re.search(r"Client count = (\d+)", line)
             if m:
                 self.state.portal_client_count = int(m.group(1))
+        elif "post data:" in line.lower():
+            # "Received POST data: username=x&password=y"
+            self.state.submitted_forms += 1
+            fields = self._parse_post_data(line)
+            parts = []
+            for key in ("username", "email", "login"):
+                if key in fields:
+                    parts.append(f"{key.title()}: {fields[key]}")
+            if "password" in fields:
+                parts.append(f"Password: {fields['password']}")
+            if parts:
+                self.state.last_submitted_data = " | ".join(parts)
+            else:
+                self.state.last_submitted_data = line
+            if self._loot:
+                self._loot.save_portal_event(line)
         elif "Password:" in line:
             self.state.submitted_forms += 1
-            decoded = self._url_decode(line)
-            m = re.search(r"Password:\s*(.+)$", decoded)
+            m = re.search(r"Password:\s*(.+)$", line)
             if m:
                 self.state.last_submitted_data = f"Password: {m.group(1)}"
             if self._loot:
-                self._loot.save_portal_event(decoded)
+                self._loot.save_portal_event(line)
         elif any(kw in line.lower() for kw in ("form data:", "username:", "email:")):
             self.state.submitted_forms += 1
-            decoded = self._url_decode(line)
-            self.state.last_submitted_data = decoded
+            self.state.last_submitted_data = line
             if self._loot:
-                self._loot.save_portal_event(decoded)
+                self._loot.save_portal_event(line)
 
     @staticmethod
     def _event_attr(line: str) -> str:
         ll = line.lower()
         if "error" in ll or "failed" in ll:
             return "error"
-        if "password:" in ll or "form data:" in ll:
+        if "password:" in ll or "form data:" in ll or "post data:" in ll:
             return "success"
         if "client" in ll:
             return "portal"
@@ -328,7 +356,7 @@ class PortalScreen(urwid.WidgetWrap):
             return
         self._body.original_widget = self._log
         pw_lines = [l for l in self.state.portal_log
-                     if any(kw in l.lower() for kw in ("password:", "form data:", "username:", "email:"))]
+                     if any(kw in l.lower() for kw in self._FORM_KW)]
         if pw_lines:
             self._log.append("=== Captured Data ===", "success")
             for pl in pw_lines:

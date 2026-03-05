@@ -2,7 +2,7 @@
 
 import re
 import time
-from urllib.parse import unquote_plus
+from urllib.parse import unquote_plus, parse_qs
 import urwid
 
 from ...app_state import AppState
@@ -87,7 +87,8 @@ class EvilTwinScreen(urwid.WidgetWrap):
         if self.state.evil_twin_running:
             # URL-decode form data lines for display & storage
             ll = line.lower()
-            if any(kw in ll for kw in ("password:", "username:", "email:", "form data:")):
+            if any(kw in ll for kw in ("post data:", "form data:", "password:",
+                                        "username:", "email:")):
                 line = self._url_decode(line)
             self.state.evil_twin_log.append(line)
             self._route_event(line)
@@ -101,14 +102,29 @@ class EvilTwinScreen(urwid.WidgetWrap):
         except Exception:
             return line
 
+    @staticmethod
+    def _parse_post_data(line: str) -> dict:
+        """Extract key=value pairs from 'Received POST data: k=v&k2=v2'."""
+        m = re.search(r"[Pp]ost data:\s*(.+)$", line)
+        if not m:
+            return {}
+        try:
+            return {k: v[0] for k, v in parse_qs(m.group(1)).items()}
+        except Exception:
+            return {}
+
     def _route_event(self, line: str) -> None:
         if "Client connected" in line:
             self.state.evil_twin_client_count += 1
         elif "trying to connect" in line.lower() or "association" in line.lower():
             pass  # logged
+        elif "post data:" in line.lower():
+            fields = self._parse_post_data(line)
+            self.state.evil_twin_captured_data.append(line)
+            if self._loot:
+                self._loot.save_evil_twin_event(line)
         elif "Password:" in line or "Handshake captured" in line:
             self.state.evil_twin_captured_data.append(line)
-            # Save to loot
             if self._loot:
                 self._loot.save_evil_twin_event(line)
 
@@ -117,7 +133,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
         ll = line.lower()
         if "error" in ll or "failed" in ll:
             return "error"
-        if "password:" in ll or "handshake" in ll:
+        if "password:" in ll or "handshake" in ll or "post data:" in ll:
             return "success"
         if "client" in ll:
             return "evil_twin"

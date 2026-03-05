@@ -4,7 +4,7 @@ import urwid
 
 
 class TabBar(urwid.WidgetWrap):
-    """Horizontal tab bar — switch with 1-5 keys or Tab."""
+    """Horizontal tab bar — switch with 1-3 keys or Tab."""
 
     def __init__(self, labels: list[str], on_switch=None) -> None:
         self._labels = labels

@@ -69,8 +69,8 @@ class JanOSTUI:
             self._attacks,
         ]
 
-        # Sidebar — always-visible right panel with logo + stats
-        self._sidebar = SidebarPanel(self.state)
+        # Sidebar — always-visible left panel with logo + stats
+        self._sidebar = SidebarPanel(self.state, self.loot)
         self._mobile_mode = False
 
         # Widgets

@@ -6,6 +6,7 @@ READ_TIMEOUT = 2
 SNIFFER_UPDATE_INTERVAL = 1
 PORTAL_UPDATE_INTERVAL = 2
 EVIL_TWIN_UPDATE_INTERVAL = 2
+HS_RESCAN_INTERVAL = 45  # seconds between handshake auto-rescan cycles (no selection)
 
 # ESP32 serial commands
 CMD_SCAN_NETWORKS = "scan_networks"

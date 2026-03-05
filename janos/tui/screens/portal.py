@@ -12,7 +12,8 @@ from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...loot_manager import LootManager
 from ...privacy import mask_line, mask_ssid
-from ...config import CMD_SET_HTML, CMD_START_PORTAL, CMD_STOP
+from ...config import (CMD_SET_HTML, CMD_SET_HTML_BEGIN, CMD_SET_HTML_END,
+                       CMD_START_PORTAL, CMD_STOP)
 from ..widgets.log_viewer import LogViewer
 from ..widgets.text_input_dialog import TextInputDialog
 from ..widgets.file_picker import FilePicker
@@ -219,17 +220,38 @@ class PortalScreen(urwid.WidgetWrap):
         self._app.show_overlay(picker, 55, min(len(files) + 6, 20))
 
     def _send_custom_html(self, filepath: str, filename: str) -> None:
-        """Read local HTML file and prepare for ESP32.
+        """Read local HTML, base64-encode, and send chunked to ESP32.
 
-        TODO: Firmware needs set_html implementation to receive HTML over
-        serial (base64 encoded). Until then, custom portals are disabled
-        and user is informed.
+        Protocol: set_html_begin → set_html <chunk> × N → set_html_end
         """
+        try:
+            with open(filepath, "r", encoding="utf-8") as fh:
+                html = fh.read()
+        except OSError as exc:
+            self._status.set_text(("error", f"  Cannot read {filename}: {exc}"))
+            return
+
         self.state.selected_html_name = filename
+        b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
+
+        # Send chunked via serial
+        self.serial.send_command(CMD_SET_HTML_BEGIN)
+        time.sleep(0.1)
+        for i in range(0, len(b64), _B64_CHUNK):
+            chunk = b64[i:i + _B64_CHUNK]
+            self.serial.send_command(f"{CMD_SET_HTML} {chunk}")
+            time.sleep(0.05)  # small delay to avoid serial buffer overflow
+        time.sleep(0.1)
+        self.serial.send_command(CMD_SET_HTML_END)
+        time.sleep(0.3)  # wait for decode
+
         self._status.set_text(
-            ("error",
-             "  Custom portals require firmware update (set_html support)")
+            ("success", f"  HTML sent: {filename} ({len(html)} bytes)")
         )
+        log.info("Custom HTML sent: %s (%d bytes, %d b64 chars)", filename, len(html), len(b64))
+
+        # Proceed to confirm & start
+        self._confirm_start()
 
     # ------------------------------------------------------------------
     # Confirm & start

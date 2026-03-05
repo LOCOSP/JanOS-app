@@ -60,6 +60,8 @@ CMD_LIST_SSID = "list_ssid"
 CMD_FILE_DELETE = "file_delete"
 CMD_SELECT_HTML = "select_html"
 CMD_SET_HTML = "set_html"
+CMD_SET_HTML_BEGIN = "set_html_begin"
+CMD_SET_HTML_END = "set_html_end"
 CMD_SCAN_BT = "scan_bt"
 CMD_SCAN_AIRTAG = "scan_airtag"
 

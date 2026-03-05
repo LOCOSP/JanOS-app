@@ -219,7 +219,11 @@ class PortalScreen(urwid.WidgetWrap):
         self._app.show_overlay(picker, 55, min(len(files) + 6, 20))
 
     def _send_custom_html(self, filepath: str, filename: str) -> None:
-        """Read local HTML file and send to ESP32 via set_html (base64 chunked)."""
+        """Read local HTML file and send to ESP32 via set_html <base64>.
+
+        Uses the firmware's set_html command with full base64-encoded HTML
+        as argument in a single serial line.
+        """
         try:
             with open(filepath, "r", encoding="utf-8") as fh:
                 html_content = fh.read()
@@ -229,13 +233,11 @@ class PortalScreen(urwid.WidgetWrap):
 
         self.state.selected_html_name = filename
 
-        # Base64 encode and send in chunks
+        # Base64 encode and send as single set_html command
         html_b64 = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
-        self.serial.send_command("set_html_begin")
-        for i in range(0, len(html_b64), _B64_CHUNK):
-            chunk = html_b64[i : i + _B64_CHUNK]
-            self.serial.send_command(chunk)
-        self.serial.send_command("set_html_end")
+
+        self._status.set_text(("warning", f"  Sending {filename} ({len(html_content)} bytes)..."))
+        self.serial.send_command(f"{CMD_SET_HTML} {html_b64}")
 
         log.info("Sent custom HTML %s (%d bytes, %d b64 chars)", filename,
                  len(html_content), len(html_b64))

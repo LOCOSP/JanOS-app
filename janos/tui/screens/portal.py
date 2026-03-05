@@ -26,9 +26,14 @@ _B64_CHUNK = 512
 
 
 def _portals_dir() -> str:
-    """Return absolute path to the portals/ directory (next to janos/ package)."""
-    pkg = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return os.path.join(pkg, "portals")
+    """Return absolute path to the portals/ directory (next to janos/ package).
+
+    portal.py lives at janos/tui/screens/ — 4 levels up to reach app root.
+    """
+    # janos/tui/screens/portal.py → screens → tui → janos → JanOS-app/
+    app_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
+    return os.path.join(app_root, "portals")
 
 
 class PortalScreen(urwid.WidgetWrap):

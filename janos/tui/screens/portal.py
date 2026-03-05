@@ -22,8 +22,9 @@ from ..widgets.confirm_dialog import ConfirmDialog
 
 log = logging.getLogger(__name__)
 
-# Base64 chunk size for set_html serial transfer (~512 chars per line)
-_B64_CHUNK = 512
+# Base64 chunk size for set_html serial transfer
+# Firmware console max_cmdline_length = 1024; keep chunks well under that
+_B64_CHUNK = 256
 
 
 def _portals_dir() -> str:

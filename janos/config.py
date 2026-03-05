@@ -65,13 +65,9 @@ CMD_SET_HTML_END = "set_html_end"
 CMD_SCAN_BT = "scan_bt"
 CMD_SCAN_AIRTAG = "scan_airtag"
 
-# Firmware crash signatures
+# Firmware crash signatures (only true crash indicators, not normal boot messages)
 CRASH_KEYWORDS = (
     "Guru Meditation",
     "Core  0 panic",
-    "MEPC",
-    "Rebooting...",
-    "ESP-ROM:",
-    "=== APP_MAIN",
-    "Stack memory:",
+    "assert failed:",
 )

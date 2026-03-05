@@ -219,30 +219,17 @@ class PortalScreen(urwid.WidgetWrap):
         self._app.show_overlay(picker, 55, min(len(files) + 6, 20))
 
     def _send_custom_html(self, filepath: str, filename: str) -> None:
-        """Read local HTML file and send to ESP32 via set_html <base64>.
+        """Read local HTML file and prepare for ESP32.
 
-        Uses the firmware's set_html command with full base64-encoded HTML
-        as argument in a single serial line.
+        TODO: Firmware needs set_html implementation to receive HTML over
+        serial (base64 encoded). Until then, custom portals are disabled
+        and user is informed.
         """
-        try:
-            with open(filepath, "r", encoding="utf-8") as fh:
-                html_content = fh.read()
-        except OSError as exc:
-            self._status.set_text(("error", f"  Cannot read {filename}: {exc}"))
-            return
-
         self.state.selected_html_name = filename
-
-        # Base64 encode and send as single set_html command
-        html_b64 = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
-
-        self._status.set_text(("warning", f"  Sending {filename} ({len(html_content)} bytes)..."))
-        self.serial.send_command(f"{CMD_SET_HTML} {html_b64}")
-
-        log.info("Sent custom HTML %s (%d bytes, %d b64 chars)", filename,
-                 len(html_content), len(html_b64))
-        self._status.set_text(("success", f"  Custom HTML sent: {filename}"))
-        self._confirm_start()
+        self._status.set_text(
+            ("error",
+             "  Custom portals require firmware update (set_html support)")
+        )
 
     # ------------------------------------------------------------------
     # Confirm & start

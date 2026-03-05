@@ -25,6 +25,8 @@ ATTACKS = [
     ("3", "WPA3 SAE Overflow",       CMD_SAE_OVERFLOW,            "sae_overflow_running"),
     ("4", "Handshake Capture",       CMD_START_HANDSHAKE,         "handshake_running"),
     ("5", "Handshake → Serial PCAP", CMD_START_HANDSHAKE_SERIAL,  "handshake_running"),
+    ("6", "Captive Portal",          None,                        "portal_running"),
+    ("7", "Evil Twin",               None,                        "evil_twin_running"),
 ]
 
 
@@ -51,33 +53,44 @@ class AttacksScreen(urwid.WidgetWrap):
     Includes a live serial log showing ESP32 feedback during attacks."""
 
     def __init__(self, state: AppState, serial: SerialManager, app,
-                 loot: LootManager | None = None) -> None:
+                 loot: LootManager | None = None,
+                 portal=None, evil_twin=None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
         self._loot = loot
+        self._portal = portal
+        self._evil_twin = evil_twin
+        self._sub_screen = None  # active sub-screen (Portal/EvilTwin) or None
 
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [1-5]Start  [9]Stop all  [x]Clear log"))
+        self._status = urwid.Text(("dim", "  [1-7]Start  [9]Stop all  [x]Clear  [Esc]Back"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         log_label = urwid.AttrMap(
             urwid.Text(("dim", "  ── ESP32 Output ──")), "default"
         )
 
-        self._container = urwid.Pile([
-            ("fixed", 6, self._listbox),
+        self._menu_view = urwid.Pile([
+            ("fixed", 8, self._listbox),
             ("pack", log_label),
             self._log,
             ("pack", urwid.Divider("─")),
             ("pack", self._status),
         ])
-        super().__init__(self._container)
+        self._body = urwid.WidgetPlaceholder(self._menu_view)
+        super().__init__(self._body)
         self._rebuild()
 
     def refresh(self) -> None:
+        # If sub-screen is active, delegate refresh
+        if self._sub_screen is not None:
+            if hasattr(self._sub_screen, "refresh"):
+                self._sub_screen.refresh()
+            return
+
         # Only rebuild when attack flags actually change
         flags = self._get_flags_key()
         if flags != self._last_flags:
@@ -98,7 +111,7 @@ class AttacksScreen(urwid.WidgetWrap):
                 ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear log")
             )
         elif sel:
-            self._status.set_text(("dim", f"  Target: {sel} | [1-5]Start  [9]Stop all  [x]Clear log"))
+            self._status.set_text(("dim", f"  Target: {sel} | [1-7]Start  [9]Stop all  [x]Clear log"))
         else:
             self._status.set_text(("warning", "  No networks selected! Go to Scan tab first"))
 
@@ -117,7 +130,24 @@ class AttacksScreen(urwid.WidgetWrap):
             self._listbox.set_focus(min(old_focus, len(self._walker) - 1))
 
     def handle_serial_line(self, line: str) -> None:
-        """Display serial output in the log viewer during active attacks."""
+        """Route serial data to appropriate handler."""
+        # If a sub-screen is currently displayed, forward everything to it
+        if self._sub_screen is not None:
+            if hasattr(self._sub_screen, "handle_serial_line"):
+                self._sub_screen.handle_serial_line(line)
+            return
+
+        # Forward to portal if running (even when viewing attack menu)
+        if self.state.portal_running and self._portal:
+            self._portal.handle_serial_line(line)
+            return
+
+        # Forward to evil twin if running (even when viewing attack menu)
+        if self.state.evil_twin_running and self._evil_twin:
+            self._evil_twin.handle_serial_line(line)
+            return
+
+        # Original: show in log for basic attacks
         if not self.state.any_attack_running():
             return
         # Color-code output (use raw line for detection, masked for display)
@@ -132,10 +162,39 @@ class AttacksScreen(urwid.WidgetWrap):
             attr = "dim"
         self._log.append(mask_line(line.strip()), attr)
 
+    # ------------------------------------------------------------------
+    # Sub-screen management (Portal / Evil Twin)
+    # ------------------------------------------------------------------
+
+    def _enter_sub_screen(self, screen) -> None:
+        """Switch body to show a sub-screen."""
+        self._sub_screen = screen
+        self._body.original_widget = screen
+
+    def _exit_sub_screen(self) -> None:
+        """Return to the attacks menu."""
+        self._sub_screen = None
+        self._body.original_widget = self._menu_view
+        self._last_flags = ""  # force menu rebuild
+
+    # ------------------------------------------------------------------
+    # Attack start
+    # ------------------------------------------------------------------
+
     def _start_attack(self, idx: int) -> None:
         if idx >= len(ATTACKS):
             return
         key, label, cmd, flag = ATTACKS[idx]
+
+        # Portal → sub-screen
+        if cmd is None and flag == "portal_running" and self._portal:
+            self._enter_sub_screen(self._portal)
+            return
+
+        # Evil Twin → sub-screen
+        if cmd is None and flag == "evil_twin_running" and self._evil_twin:
+            self._enter_sub_screen(self._evil_twin)
+            return
 
         # Handshake Serial mode attacks all visible networks — no selection needed
         serial_mode = (cmd == CMD_START_HANDSHAKE_SERIAL)
@@ -189,7 +248,18 @@ class AttacksScreen(urwid.WidgetWrap):
             self._loot.log_attack_event("STOPPED: All attacks")
 
     def keypress(self, size, key):
-        if key in ("1", "2", "3", "4", "5"):
+        # Sub-screen mode: forward keys, Esc returns to menu
+        if self._sub_screen is not None:
+            result = self._sub_screen.keypress(size, key)
+            if result is None:
+                return None  # sub-screen consumed it
+            if key == "esc":
+                self._exit_sub_screen()
+                return None
+            return result  # bubble up (e.g. "9" → global stop)
+
+        # Attack menu mode
+        if key in ("1", "2", "3", "4", "5", "6", "7"):
             self._start_attack(int(key) - 1)
             return None
         if key == "9":

@@ -17,6 +17,7 @@ from .palette import PALETTE
 from .header import HeaderWidget
 from .footer import StatusBar
 from .tabs import TabBar
+from .screens.home import SidebarPanel
 from .screens.scan import ScanScreen
 from .screens.sniffer import SnifferScreen
 from .screens.attacks import AttacksScreen
@@ -25,7 +26,7 @@ from .screens.evil_twin import EvilTwinScreen
 
 log = logging.getLogger(__name__)
 
-TAB_LABELS = ["Scan", "Sniffer", "Attacks", "Portal", "EvilTwin"]
+TAB_LABELS = ["Scan", "Sniffer", "Attacks"]
 
 
 class JanOSTUI:
@@ -49,20 +50,27 @@ class JanOSTUI:
             log.error("Serial setup failed: %s", exc)
             self.state.connected = False
 
-        # Real screens
-        self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot)
-        self._sniffer = SnifferScreen(self.state, self.serial, self.net_mgr, self.loot)
-        self._attacks = AttacksScreen(self.state, self.serial, self, self.loot)
+        # Portal & Evil Twin are sub-screens of Attacks — create first
         self._portal = PortalScreen(self.state, self.serial, self, self.loot)
         self._evil_twin = EvilTwinScreen(self.state, self.serial, self.net_mgr, self, self.loot)
+
+        # Main screens
+        self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot)
+        self._sniffer = SnifferScreen(self.state, self.serial, self.net_mgr, self.loot)
+        self._attacks = AttacksScreen(
+            self.state, self.serial, self, self.loot,
+            portal=self._portal, evil_twin=self._evil_twin,
+        )
 
         self._screens: list = [
             self._scan,
             self._sniffer,
             self._attacks,
-            self._portal,
-            self._evil_twin,
         ]
+
+        # Sidebar — always-visible right panel with logo + stats
+        self._sidebar = SidebarPanel(self.state)
+        self._mobile_mode = False
 
         # Widgets
         self._header = HeaderWidget(self.state)
@@ -73,14 +81,23 @@ class JanOSTUI:
         )
         self._body = urwid.WidgetPlaceholder(self._screens[0])
 
-        # Layout: header + tab_bar + body + footer
-        top = urwid.Pile([
-            ("pack", self._header),
-            ("pack", self._tab_bar),
-        ])
-        frame = urwid.Frame(
+        # Left column: tab bar + active screen
+        self._left_panel = urwid.Frame(
             body=self._body,
-            header=top,
+            header=self._tab_bar,
+        )
+
+        # Main area: left panel + sidebar
+        self._columns = urwid.Columns([
+            ("weight", 65, self._left_panel),
+            ("weight", 35, self._sidebar),
+        ], dividechars=1)
+
+        # Layout: header + columns + footer
+        self._content = urwid.WidgetPlaceholder(self._columns)
+        frame = urwid.Frame(
+            body=self._content,
+            header=self._header,
             footer=self._footer,
         )
         self._frame = frame
@@ -120,6 +137,20 @@ class JanOSTUI:
     def dismiss_overlay(self) -> None:
         self._main_widget.original_widget = self._frame
         self._overlay_active = False
+
+    # ------------------------------------------------------------------
+    # Mobile mode toggle
+    # ------------------------------------------------------------------
+
+    def _toggle_mobile(self) -> None:
+        self._mobile_mode = not self._mobile_mode
+        if self._mobile_mode:
+            # Mobile: full-width screen, no sidebar
+            self._content.original_widget = self._left_panel
+        else:
+            # Desktop: sidebar on the right
+            self._content.original_widget = self._columns
+        self._refresh_ui()
 
     # ------------------------------------------------------------------
     # Tab switching
@@ -207,6 +238,7 @@ class JanOSTUI:
     def _refresh_ui(self) -> None:
         self._header.refresh()
         self._footer.refresh()
+        self._sidebar.refresh()
         current = self._screens[self._tab_bar.active]
         if hasattr(current, "refresh"):
             current.refresh()
@@ -234,14 +266,18 @@ class JanOSTUI:
             self._attacks._last_flags = ""
             self._refresh_ui()
             return True
+        # Mobile mode toggle
+        if key == "M":
+            self._toggle_mobile()
+            return True
         if key in ("tab", "right"):
             self._tab_bar.next_tab()
             return True
         if key in ("shift tab", "left"):
             self._tab_bar.prev_tab()
             return True
-        # Number keys switch tabs (1-5)
-        if key in ("1", "2", "3", "4", "5"):
+        # Number keys switch tabs (1-3)
+        if key in ("1", "2", "3"):
             idx = int(key) - 1
             if idx < len(self._screens):
                 self._tab_bar.active = idx

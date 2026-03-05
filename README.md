@@ -32,7 +32,7 @@ python3 -m janos /dev/ttyUSB0
 ### Keyboard Controls
 | Key | Action |
 |-----|--------|
-| `1-5` | Switch tabs (Scan, Sniffer, Attacks, Portal, Evil Twin) |
+| `1-3` | Switch tabs (Scan, Sniffer, Attacks) |
 | `Tab` / `Shift+Tab` | Cycle tabs forward / backward |
 | `Left` / `Right` | Switch tabs (D-pad navigation) |
 | `Up` / `Down` | Navigate lists and tables |
@@ -43,17 +43,19 @@ python3 -m janos /dev/ttyUSB0
 | `l` | Switch to live sniffer view |
 | `x` | Clear results / clear log (context-dependent) |
 | `d` | Show captured data (Portal / Evil Twin) |
+| `M` | Toggle Mobile Mode (hide sidebar for small screens) |
 | `P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all running operations |
 | `q` | Quit (sends stop to ESP32) |
 
 ### Features
+- **Sidebar panel** -- always-visible right panel with JanOS ASCII logo, version, device status, runtime, live stats (networks, packets, forms, captures, active operations)
+- **Header bar** -- system stats: CPU temperature, RAM usage, load average
+- **Mobile Mode** -- press `M` to hide the sidebar and go full-width for small screens (SSH from phone, narrow terminals)
 - **Scan** -- scan networks, browse results with RSSI colors, select targets via keyboard
 - **Sniffer** -- live packet counter, AP/client results, probe requests
-- **Attacks** -- deauth, blackout, WPA3 SAE overflow, handshake capture with live ESP32 output log
+- **Attacks** -- deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin — all in one tab with sub-screen navigation
 - **Handshake Serial PCAP** -- capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
-- **Portal** -- captive portal setup wizard (SSID, HTML file pick from SD card), live monitoring
-- **Evil Twin** -- target network selection, HTML pick, live monitoring with captured data
 - **Crash detection** -- automatic firmware crash alert overlay with state reset
 - **Serial event loop** -- no background threads, uses urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** -- all captured data auto-saved to disk (see below)

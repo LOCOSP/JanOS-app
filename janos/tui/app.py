@@ -30,6 +30,32 @@ log = logging.getLogger(__name__)
 TAB_LABELS = ["Scan", "Sniffer", "Attacks"]
 
 
+class _CrashDialog(urwid.WidgetWrap):
+    """Selectable crash overlay — any key dismisses it."""
+
+    def __init__(self, details: str, on_dismiss) -> None:
+        self._on_dismiss = on_dismiss
+        text = urwid.Text(
+            ("crash",
+             f"\n  FIRMWARE CRASH DETECTED\n\n"
+             f"  {details}\n"
+             f"  ESP32 is rebooting.\n"
+             f"  Press any key to dismiss.\n"),
+            align="left",
+        )
+        fill = urwid.Filler(text, valign="middle")
+        box = urwid.LineBox(fill, title="CRASH")
+        widget = urwid.AttrMap(box, "crash")
+        super().__init__(widget)
+
+    def keypress(self, size, key):
+        self._on_dismiss()
+        return None
+
+    def selectable(self) -> bool:
+        return True
+
+
 class JanOSTUI:
     """Top-level TUI controller."""
 
@@ -173,35 +199,32 @@ class JanOSTUI:
             self._refresh_ui()
             return
 
+        crash_lines = []
         for line in lines:
             log.debug("RX: %s", line)
             # Log every serial line to loot
             self.loot.log_serial(line)
-            # Crash detection
+            # Crash detection — collect all crash lines, show ONE overlay
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True
                 self.state.crash_message = line
                 log.warning("Firmware crash detected: %s", line)
-                self._show_crash_overlay(line)
+                crash_lines.append(line)
                 continue
             self._dispatch_line(line)
+        if crash_lines:
+            self._show_crash_overlay(crash_lines)
         if lines:
             self._refresh_ui()
 
-    def _show_crash_overlay(self, message: str) -> None:
-        """Show a red crash alert overlay."""
-        text = urwid.Text(
-            ("crash",
-             f"\n  FIRMWARE CRASH DETECTED\n\n"
-             f"  {message[:60]}\n\n"
-             f"  ESP32 is rebooting.\n"
-             f"  Press any key to dismiss.\n"),
-            align="left",
-        )
-        fill = urwid.Filler(text, valign="middle")
-        box = urwid.LineBox(fill, title="CRASH")
-        widget = urwid.AttrMap(box, "crash")
-        self.show_overlay(widget, 65, 10)
+    def _show_crash_overlay(self, crash_lines: list) -> None:
+        """Show a red crash alert overlay (single, selectable)."""
+        # Don't stack overlays — dismiss any existing one first
+        if self._overlay_active:
+            self.dismiss_overlay()
+        summary = "\n  ".join(ln[:60] for ln in crash_lines[-4:])
+        widget = _CrashDialog(summary, lambda: self.dismiss_overlay())
+        self.show_overlay(widget, 65, 12)
         # Reset all running states
         self.state.stop_all()
         self._refresh_ui()

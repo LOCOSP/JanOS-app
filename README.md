@@ -49,17 +49,19 @@ python3 -m janos /dev/ttyUSB0
 | `q` | Quit (confirmation prompt, sends stop to ESP32) |
 
 ### Features
-- **Sidebar panel** -- always-visible right panel with JanOS ASCII logo, version, device status, runtime, live stats (networks, packets, forms, captures, active operations)
+- **Sidebar panel** -- left-side panel with JanOS ASCII logo, version, device status, runtime, loot counters (PCAP, HCCAPX, PWD, ET), network breakdown by band (2.4/5GHz) and auth type (WPA2/WPA3/Open)
 - **Header bar** -- system stats: CPU temperature, RAM usage, load average
-- **Mobile Mode** -- press `M` to hide the sidebar and go full-width for small screens (SSH from phone, narrow terminals)
+- **Mobile Mode** -- press `Shift+M` to hide the sidebar and go full-width for small screens (SSH from phone, narrow terminals)
 - **Scan** -- scan networks, browse results with RSSI colors, select targets via keyboard
 - **Sniffer** -- live packet counter, AP/client results, probe requests
 - **Attacks** -- deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin — all in one tab with sub-screen navigation
 - **Handshake Serial PCAP** -- capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
-- **Crash detection** -- automatic firmware crash alert overlay with state reset
+- **Handshake auto-rescan** -- when no network is selected, periodically rescans (45s cycle) so ESP32 discovers fresh networks as you move
+- **Custom Captive Portals** -- load custom HTML portal pages from local `portals/` folder and send to ESP32 via chunked base64 serial transfer (see below)
+- **Crash detection** -- automatic firmware crash alert overlay with state reset, dismissable with any key
 - **Serial event loop** -- no background threads, uses urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** -- all captured data auto-saved to disk (see below)
-- **Private Mode** -- press `P` to mask SSIDs, MACs, IPs, and passwords on screen (for recording/streaming). Loot files are NOT affected
+- **Private Mode** -- press `Shift+P` to mask SSIDs, MACs, IPs, and passwords on screen (for recording/streaming). Loot files are NOT affected
 
 ### Loot System
 
@@ -91,6 +93,37 @@ loot/
 - **Attack events** -- start/stop with target info
 
 The loot path is displayed in the footer status bar. Each app launch creates a new session directory.
+
+### Custom Captive Portals
+
+You can create your own captive portal HTML pages and deploy them to the ESP32 without reflashing firmware.
+
+**How it works:**
+1. Place `.html` files in the `portals/` directory (next to `janos/`)
+2. In the Portal tab, press `s` to start the setup wizard
+3. Enter SSID name for the fake access point
+4. Choose `n` (No) when asked about built-in portal
+5. Select your custom HTML from the file picker
+6. The HTML is base64-encoded and sent to ESP32 via serial (`set_html` protocol)
+7. Confirm to start — the portal serves your custom page
+
+**Creating portal pages:**
+- Must be a single self-contained HTML file (inline CSS/JS, no external resources)
+- Form must POST to `/login` with a `password` field for credential capture
+- Embedded images should use base64 data URIs
+- Maximum size: ~768 KB (1 MB base64 buffer on ESP32 PSRAM)
+- A sample `Custom-portal.html` is included in `portals/`
+
+**Example form structure:**
+```html
+<form method="POST" action="/login">
+  <input type="email" name="email" placeholder="Email">
+  <input type="password" name="password" placeholder="Password">
+  <button type="submit">Connect</button>
+</form>
+```
+
+**Firmware requirement:** Requires JanOS firmware with `set_html` chunked protocol support (branch `feature/handshake-serial` on [projectZero](https://github.com/LOCOSP/projectZero)).
 
 ### Flags
 ```

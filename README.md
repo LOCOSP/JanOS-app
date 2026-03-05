@@ -43,10 +43,10 @@ python3 -m janos /dev/ttyUSB0
 | `l` | Switch to live sniffer view |
 | `x` | Clear results / clear log (context-dependent) |
 | `d` | Show captured data (Portal / Evil Twin) |
-| `M` | Toggle Mobile Mode (hide sidebar for small screens) |
-| `P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
+| `Shift+M` | Toggle Mobile Mode (hide sidebar for small screens) |
+| `Shift+P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all running operations |
-| `q` | Quit (sends stop to ESP32) |
+| `q` | Quit (confirmation prompt, sends stop to ESP32) |
 
 ### Features
 - **Sidebar panel** -- always-visible right panel with JanOS ASCII logo, version, device status, runtime, live stats (networks, packets, forms, captures, active operations)

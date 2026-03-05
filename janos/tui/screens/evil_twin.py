@@ -2,6 +2,7 @@
 
 import re
 import time
+from urllib.parse import unquote_plus
 import urwid
 
 from ...app_state import AppState
@@ -84,9 +85,21 @@ class EvilTwinScreen(urwid.WidgetWrap):
             return
 
         if self.state.evil_twin_running:
+            # URL-decode form data lines for display & storage
+            ll = line.lower()
+            if any(kw in ll for kw in ("password:", "username:", "email:", "form data:")):
+                line = self._url_decode(line)
             self.state.evil_twin_log.append(line)
             self._route_event(line)
             self._log.append(mask_line(line), self._event_attr(line))
+
+    @staticmethod
+    def _url_decode(line: str) -> str:
+        """Decode URL-encoded form values (e.g. %40 -> @, + -> space)."""
+        try:
+            return unquote_plus(line)
+        except Exception:
+            return line
 
     def _route_event(self, line: str) -> None:
         if "Client connected" in line:

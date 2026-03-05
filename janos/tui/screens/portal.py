@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import time
+from urllib.parse import unquote_plus
 
 import urwid
 
@@ -96,9 +97,21 @@ class PortalScreen(urwid.WidgetWrap):
     def handle_serial_line(self, line: str) -> None:
         """Process serial lines when portal tab is active."""
         if self.state.portal_running:
+            # URL-decode form data lines for display & storage
+            ll = line.lower()
+            if any(kw in ll for kw in ("form data:", "password:", "username:", "email:")):
+                line = self._url_decode(line)
             self.state.portal_log.append(line)
             self._route_portal_event(line)
             self._log.append(mask_line(line), self._event_attr(line))
+
+    @staticmethod
+    def _url_decode(line: str) -> str:
+        """Decode URL-encoded form values (e.g. %40 -> @, + -> space)."""
+        try:
+            return unquote_plus(line)
+        except Exception:
+            return line
 
     def _route_portal_event(self, line: str) -> None:
         if "Client connected" in line:
@@ -109,16 +122,18 @@ class PortalScreen(urwid.WidgetWrap):
                 self.state.portal_client_count = int(m.group(1))
         elif "Password:" in line:
             self.state.submitted_forms += 1
-            m = re.search(r"Password:\s*(.+)$", line)
+            decoded = self._url_decode(line)
+            m = re.search(r"Password:\s*(.+)$", decoded)
             if m:
                 self.state.last_submitted_data = f"Password: {m.group(1)}"
             if self._loot:
-                self._loot.save_portal_event(line)
+                self._loot.save_portal_event(decoded)
         elif any(kw in line.lower() for kw in ("form data:", "username:", "email:")):
             self.state.submitted_forms += 1
-            self.state.last_submitted_data = line
+            decoded = self._url_decode(line)
+            self.state.last_submitted_data = decoded
             if self._loot:
-                self._loot.save_portal_event(line)
+                self._loot.save_portal_event(decoded)
 
     @staticmethod
     def _event_attr(line: str) -> str:

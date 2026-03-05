@@ -14,6 +14,7 @@ from ...config import (
     CMD_START_HANDSHAKE,
     CMD_START_HANDSHAKE_SERIAL,
     CMD_STOP,
+    HS_RESCAN_INTERVAL,
 )
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.log_viewer import LogViewer
@@ -63,6 +64,12 @@ class AttacksScreen(urwid.WidgetWrap):
         self._evil_twin = evil_twin
         self._sub_screen = None  # active sub-screen (Portal/EvilTwin) or None
 
+        # Handshake auto-rescan state (cycle when no network selected)
+        self._hs_cmd_running: str = ""      # which HS command is active
+        self._hs_cycle_time: float = 0.0    # when current cycle started
+        self._hs_restarting: bool = False    # waiting for restart delay
+        self._hs_restart_at: float = 0.0    # when to send start again
+
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
@@ -90,6 +97,9 @@ class AttacksScreen(urwid.WidgetWrap):
             if hasattr(self._sub_screen, "refresh"):
                 self._sub_screen.refresh()
             return
+
+        # Handshake auto-rescan check (runs every second)
+        self._check_hs_rescan()
 
         # Only rebuild when attack flags actually change
         flags = self._get_flags_key()
@@ -178,6 +188,51 @@ class AttacksScreen(urwid.WidgetWrap):
         self._last_flags = ""  # force menu rebuild
 
     # ------------------------------------------------------------------
+    # Handshake auto-rescan (cycle when no networks selected)
+    # ------------------------------------------------------------------
+
+    def _check_hs_rescan(self) -> None:
+        """Non-blocking auto-rescan: stop → 1.5s delay → restart."""
+        # Phase 2: delayed restart after stop
+        if self._hs_restarting:
+            if time.time() >= self._hs_restart_at:
+                self._hs_restarting = False
+                self.serial.read_available()  # drain stale buffer
+                self.serial.send_command(self._hs_cmd_running)
+                self._hs_cycle_time = time.time()
+                self._log.append(
+                    ">>> Handshake restarted (fresh network scan)", "attack_active"
+                )
+                if self._loot:
+                    self._loot.log_attack_event("RESCAN: Handshake restarted")
+            return  # don't check for new cycle while restarting
+
+        # Phase 1: check if it's time to cycle
+        if not (self.state.handshake_running and self._hs_cmd_running):
+            return
+        if self.state.selected_networks:
+            return  # focused mode — user selected specific targets
+        if self._hs_cycle_time <= 0:
+            return
+        if time.time() - self._hs_cycle_time < HS_RESCAN_INTERVAL:
+            return
+
+        # Trigger rescan: stop → wait → restart
+        self.serial.send_command(CMD_STOP)
+        self._hs_restarting = True
+        self._hs_restart_at = time.time() + 1.5
+        self._log.append(
+            f">>> Auto-rescan ({HS_RESCAN_INTERVAL}s) — cycling handshake...", "dim"
+        )
+
+    def _reset_hs_rescan(self) -> None:
+        """Clear auto-rescan state."""
+        self._hs_cmd_running = ""
+        self._hs_cycle_time = 0.0
+        self._hs_restarting = False
+        self._hs_restart_at = 0.0
+
+    # ------------------------------------------------------------------
     # Attack start
     # ------------------------------------------------------------------
 
@@ -196,9 +251,10 @@ class AttacksScreen(urwid.WidgetWrap):
             self._enter_sub_screen(self._evil_twin)
             return
 
-        # Handshake Serial mode attacks all visible networks — no selection needed
+        # Handshake modes can work without selection (auto-rescan)
+        is_handshake = cmd in (CMD_START_HANDSHAKE, CMD_START_HANDSHAKE_SERIAL)
         serial_mode = (cmd == CMD_START_HANDSHAKE_SERIAL)
-        if not serial_mode and not self.state.selected_networks:
+        if not is_handshake and not self.state.selected_networks:
             self._status.set_text(("error", "  Select networks first (Scan tab)"))
             return
 
@@ -217,30 +273,61 @@ class AttacksScreen(urwid.WidgetWrap):
                 self.serial.send_command(cmd)
                 setattr(self.state, flag, True)
                 self._status.set_text(("attack_active", f"  {label} STARTED"))
-                if serial_mode:
+
+                # Handshake auto-rescan setup
+                if is_handshake:
+                    self._hs_cmd_running = cmd
+                    self._hs_cycle_time = time.time()
+                    if self.state.selected_networks:
+                        self._log.append(
+                            f">>> {label} — focused on selected networks",
+                            "attack_active",
+                        )
+                    else:
+                        self._log.append(
+                            f">>> {label} — auto-rescan every {HS_RESCAN_INTERVAL}s (no selection)",
+                            "attack_active",
+                        )
+                elif serial_mode:
                     self._log.append(
-                        ">>> Handshake Serial started — PCAP will be saved to loot/handshakes/ automatically",
-                        "attack_active"
+                        ">>> Handshake Serial started — PCAP auto-saved to loot/handshakes/",
+                        "attack_active",
                     )
                 else:
-                    self._log.append(f">>> {label} started — waiting for ESP32 output...", "attack_active")
+                    self._log.append(
+                        f">>> {label} started — waiting for ESP32 output...",
+                        "attack_active",
+                    )
+
                 self._last_flags = ""  # force rebuild
                 if self._loot:
-                    targets = self.state.selected_networks if not serial_mode else "all"
+                    targets = self.state.selected_networks or "all (auto-rescan)"
                     self._loot.log_attack_event(f"STARTED: {label} (targets: {targets})")
             else:
                 self._status.set_text(("dim", f"  {label} cancelled"))
 
-        confirm_msg = (
-            f"Start {label}?\nWill attack all visible networks.\nPCAP saved to loot/handshakes/"
-            if serial_mode else f"Start {label}?"
-        )
+        # Build confirmation message
+        if is_handshake and not self.state.selected_networks:
+            confirm_msg = (
+                f"Start {label}?\n"
+                f"No networks selected — will auto-rescan\n"
+                f"every {HS_RESCAN_INTERVAL}s for fresh targets."
+            )
+        elif serial_mode:
+            confirm_msg = (
+                f"Start {label}?\n"
+                f"Will attack all visible networks.\n"
+                f"PCAP saved to loot/handshakes/"
+            )
+        else:
+            confirm_msg = f"Start {label}?"
         dialog = ConfirmDialog(confirm_msg, on_confirm)
-        self._app.show_overlay(dialog, 55, 10 if serial_mode else 8)
+        self._app.show_overlay(dialog, 55, 10 if is_handshake else 8)
 
     def _stop_all(self) -> None:
         self.serial.send_command(CMD_STOP)
         self.state.stop_all()
+        self._reset_hs_rescan()
         self._log.append(">>> All attacks STOPPED", "warning")
         self._status.set_text(("success", "  All attacks stopped"))
         self._last_flags = ""  # force rebuild

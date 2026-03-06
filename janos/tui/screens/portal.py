@@ -219,7 +219,7 @@ class PortalScreen(urwid.WidgetWrap):
     def _confirm_start_default(self) -> None:
         """Confirm start with firmware's built-in default portal HTML."""
         self.state.selected_html_name = "(default)"
-        msg = f"Start portal?\nSSID: {self._ssid}\nHTML: built-in default"
+        msg = f"Start portal?\nSSID: {mask_ssid(self._ssid)}\nHTML: built-in default"
 
         def on_confirm(yes):
             self._app.dismiss_overlay()
@@ -304,7 +304,7 @@ class PortalScreen(urwid.WidgetWrap):
     def _confirm_start(self) -> None:
         msg = (
             f"Start portal?\n"
-            f"SSID: {self._ssid}\n"
+            f"SSID: {mask_ssid(self._ssid)}\n"
             f"HTML: {self.state.selected_html_name}"
         )
 

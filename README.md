@@ -150,28 +150,31 @@ python3 JanOS_app.py /dev/ttyUSB0
 
 You can set up a desktop shortcut on ClockworkPi uConsole that launches JanOS in fullscreen (no window decorations):
 
-**1. Create the launch script** (`~/python/JanOS-app/janos-launch.sh`):
+**1. Create the launch script** (`janos-launch.sh` is included in the repo):
 ```bash
 #!/bin/bash
-cd ~/python/JanOS-app
+cd "$(dirname "$0")"
 exec lxterminal --title=JanOS --no-remote -e bash -c 'python3 -m janos /dev/ttyUSB0; read -p "Press Enter..."'
 ```
 ```bash
-chmod +x ~/python/JanOS-app/janos-launch.sh
+chmod +x janos-launch.sh
 ```
 
-**2. Create a `.desktop` file** on the desktop:
-```ini
-# ~/Desktop/JanOS.desktop
+**2. Create a `.desktop` file** on the desktop (adjust paths to your install location):
+```bash
+JANOS_DIR="$(pwd)"  # run from the JanOS-app directory
+cat > ~/Desktop/JanOS.desktop << EOF
 [Desktop Entry]
 Name=JanOS
 Comment=WiFi Audit Tool for ESP32
-Exec=/home/locosp/python/JanOS-app/janos-launch.sh
-Icon=/home/locosp/python/JanOS-app/assets/janos-icon.svg
+Exec=$JANOS_DIR/janos-launch.sh
+Icon=$JANOS_DIR/assets/janos-icon.svg
 Terminal=false
 Type=Application
 Categories=Utility;Security;
 StartupNotify=true
+EOF
+chmod +x ~/Desktop/JanOS.desktop
 ```
 
 **3. Auto-fullscreen via labwc window rule** (Raspberry Pi OS Bookworm with Wayland):

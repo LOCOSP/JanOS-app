@@ -23,7 +23,7 @@ class FilePickerItem(urwid.WidgetWrap):
 class FilePicker(urwid.WidgetWrap):
     """Selectable list of files. Calls callback(index, name) on Enter."""
 
-    def __init__(self, files: list[str], callback) -> None:
+    def __init__(self, files: list[str], callback, title: str = "Select HTML file:") -> None:
         self._files = files
         self._callback = callback
         self._selected = -1
@@ -31,7 +31,7 @@ class FilePicker(urwid.WidgetWrap):
         self._listbox = urwid.ListBox(self._walker)
         self._rebuild()
 
-        title = urwid.Text(("dialog_title", "  Select HTML file:"))
+        title = urwid.Text(("dialog_title", f"  {title}"))
         hint = urwid.Text(("dim", "  [Enter] Select  [Esc] Cancel"))
         pile = urwid.Pile([
             ("pack", title),

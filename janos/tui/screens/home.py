@@ -139,7 +139,9 @@ class SidebarPanel(urwid.WidgetWrap):
             )
             self._gps_line2.set_text(("dim", f"    {coords}"))
         elif self.state.gps_available:
-            self._gps_line1.set_text(("warning", "  GPS  Searching..."))
+            vis = self.state.gps_satellites_visible
+            sat_info = f" | Vis:{vis}" if vis else ""
+            self._gps_line1.set_text(("warning", f"  GPS  Waiting for fix{sat_info}"))
             self._gps_line2.set_text("")
         else:
             self._gps_line1.set_text("")

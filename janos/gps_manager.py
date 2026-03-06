@@ -20,6 +20,7 @@ class GpsFix:
     altitude: float = 0.0
     speed_knots: float = 0.0
     satellites: int = 0
+    satellites_visible: int = 0
     fix_quality: int = 0       # 0=no fix, 1=GPS, 2=DGPS
     hdop: float = 99.9
     timestamp: str = ""        # UTC time from NMEA (hhmmss.ss)
@@ -55,6 +56,7 @@ class GpsManager:
         self._buf = _LineBuffer()
         self.fix = GpsFix()
         self._available = False
+        self._gsv_visible: dict = {}  # constellation prefix → satellite count
 
     @property
     def available(self) -> bool:
@@ -142,6 +144,8 @@ class GpsManager:
             self._parse_gga(parts)
         elif kind in ("$GPRMC", "$GNRMC"):
             self._parse_rmc(parts)
+        elif kind in ("$GPGSV", "$GLGSV", "$GNGSV", "$GBGSV", "$GAGSV"):
+            self._parse_gsv(parts)
 
     def _parse_gga(self, p: List[str]) -> None:
         """$GPGGA: time, lat, N/S, lon, E/W, quality, sats, hdop, alt, ..."""
@@ -174,6 +178,15 @@ class GpsManager:
                 self.fix.longitude = self._to_decimal(p[5], p[6])
             if p[7]:
                 self.fix.speed_knots = float(p[7])
+
+    def _parse_gsv(self, p: List[str]) -> None:
+        """$xxGSV: total_msgs, msg_num, sats_in_view, ..."""
+        if len(p) < 4:
+            return
+        prefix = p[0][:3]  # $GP, $GL, $GN, $GB, $GA
+        total_visible = int(p[3]) if p[3] else 0
+        self._gsv_visible[prefix] = total_visible
+        self.fix.satellites_visible = sum(self._gsv_visible.values())
 
     @staticmethod
     def _to_decimal(value: str, direction: str) -> float:

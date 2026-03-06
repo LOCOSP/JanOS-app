@@ -212,6 +212,7 @@ class JanOSTUI:
             self.state.gps_longitude = fix.longitude
             self.state.gps_altitude = fix.altitude
             self.state.gps_satellites = fix.satellites
+            self.state.gps_satellites_visible = fix.satellites_visible
             self.state.gps_fix_quality = fix.fix_quality
             self.state.gps_hdop = fix.hdop
 

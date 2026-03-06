@@ -123,7 +123,7 @@ class JanOSTUI:
         self._columns = urwid.Columns([
             ("weight", 35, self._sidebar),
             ("weight", 65, self._left_panel),
-        ], dividechars=1)
+        ], dividechars=1, focus_column=1)
 
         # Layout: header + columns + footer
         self._content = urwid.WidgetPlaceholder(self._columns)

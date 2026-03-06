@@ -35,19 +35,14 @@ JanOS-app requires a compatible firmware on the ESP32-C5. The app communicates w
 
 **Firmware repository:** [LOCOSP/projectZero — feature/handshake-serial](https://github.com/LOCOSP/projectZero/tree/feature/handshake-serial)
 
-**Download the firmware binary** — two options:
-
-1. **From GitHub Actions (recommended)**
-   - Go to [Actions](https://github.com/LOCOSP/projectZero/actions) → select the latest successful build on `feature/handshake-serial`
-   - Download the **`esp32c5-firmware`** artifact (contains all `.bin` files + flash script)
-
-2. **From the repository**
-   - Pre-built binaries are in [`ESP32C5/binaries-esp32c5/`](https://github.com/LOCOSP/projectZero/tree/feature/handshake-serial/ESP32C5/binaries-esp32c5)
+**Download the firmware binary:**
+1. Go to [Actions](https://github.com/LOCOSP/projectZero/actions) → select the latest successful build on `feature/handshake-serial`
+2. Download the **`esp32c5-firmware`** artifact from the bottom of the run page
+3. Extract the ZIP — it contains all `.bin` files and the `flash_board.py` flash script
 
 **Flash the ESP32-C5:**
 ```bash
 pip install --upgrade esptool pyserial
-cd ESP32C5/binaries-esp32c5/
 python flash_board.py --port /dev/ttyUSB0          # Linux
 python flash_board.py --port COM10                 # Windows
 python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash

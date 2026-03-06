@@ -166,7 +166,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
             self.serial.send_command(f"{CMD_SELECT_NETWORKS} {net.index}")
             self._load_html_files()
 
-        picker = FilePicker(names, on_pick)
+        picker = FilePicker(names, on_pick, title="Select target network:")
         self._app.show_overlay(picker, 55, min(len(names) + 6, 20))
 
     def _load_html_files(self) -> None:

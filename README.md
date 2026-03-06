@@ -36,9 +36,9 @@ JanOS-app requires a compatible firmware on the ESP32-C5. The app communicates w
 **Firmware repository:** [LOCOSP/projectZero — feature/handshake-serial](https://github.com/LOCOSP/projectZero/tree/feature/handshake-serial)
 
 **Download the firmware binary:**
-1. Go to [Actions](https://github.com/LOCOSP/projectZero/actions) → select the latest successful build on `feature/handshake-serial`
-2. Download the **`esp32c5-firmware`** artifact from the bottom of the run page
-3. Extract the ZIP — it contains all `.bin` files and the `flash_board.py` flash script
+1. Open the [latest CI build](https://github.com/LOCOSP/projectZero/actions/runs/22720592665) (or go to [Actions](https://github.com/LOCOSP/projectZero/actions) → pick the latest green run on `feature/handshake-serial`)
+2. Scroll to the **Artifacts** section at the bottom of the run page
+3. Download **`esp32c5-firmware`** (~4 MB ZIP) — contains `bootloader.bin`, `projectZero.bin`, `partition-table.bin`, `oui_wifi.bin`, and `flash_board.py`
 
 **Flash the ESP32-C5:**
 ```bash

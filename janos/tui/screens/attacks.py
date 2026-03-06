@@ -32,21 +32,14 @@ ATTACKS = [
 
 
 class AttackItem(urwid.WidgetWrap):
-    """Single attack list item."""
+    """Single attack list item (non-selectable — use number keys to pick)."""
 
     def __init__(self, key: str, label: str, active: bool) -> None:
         if active:
             text = urwid.Text(("attack_active", f"  [{key}] {label}  [RUNNING]"))
         else:
             text = urwid.Text(("default", f"  [{key}] {label}"))
-        widget = urwid.AttrMap(text, None, focus_map="table_row_sel")
-        super().__init__(widget)
-
-    def selectable(self) -> bool:
-        return True
-
-    def keypress(self, size, key):
-        return key
+        super().__init__(text)
 
 
 class AttacksScreen(urwid.WidgetWrap):
@@ -131,13 +124,10 @@ class AttacksScreen(urwid.WidgetWrap):
         )
 
     def _rebuild(self) -> None:
-        _, old_focus = self._listbox.get_focus()
         self._walker.clear()
         for key, label, cmd, flag in ATTACKS:
             active = getattr(self.state, flag, False)
             self._walker.append(AttackItem(key, label, active))
-        if old_focus is not None and self._walker:
-            self._listbox.set_focus(min(old_focus, len(self._walker) - 1))
 
     def handle_serial_line(self, line: str) -> None:
         """Route serial data to appropriate handler."""

@@ -146,6 +146,55 @@ chmod +x JanOS_app.py
 python3 JanOS_app.py /dev/ttyUSB0
 ```
 
+## Desktop Shortcut (Fullscreen Launcher)
+
+You can set up a desktop shortcut on ClockworkPi uConsole that launches JanOS in fullscreen (no window decorations):
+
+**1. Create the launch script** (`~/python/JanOS-app/janos-launch.sh`):
+```bash
+#!/bin/bash
+cd ~/python/JanOS-app
+exec lxterminal --title=JanOS --no-remote -e bash -c 'python3 -m janos /dev/ttyUSB0; read -p "Press Enter..."'
+```
+```bash
+chmod +x ~/python/JanOS-app/janos-launch.sh
+```
+
+**2. Create a `.desktop` file** on the desktop:
+```ini
+# ~/Desktop/JanOS.desktop
+[Desktop Entry]
+Name=JanOS
+Comment=WiFi Audit Tool for ESP32
+Exec=/home/locosp/python/JanOS-app/janos-launch.sh
+Icon=/home/locosp/python/JanOS-app/assets/janos-icon.svg
+Terminal=false
+Type=Application
+Categories=Utility;Security;
+StartupNotify=true
+```
+
+**3. Auto-fullscreen via labwc window rule** (Raspberry Pi OS Bookworm with Wayland):
+
+Add to `~/.config/labwc/rc.xml` before `</openbox_config>`:
+```xml
+<windowRules>
+  <windowRule title="JanOS">
+    <action name="ToggleFullscreen"/>
+  </windowRule>
+</windowRules>
+```
+Then reload: `kill -SIGHUP $(pidof labwc)`
+
+**4. Suppress "Execute File?" dialog** (optional):
+
+Create `~/.config/libfm/libfm.conf`:
+```ini
+[config]
+quick_exec=1
+```
+Then restart PCManFM: `killall pcmanfm` (it auto-respawns).
+
 ## Hardware
 
 Designed for **ClockworkPi uConsole** with ESP32-C5-WROOM-1 connected via USB serial. The D-pad and keyboard map directly to TUI navigation.

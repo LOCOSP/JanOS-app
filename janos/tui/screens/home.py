@@ -47,26 +47,28 @@ class SidebarPanel(urwid.WidgetWrap):
 
         sep = urwid.Divider("─")
 
-        pile = urwid.Pile([
-            ("pack", self._logo),
-            ("pack", self._version),
-            ("pack", self._device),
-            ("pack", sep),
-            ("pack", self._runtime),
-            ("pack", self._gps_line1),
-            ("pack", self._gps_line2),
-            ("pack", self._networks),
-            ("pack", self._net_bands),
-            ("pack", self._net_auth),
-            ("pack", self._packets),
-            ("pack", self._forms),
-            ("pack", self._captures),
-            ("pack", sep),
-            ("pack", self._loot_info),
-            ("pack", sep),
-            ("pack", self._ops),
-        ])
-        super().__init__(pile)
+        items = [
+            self._logo,
+            self._version,
+            self._device,
+            sep,
+            self._runtime,
+            self._gps_line1,
+            self._gps_line2,
+            self._networks,
+            self._net_bands,
+            self._net_auth,
+            self._packets,
+            self._forms,
+            self._captures,
+            urwid.Divider("─"),
+            self._loot_info,
+            urwid.Divider("─"),
+            self._ops,
+        ]
+        walker = urwid.SimpleFocusListWalker(items)
+        listbox = urwid.ListBox(walker)
+        super().__init__(listbox)
         self.refresh()
 
     # ------------------------------------------------------------------

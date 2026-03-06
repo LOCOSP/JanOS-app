@@ -152,7 +152,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
             return
 
         # Step 1: pick target network from scan results
-        names = [f"{n.ssid} (CH{n.channel} {n.rssi}dBm)" for n in self.state.networks]
+        names = [f"{mask_ssid(n.ssid)} (CH{n.channel} {n.rssi}dBm)" for n in self.state.networks]
 
         def on_pick(idx, name):
             self._app.dismiss_overlay()
@@ -227,7 +227,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
     def _confirm_start_default(self) -> None:
         """Confirm start with firmware's built-in default portal HTML."""
         self.state.selected_html_name = "(default)"
-        msg = f"Start Evil Twin? Target={self._target_ssid} (using built-in HTML)"
+        msg = f"Start Evil Twin? Target={mask_ssid(self._target_ssid)} (using built-in HTML)"
 
         def on_confirm(yes):
             self._app.dismiss_overlay()
@@ -240,7 +240,7 @@ class EvilTwinScreen(urwid.WidgetWrap):
         self._app.show_overlay(dialog, 60, 8)
 
     def _confirm_start(self) -> None:
-        msg = f"Start Evil Twin? Target={self._target_ssid} HTML={self.state.selected_html_name}"
+        msg = f"Start Evil Twin? Target={mask_ssid(self._target_ssid)} HTML={self.state.selected_html_name}"
 
         def on_confirm(yes):
             self._app.dismiss_overlay()

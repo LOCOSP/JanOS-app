@@ -97,6 +97,21 @@ def mask_password(pw: str) -> str:
     return "*" * min(8, max(len(pw), 4))
 
 
+def mask_coords_str(lat: float, lon: float) -> str:
+    """Format GPS coordinates for display, masked in private mode.
+
+    Normal:  "52.229771, 21.012229"
+    Private: "5x.xx, 2x.xx"
+    """
+    if not _private_mode:
+        return f"{lat:.6f}, {lon:.6f}"
+    lat_int = str(int(abs(lat)))
+    lon_int = str(int(abs(lon)))
+    sign_lat = "-" if lat < 0 else ""
+    sign_lon = "-" if lon < 0 else ""
+    return f"{sign_lat}{lat_int[0]}x.xx, {sign_lon}{lon_int[0]}x.xx"
+
+
 # ------------------------------------------------------------------
 # Line-level masking (for serial output / log lines)
 # ------------------------------------------------------------------
@@ -124,6 +139,11 @@ _SSID_RE = re.compile(
 # MAC without colons (hex string like 336C4D or 70bc48336c4d)
 _HEX_MAC_RE = re.compile(
     r'([0-9a-fA-F]{6,12})'
+)
+
+# GPS coordinates (lat, lon with 4+ decimals — avoids matching version numbers etc.)
+_COORD_RE = re.compile(
+    r'(-?\d{1,3}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})'
 )
 
 
@@ -162,5 +182,13 @@ def mask_line(line: str) -> str:
         return prefix + ssid_val[:2] + "*" * (len(ssid_val) - 2)
 
     line = _SSID_RE.sub(_mask_ssid_match, line)
+
+    # Mask GPS coordinates
+    def _mask_coord(m):
+        lat_s = m.group(1)
+        lon_s = m.group(2)
+        return lat_s[0] + "x.xx, " + lon_s[0] + "x.xx"
+
+    line = _COORD_RE.sub(_mask_coord, line)
 
     return line

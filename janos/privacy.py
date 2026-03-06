@@ -80,7 +80,7 @@ def mask_ip(ip: str) -> str:
 
     Examples:
         "192.168.1.100" → "192.*.*.*"
-        "10.59.40.57"   → "10.*.*.*"
+        "10.0.0.1"      → "10.*.*.*"
     """
     if not _private_mode or not ip:
         return ip

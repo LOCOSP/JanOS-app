@@ -6,3 +6,5 @@ dist/
 build/
 .eggs/
 loot/
+nul
+test_esp_*.py

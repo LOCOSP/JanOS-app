@@ -18,6 +18,7 @@ Session directory layout:
 import base64
 import csv
 import io
+import json
 import logging
 import os
 import time
@@ -33,7 +34,8 @@ log = logging.getLogger(__name__)
 class LootManager:
     """Manages a per-session loot directory and auto-saves captured data."""
 
-    def __init__(self, app_dir: str) -> None:
+    def __init__(self, app_dir: str, gps_manager=None) -> None:
+        self._gps = gps_manager  # Optional GpsManager for geo-tagging
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self._base = Path(app_dir) / "loot"
         self._session = self._base / ts
@@ -176,10 +178,13 @@ class LootManager:
             with open(filepath, "w", encoding="utf-8") as fh:
                 fh.write(f"# Handshake captured at {datetime.now().isoformat()}\n")
                 fh.write(f"# SSID: {ssid}\n")
-                fh.write(f"# BSSID: {bssid}\n\n")
+                fh.write(f"# BSSID: {bssid}\n")
+                fh.write(self._gps_header_lines())
+                fh.write("\n")
                 for line in self._hs_buffer:
                     fh.write(line + "\n")
             log.info("Handshake saved: %s", filepath)
+            self._save_gps_sidecar(filepath)
         except OSError as exc:
             log.error("Cannot save handshake: %s", exc)
 
@@ -285,6 +290,7 @@ class LootManager:
             with open(pcap_path, "wb") as fh:
                 fh.write(pcap_data)
             log.info("PCAP saved: %s (%d bytes)", pcap_path, len(pcap_data))
+            self._save_gps_sidecar(pcap_path)
         except Exception as exc:
             log.error("Cannot save PCAP: %s", exc)
 
@@ -296,6 +302,7 @@ class LootManager:
                 with open(hccapx_path, "wb") as fh:
                     fh.write(hccapx_data)
                 log.info("HCCAPX saved: %s (%d bytes)", hccapx_path, len(hccapx_data))
+                self._save_gps_sidecar(hccapx_path)
             except Exception as exc:
                 log.error("Cannot save HCCAPX: %s", exc)
 
@@ -304,6 +311,49 @@ class LootManager:
         self._hccapx_b64_lines = []
         self._pcap_meta_ssid = "unknown"
         self._pcap_meta_bssid = "unknown"
+
+    # ------------------------------------------------------------------
+    # GPS sidecar (Pwnagotchi-compatible .gps.json)
+    # ------------------------------------------------------------------
+
+    def _save_gps_sidecar(self, base_path: Path) -> None:
+        """Write a .gps.json sidecar alongside a capture file.
+
+        Creates e.g. MyWiFi_AABB_143022.pcap.gps.json with raw GPS fix.
+        Loot always contains full (unmasked) data.
+        """
+        if not self._gps or not self._gps.available:
+            return
+        fix = self._gps.fix
+        if not fix.valid:
+            return
+        geo_path = base_path.parent / (base_path.name + ".gps.json")
+        try:
+            data = {
+                "Latitude": round(fix.latitude, 7),
+                "Longitude": round(fix.longitude, 7),
+                "Altitude": round(fix.altitude, 1),
+                "Date": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "Satellites": fix.satellites,
+                "HDOP": round(fix.hdop, 1),
+            }
+            with open(geo_path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+            log.info("GPS sidecar: %s", geo_path)
+        except Exception as exc:
+            log.error("Cannot save GPS sidecar: %s", exc)
+
+    def _gps_header_lines(self) -> str:
+        """Return GPS header lines for .txt handshake files, or empty string."""
+        if not self._gps or not self._gps.available:
+            return ""
+        fix = self._gps.fix
+        if not fix.valid:
+            return ""
+        return (
+            f"# GPS: {fix.latitude:.7f}, {fix.longitude:.7f}\n"
+            f"# Alt: {fix.altitude:.1f}m  Sat: {fix.satellites}  HDOP: {fix.hdop:.1f}\n"
+        )
 
     # ------------------------------------------------------------------
     # Scan results

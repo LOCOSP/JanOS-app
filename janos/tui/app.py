@@ -11,6 +11,7 @@ from ..app_state import AppState
 from ..serial_manager import SerialManager
 from ..network_manager import NetworkManager
 from ..loot_manager import LootManager
+from ..gps_manager import GpsManager
 from .. import privacy
 from ..config import CRASH_KEYWORDS
 from .palette import PALETTE
@@ -65,9 +66,13 @@ class JanOSTUI:
         self.serial = SerialManager(device)
         self.net_mgr = NetworkManager(self.state)
 
+        # GPS module — optional, graceful degradation
+        self.gps = GpsManager()
+        self.state.gps_available = self.gps.setup()
+
         # Loot manager — save captured data to disk
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.loot = LootManager(app_dir)
+        self.loot = LootManager(app_dir, gps_manager=self.gps)
 
         # Connect serial
         try:
@@ -96,7 +101,7 @@ class JanOSTUI:
         ]
 
         # Sidebar — always-visible left panel with logo + stats
-        self._sidebar = SidebarPanel(self.state, self.loot)
+        self._sidebar = SidebarPanel(self.state, self.loot, gps=self.gps)
         self._mobile_mode = False
 
         # Widgets
@@ -142,6 +147,10 @@ class JanOSTUI:
         if self.state.connected:
             self._loop.watch_file(self.serial.fd, self._on_serial_data)
 
+        # GPS FD watcher (if available)
+        if self.state.gps_available:
+            self._loop.watch_file(self.gps.fd, self._on_gps_data)
+
         # 1-second refresh timer
         self._loop.set_alarm_in(1, self._tick)
 
@@ -185,6 +194,26 @@ class JanOSTUI:
 
     def _on_tab_switch(self, index: int) -> None:
         self._body.original_widget = self._screens[index]
+
+    # ------------------------------------------------------------------
+    # GPS data callback (fired by urwid event loop)
+    # ------------------------------------------------------------------
+
+    def _on_gps_data(self) -> None:
+        try:
+            sentences = self.gps.read_available()
+        except Exception:
+            return
+        if sentences:
+            self.gps.process_sentences(sentences)
+            fix = self.gps.fix
+            self.state.gps_fix_valid = fix.valid
+            self.state.gps_latitude = fix.latitude
+            self.state.gps_longitude = fix.longitude
+            self.state.gps_altitude = fix.altitude
+            self.state.gps_satellites = fix.satellites
+            self.state.gps_fix_quality = fix.fix_quality
+            self.state.gps_hdop = fix.hdop
 
     # ------------------------------------------------------------------
     # Serial data callback (fired by urwid event loop)
@@ -337,6 +366,7 @@ class JanOSTUI:
         except Exception:
             pass
         self.loot.close()
+        self.gps.close()
         self.serial.close()
         raise urwid.ExitMainLoop()
 

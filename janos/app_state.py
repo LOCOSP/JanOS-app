@@ -72,6 +72,16 @@ class AppState:
     evil_twin_client_count: int = 0
     evil_twin_log: List[str] = field(default_factory=list)
 
+    # GPS
+    gps_available: bool = False
+    gps_fix_valid: bool = False
+    gps_latitude: float = 0.0
+    gps_longitude: float = 0.0
+    gps_altitude: float = 0.0
+    gps_satellites: int = 0
+    gps_fix_quality: int = 0
+    gps_hdop: float = 99.9
+
     # Runtime
     start_time: float = 0.0
     firmware_crashed: bool = False

@@ -10,6 +10,7 @@ import urwid
 from ... import __version__
 from ...app_state import AppState
 from ...loot_manager import LootManager
+from ...privacy import mask_coords_str, is_private
 
 LOGO = (
     "     ██╗ █████╗ ███╗   ██╗ ██████╗ ███████╗\n"
@@ -24,14 +25,17 @@ LOGO = (
 class SidebarPanel(urwid.WidgetWrap):
     """Always-visible sidebar with ASCII logo and live app stats."""
 
-    def __init__(self, state: AppState, loot: LootManager) -> None:
+    def __init__(self, state: AppState, loot: LootManager, gps=None) -> None:
         self.state = state
         self.loot = loot
+        self._gps = gps
 
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
         self._device = urwid.Text("")
         self._runtime = urwid.Text("")
+        self._gps_line1 = urwid.Text("")
+        self._gps_line2 = urwid.Text("")
         self._networks = urwid.Text("")
         self._net_bands = urwid.Text("")
         self._net_auth = urwid.Text("")
@@ -49,6 +53,8 @@ class SidebarPanel(urwid.WidgetWrap):
             ("pack", self._device),
             ("pack", sep),
             ("pack", self._runtime),
+            ("pack", self._gps_line1),
+            ("pack", self._gps_line2),
             ("pack", self._networks),
             ("pack", self._net_bands),
             ("pack", self._net_auth),
@@ -113,6 +119,31 @@ class SidebarPanel(urwid.WidgetWrap):
             self._runtime.set_text(
                 ("bold", f"  Runtime  {hh:02d}:{mm:02d}:{ss:02d}")
             )
+
+        # GPS
+        if self.state.gps_available and self.state.gps_fix_valid:
+            q = {0: "NoFix", 1: "GPS", 2: "DGPS"}.get(
+                self.state.gps_fix_quality, "Fix"
+            )
+            if is_private():
+                coords = mask_coords_str(
+                    self.state.gps_latitude, self.state.gps_longitude
+                )
+            else:
+                coords = (
+                    f"{self.state.gps_latitude:.6f}, "
+                    f"{self.state.gps_longitude:.6f}"
+                )
+            self._gps_line1.set_text(
+                ("success", f"  GPS  {q} | Sat:{self.state.gps_satellites}")
+            )
+            self._gps_line2.set_text(("dim", f"    {coords}"))
+        elif self.state.gps_available:
+            self._gps_line1.set_text(("warning", "  GPS  Searching..."))
+            self._gps_line2.set_text("")
+        else:
+            self._gps_line1.set_text("")
+            self._gps_line2.set_text("")
 
         # --- Network stats ---
         nets = self.state.networks

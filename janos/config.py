@@ -65,6 +65,11 @@ CMD_SET_HTML_END = "set_html_end"
 CMD_SCAN_BT = "scan_bt"
 CMD_SCAN_AIRTAG = "scan_airtag"
 
+# GPS module (UART on uConsole)
+GPS_DEVICE = "/dev/ttyAMA0"
+GPS_BAUD_RATE = 9600
+GPS_PRIVACY_NOISE_DEG = 0.01  # ±0.01° ≈ ±1.1km randomization in private mode
+
 # Firmware crash signatures (only true crash indicators, not normal boot messages)
 CRASH_KEYWORDS = (
     "Guru Meditation",

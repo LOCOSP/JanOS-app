@@ -4,29 +4,37 @@ import random
 import time
 
 # ---------------------------------------------------------------------------
-# Idle messages — randomly picked each tick for variety
+# Idle messages — phased by how long the creature has been idle
 # ---------------------------------------------------------------------------
 
-_IDLE_MESSAGES = [
-    "zzZ",
+# Phase 1: just came back to idle, sleepy (0–6 s)
+_IDLE_QUIET = ["zzZ", "...", "*yawn*", "  ", "zzz.."]
+
+# Phase 2: waking up, stretching (6–16 s)
+_IDLE_WAKING = ["*stretches*", "ready!", "bored...", "hmm...", "sup?", "*blink*"]
+
+# Phase 3: actively nudging the user toward features (16 s+)
+_IDLE_NUDGE = [
     "scan something!",
     "let's hack!",
-    "*yawn*",
     "flash me?",
-    "bored...",
     "sniff sniff?",
     "try portal!",
     "i see networks",
     "pwn time?",
     "pick a target",
     "feed me data",
-    "...",
-    "ready!",
-    "*stretches*",
     "evil twin me!",
 ]
 
-_last_idle_msg = ""
+# Idle state tracking
+_idle_ticks: int = 0        # consecutive ticks spent in idle
+_idle_current_msg: str = ""  # message currently displayed
+_idle_msg_age: int = 0       # how many ticks current message has been shown
+
+_MSG_HOLD = 5     # hold each message for 5 ticks (≈ 5 s)
+_QUIET_UNTIL = 6  # phase 1 ends after 6 s
+_WAKING_UNTIL = 16  # phase 2 ends after 16 s
 
 # ---------------------------------------------------------------------------
 # Frame definitions: state -> list of (text, urwid_attr) tuples
@@ -303,17 +311,37 @@ def get_creature_state(state) -> str:
     return "idle"
 
 
+def _pick_from(pool: list) -> str:
+    """Pick a random message from *pool*, avoiding the last one shown."""
+    global _idle_current_msg
+    msg = random.choice(pool)
+    while msg == _idle_current_msg and len(pool) > 1:
+        msg = random.choice(pool)
+    _idle_current_msg = msg
+    return msg
+
+
 def _get_idle_frame(tick: int):
-    """Generate an idle frame with a random funny message."""
-    global _last_idle_msg
+    """Generate an idle frame with phased, slow-changing messages."""
+    global _idle_ticks, _idle_current_msg, _idle_msg_age
 
-    msg = random.choice(_IDLE_MESSAGES)
-    while msg == _last_idle_msg and len(_IDLE_MESSAGES) > 1:
-        msg = random.choice(_IDLE_MESSAGES)
-    _last_idle_msg = msg
+    _idle_ticks += 1
+    _idle_msg_age += 1
 
-    # Blink cycle: open → closed → open+msg
-    if tick % 3 == 1:
+    # Pick a new message when the hold time expires (or first frame)
+    if _idle_msg_age >= _MSG_HOLD or not _idle_current_msg:
+        _idle_msg_age = 0
+        if _idle_ticks < _QUIET_UNTIL:
+            _pick_from(_IDLE_QUIET)
+        elif _idle_ticks < _WAKING_UNTIL:
+            _pick_from(_IDLE_WAKING)
+        else:
+            _pick_from(_IDLE_NUDGE)
+
+    msg = _idle_current_msg
+
+    # Blink cycle: open → closed → open
+    if tick % 4 == 2:
         face = "-_-"
     else:
         face = "\u2022_\u2022"
@@ -329,6 +357,14 @@ def _get_idle_frame(tick: int):
 
 def get_frame(state_name: str, tick: int):
     """Return (text, urwid_attr) for the current animation frame."""
+    global _idle_ticks, _idle_msg_age, _idle_current_msg
+
+    if state_name != "idle":
+        # Reset idle tracking when any operation is active
+        _idle_ticks = 0
+        _idle_msg_age = 0
+        _idle_current_msg = ""
+
     if state_name == "idle":
         return _get_idle_frame(tick)
 

@@ -22,7 +22,7 @@ class StartupScreen(urwid.WidgetWrap):
         self._rebuild_text()
         fill = urwid.Filler(self._status_text, valign="middle")
         box = urwid.LineBox(fill, title="Startup Check")
-        widget = urwid.AttrMap(box, "dialog")
+        widget = urwid.AttrMap(box, "default")
         super().__init__(widget)
 
     def _rebuild_text(self) -> None:
@@ -35,9 +35,9 @@ class StartupScreen(urwid.WidgetWrap):
             else:
                 lines.append(("error", f"  [FAIL] {text}\n"))
         if self._has_errors:
-            lines.append(("dialog_title", "\n  Press any key to continue...\n"))
+            lines.append(("banner", "\n  Press any key to continue...\n"))
         else:
-            lines.append(("dialog_title", f"\n  Starting in {self._countdown}...\n"))
+            lines.append(("banner", f"\n  Starting in {self._countdown}...\n"))
         self._status_text.set_text(lines)
 
     def tick(self, loop, _data=None):

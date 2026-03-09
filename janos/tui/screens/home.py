@@ -26,6 +26,10 @@ LOGO = (
 class SidebarPanel(urwid.WidgetWrap):
     """Always-visible sidebar with ASCII logo and live app stats."""
 
+    def selectable(self):
+        """Sidebar is display-only — never steal focus from main panel."""
+        return False
+
     def __init__(self, state: AppState, loot: LootManager, gps=None) -> None:
         self.state = state
         self.loot = loot

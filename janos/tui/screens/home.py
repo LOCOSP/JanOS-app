@@ -11,6 +11,7 @@ from ... import __version__
 from ...app_state import AppState
 from ...loot_manager import LootManager
 from ...privacy import mask_coords_str, is_private
+from ..widgets.creature import get_creature_state, get_frame
 
 LOGO = (
     "     ██╗ █████╗ ███╗   ██╗ ██████╗ ███████╗\n"
@@ -29,6 +30,8 @@ class SidebarPanel(urwid.WidgetWrap):
         self.state = state
         self.loot = loot
         self._gps = gps
+
+        self._frame_tick = 0
 
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
@@ -261,24 +264,8 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._loot_total.set_text("")
 
-        # Active operations
-        ops = []
-        if self.state.sniffer_running:
-            ops.append("SNIFF")
-        if self.state.attack_running:
-            ops.append("DEAUTH")
-        if self.state.blackout_running:
-            ops.append("BLACKOUT")
-        if self.state.sae_overflow_running:
-            ops.append("SAE_OVF")
-        if self.state.handshake_running:
-            ops.append("HS")
-        if self.state.portal_running:
-            ops.append("PORTAL")
-        if self.state.evil_twin_running:
-            ops.append("ET")
-
-        if ops:
-            self._ops.set_text(("attack_active", f"  {', '.join(ops)}"))
-        else:
-            self._ops.set_text(("dim", "  Idle"))
+        # Animated creature
+        creature_state = get_creature_state(self.state)
+        text, attr = get_frame(creature_state, self._frame_tick)
+        self._ops.set_text((attr, text))
+        self._frame_tick += 1

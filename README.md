@@ -121,6 +121,25 @@ loot/
 
 The loot path is displayed in the footer status bar. Each app launch creates a new session directory.
 
+### Loot Dashboard
+
+The sidebar shows two loot lines:
+
+```
+Loot: PCAP:2 │ HCCAPX:2 │ PWD:1          ← current session
+All:  S:103 │ PCAP:336 │ HCCAPX:10 │ PWD:2  ← all-time totals
+```
+
+| Abbrev | Meaning |
+|--------|---------|
+| **S** | Total sessions with at least one capture |
+| **PCAP** | Raw packet captures (`.pcap` files from handshake capture) |
+| **HCCAPX** | Hashcat-ready handshake files (`.hccapx`) |
+| **PWD** | Passwords collected via captive portal submissions |
+| **ET** | Evil Twin credential captures |
+
+All-time totals are persisted in `loot/loot_db.json` and updated automatically after every capture. The database is rebuilt from existing session directories on first run.
+
 ### Custom Captive Portals
 
 You can create your own captive portal HTML pages and deploy them to the ESP32 without reflashing firmware.

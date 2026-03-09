@@ -24,12 +24,13 @@ from .screens.sniffer import SnifferScreen
 from .screens.attacks import AttacksScreen
 from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
+from .screens.addons import AddOnsScreen
 from .widgets.confirm_dialog import ConfirmDialog
 from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
 
-TAB_LABELS = ["Scan", "Sniffer", "Attacks"]
+TAB_LABELS = ["Scan", "Sniffer", "Attacks", "Add-ons"]
 
 
 class _CrashDialog(urwid.WidgetWrap):
@@ -95,10 +96,14 @@ class JanOSTUI:
             portal=self._portal, evil_twin=self._evil_twin,
         )
 
+        # Add-ons screen
+        self._addons = AddOnsScreen(self.state, self.serial, self)
+
         self._screens: list = [
             self._scan,
             self._sniffer,
             self._attacks,
+            self._addons,
         ]
 
         # Sidebar — always-visible left panel with logo + stats
@@ -347,8 +352,8 @@ class JanOSTUI:
         if key in ("shift tab", "left"):
             self._tab_bar.prev_tab()
             return True
-        # Number keys switch tabs (1-3)
-        if key in ("1", "2", "3"):
+        # Number keys switch tabs (1-4)
+        if key in ("1", "2", "3", "4"):
             idx = int(key) - 1
             if idx < len(self._screens):
                 self._tab_bar.active = idx

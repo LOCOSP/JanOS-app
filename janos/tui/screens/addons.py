@@ -116,7 +116,7 @@ class AddOnsScreen(urwid.WidgetWrap):
         dialog = ConfirmDialog(
             "Flash ESP32-C5 with latest firmware?\n"
             "Serial will disconnect during flash.\n"
-            "Hold BOOT + replug USB when prompted.",
+            "esptool will auto-reset into bootloader.",
             on_confirm,
         )
         self._app.show_overlay(dialog, 50, 10)
@@ -126,6 +126,8 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._log.clear()
         self._log.append("Starting firmware flash...", "attack_active")
 
+        port = self.serial.device
+
         # Close serial so esptool can use the port
         if self.state.connected:
             try:
@@ -134,10 +136,10 @@ class AddOnsScreen(urwid.WidgetWrap):
                 pass
             self.serial.close()
             self.state.connected = False
-            self._log.append("Serial port closed.", "dim")
+            self._log.append(f"Serial port {port} released.", "dim")
             self._log.append("", "default")
 
-        self._flash.start(erase=erase)
+        self._flash.start(port=port, erase=erase)
 
     # ------------------------------------------------------------------
     # Serial reconnect (after flash)

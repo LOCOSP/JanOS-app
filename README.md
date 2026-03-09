@@ -9,17 +9,25 @@ Full-screen terminal interface with tabbed navigation, real-time data, and keybo
 
 ### Screenshots
 
-**Scan tab** — network discovery with RSSI color coding and Private Mode:
+**Home** — sidebar with GPS status, loot counters, network breakdown:
+
+![Home idle with GPS](screenshots/home_idle_gps.png)
+
+**Scan** — network discovery with RSSI color coding and Private Mode:
 
 ![Scan with Private Mode](screenshots/scan_private_mode.png)
 
-**Handshake Serial Capture** — confirmation dialog before starting SD-less capture:
+**Sniffer** — live packet capture with AP/client tree and Private Mode:
 
-![Handshake Confirm](screenshots/handshake_confirm.png)
+![Sniffer with Private Mode](screenshots/sniffer_private_mode.png)
 
-**Handshake Serial PCAP** — live D-UCB sniffer with targeted deauth, PCAP streamed via serial:
+**Handshake Serial PCAP** — D-UCB sniffer with targeted deauth, PCAP streamed via serial:
 
 ![Handshake Serial Running](screenshots/handshake_serial_running.png)
+
+**Custom Captive Portal** — file picker for loading custom HTML portal pages:
+
+![Portal File Picker](screenshots/portal_file_picker.png)
 
 ### Install & Run
 ```bash

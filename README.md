@@ -76,7 +76,7 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 | `q` | Quit (confirmation prompt, sends stop to ESP32) |
 
 ### Features
-- **Sidebar panel** -- left-side panel with JanOS ASCII logo, version, device status, runtime, loot counters (PCAP, HCCAPX, PWD, ET), network breakdown by band (2.4/5GHz) and auth type (WPA2/WPA3/Open)
+- **Sidebar panel** -- left-side panel with JanOS ASCII logo, version, device status, runtime, loot counters (PCAP, HCCAPX, 22K, PWD, ET), network breakdown by band (2.4/5GHz) and auth type (WPA2/WPA3/Open)
 - **Header bar** -- system stats: CPU temperature, RAM usage, load average
 - **Mobile Mode** -- press `Shift+M` to hide the sidebar and go full-width for small screens (SSH from phone, narrow terminals)
 - **Scan** -- scan networks, browse results with RSSI colors, select targets via keyboard
@@ -101,9 +101,10 @@ loot/
     scan_results.csv          # networks found during scan
     sniffer_aps.csv           # access points from sniffer
     sniffer_probes.csv        # captured probe requests
-    handshakes/               # .pcap and .hccapx from serial capture
+    handshakes/               # .pcap, .hccapx, and .22000 from serial capture
       HomeWifi_aabbccddeeff_153042.pcap
       HomeWifi_aabbccddeeff_153042.hccapx
+      HomeWifi_aabbccddeeff_153042.22000
     portal_passwords.log      # portal form submissions (passwords, emails)
     evil_twin_capture.log     # evil twin captured data
     attacks.log               # attack start/stop events
@@ -115,6 +116,7 @@ loot/
 - **Scan results** -- CSV with SSID, BSSID, channel, auth, RSSI, band, vendor
 - **Sniffer data** -- APs (with client MACs) and probe requests as CSV
 - **Handshakes** -- binary .pcap and .hccapx files decoded from base64 serial stream (hashcat-ready)
+- **HC22000 hashes** -- `.22000` files auto-generated from complete handshakes (hashcat -m 22000), with GPS coordinates if available. Incomplete captures are skipped
 - **Portal passwords** -- form submissions, usernames, emails
 - **Evil Twin captures** -- passwords, handshakes
 - **Attack events** -- start/stop with target info
@@ -126,8 +128,8 @@ The loot path is displayed in the footer status bar. Each app launch creates a n
 The sidebar shows two loot lines:
 
 ```
-Loot: PCAP:2 │ HCCAPX:2 │ PWD:1          ← current session
-All:  S:103 │ PCAP:336 │ HCCAPX:10 │ PWD:2  ← all-time totals
+Loot: PCAP:2 │ HCCAPX:2 │ 22K:2 │ PWD:1       ← current session
+All:  S:103 │ PCAP:336 │ HCCAPX:10 │ 22K:8 │ PWD:2  ← all-time totals
 ```
 
 | Abbrev | Meaning |
@@ -135,6 +137,7 @@ All:  S:103 │ PCAP:336 │ HCCAPX:10 │ PWD:2  ← all-time totals
 | **S** | Total sessions with at least one capture |
 | **PCAP** | Raw packet captures (`.pcap` files from handshake capture) |
 | **HCCAPX** | Hashcat-ready handshake files (`.hccapx`) |
+| **22K** | Hashcat hc22000 hash files (`.22000`, only from complete handshakes) |
 | **PWD** | Passwords collected via captive portal submissions |
 | **ET** | Evil Twin credential captures |
 

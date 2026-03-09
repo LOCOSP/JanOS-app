@@ -77,7 +77,7 @@ class SidebarPanel(urwid.WidgetWrap):
 
     def _count_loot_files(self) -> dict:
         """Count loot files in the current session directory."""
-        counts: dict = {"pcap": 0, "hccapx": 0, "passwords": 0, "et_captures": 0}
+        counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -88,6 +88,8 @@ class SidebarPanel(urwid.WidgetWrap):
                     counts["pcap"] += 1
                 elif f.suffix == ".hccapx":
                     counts["hccapx"] += 1
+                elif f.suffix == ".22000":
+                    counts["hc22000"] += 1
         pw_file = session / "portal_passwords.log"
         if pw_file.is_file() and pw_file.stat().st_size > 0:
             try:
@@ -202,6 +204,8 @@ class SidebarPanel(urwid.WidgetWrap):
             loot_parts.append(f"PCAP:{loot['pcap']}")
         if loot["hccapx"]:
             loot_parts.append(f"HCCAPX:{loot['hccapx']}")
+        if loot["hc22000"]:
+            loot_parts.append(f"22K:{loot['hc22000']}")
         if loot["passwords"]:
             loot_parts.append(f"PWD:{loot['passwords']}")
         if loot["et_captures"]:
@@ -222,6 +226,8 @@ class SidebarPanel(urwid.WidgetWrap):
                 tp.append(f"PCAP:{totals['pcap']}")
             if totals.get("hccapx"):
                 tp.append(f"HCCAPX:{totals['hccapx']}")
+            if totals.get("hc22000"):
+                tp.append(f"22K:{totals['hc22000']}")
             if totals.get("passwords"):
                 tp.append(f"PWD:{totals['passwords']}")
             if totals.get("et_captures"):

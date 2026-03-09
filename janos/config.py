@@ -65,6 +65,19 @@ CMD_SET_HTML_END = "set_html_end"
 CMD_SCAN_BT = "scan_bt"
 CMD_SCAN_AIRTAG = "scan_airtag"
 
+# Firmware flash settings (ESP32-C5)
+FIRMWARE_RELEASE_URL = "https://api.github.com/repos/LOCOSP/projectZero/releases/latest"
+FLASH_BAUD = 460800
+FLASH_CHIP = "esp32c5"
+FLASH_MODE = "dio"
+FLASH_FREQ = "80m"
+FLASH_OFFSETS = {
+    "bootloader.bin": "0x2000",
+    "partition-table.bin": "0x8000",
+    "projectZero.bin": "0x20000",
+}
+FIRMWARE_DIR = "/tmp/janos-firmware"
+
 # GPS module (UART on uConsole)
 GPS_DEVICE = "/dev/ttyAMA0"
 GPS_BAUD_RATE = 9600

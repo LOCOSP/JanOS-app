@@ -10,6 +10,7 @@ Session directory layout:
             <ssid>_<bssid>.txt   – handshake metadata from serial
             <ssid>_<bssid>.pcap  – real pcap (from start_handshake_serial)
             <ssid>_<bssid>.hccapx – hashcat format (from start_handshake_serial)
+            <ssid>_<bssid>.22000 – hc22000 hash (auto-generated from complete hccapx)
         portal_passwords.log     – portal form submissions
         evil_twin_capture.log    – evil twin captured data
         attacks.log              – attack start/stop events
@@ -110,7 +111,11 @@ class LootManager:
         return self._rebuild_db()
 
     def _rebuild_db(self) -> dict:
-        """Scan all loot session directories and build the DB from scratch."""
+        """Scan all loot session directories and build the DB from scratch.
+
+        Also generates .22000 files retroactively for any .hccapx that
+        doesn't already have a corresponding .22000 file.
+        """
         db: dict = {"version": 1, "sessions": {}, "totals": {}}
         if not self._base.is_dir():
             return db
@@ -119,15 +124,28 @@ class LootManager:
                 continue
             name = entry.name
             if len(name) >= 19 and name[4] == "-" and name[7] == "-" and name[10] == "_":
+                self._retroactive_22000(entry)
                 db["sessions"][name] = self._scan_session_dir(entry)
         self._recalc_totals(db)
         self._save_db(db)
         log.info("Loot DB rebuilt: %d sessions", len(db["sessions"]))
         return db
 
+    def _retroactive_22000(self, session_path: Path) -> None:
+        """Generate .22000 for any .hccapx without a matching .22000."""
+        hs_dir = session_path / "handshakes"
+        if not hs_dir.is_dir():
+            return
+        try:
+            for f in hs_dir.iterdir():
+                if f.suffix == ".hccapx" and not f.with_suffix(".22000").exists():
+                    self._try_generate_22000(f)
+        except OSError:
+            pass
+
     def _scan_session_dir(self, session_path: Path) -> dict:
         """Count loot items in a single session directory."""
-        counts = {"pcap": 0, "hccapx": 0, "passwords": 0, "et_captures": 0}
+        counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -136,6 +154,8 @@ class LootManager:
                         counts["pcap"] += 1
                     elif f.suffix == ".hccapx":
                         counts["hccapx"] += 1
+                    elif f.suffix == ".22000":
+                        counts["hc22000"] += 1
             except OSError:
                 pass
         pw_file = session_path / "portal_passwords.log"
@@ -154,7 +174,7 @@ class LootManager:
 
     def _recalc_totals(self, db: dict) -> None:
         """Recalculate totals from all session entries."""
-        keys = ("pcap", "hccapx", "passwords", "et_captures")
+        keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures")
         totals: dict = {k: 0 for k in keys}
         totals["sessions"] = len(db["sessions"])
         for session_counts in db["sessions"].values():
@@ -405,6 +425,8 @@ class LootManager:
                     fh.write(hccapx_data)
                 log.info("HCCAPX saved: %s (%d bytes)", hccapx_path, len(hccapx_data))
                 self._save_gps_sidecar(hccapx_path)
+                # Generate .22000 from complete handshakes
+                self._try_generate_22000(hccapx_path)
             except Exception as exc:
                 log.error("Cannot save HCCAPX: %s", exc)
 
@@ -457,6 +479,19 @@ class LootManager:
             f"# GPS: {fix.latitude:.7f}, {fix.longitude:.7f}\n"
             f"# Alt: {fix.altitude:.1f}m  Sat: {fix.satellites}  HDOP: {fix.hdop:.1f}\n"
         )
+
+    # ------------------------------------------------------------------
+    # HC22000 generation
+    # ------------------------------------------------------------------
+
+    def _try_generate_22000(self, hccapx_path: Path) -> None:
+        """Generate a .22000 file from an HCCAPX if the handshake is complete."""
+        from janos.hc22000 import convert_hccapx_to_22000
+
+        gps_fix = None
+        if self._gps and self._gps.available:
+            gps_fix = self._gps.fix
+        convert_hccapx_to_22000(hccapx_path, gps_fix=gps_fix)
 
     # ------------------------------------------------------------------
     # Scan results

@@ -124,6 +124,7 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self._flash.done and not self._reconnect_pending:
             self._flash.done = False
             self._flashing = False
+            self.state.flashing = False
             if self._flash.success:
                 self._reconnect_pending = True
                 self._reconnect_at = time.time() + 3
@@ -168,6 +169,7 @@ class AddOnsScreen(urwid.WidgetWrap):
 
     def _begin_flash(self, erase: bool = False) -> None:
         self._flashing = True
+        self.state.flashing = True
         self._log.clear()
         self._log.append("Starting firmware flash...", "attack_active")
 
@@ -217,6 +219,7 @@ class AddOnsScreen(urwid.WidgetWrap):
 
     def _toggle_aio(self, feature: str) -> None:
         """Toggle an AIO feature and update state."""
+        self.state.aio_toggling = time.time()
         attr = f"aio_{feature}"
         current = getattr(self.state, attr, False)
         new_val = not current

@@ -83,6 +83,13 @@ class AppState:
     gps_fix_quality: int = 0
     gps_hdop: float = 99.9
 
+    # AIO v2 module
+    aio_available: bool = False
+    aio_gps: bool = False
+    aio_lora: bool = False
+    aio_sdr: bool = False
+    aio_usb: bool = False
+
     # Runtime
     start_time: float = 0.0
     firmware_crashed: bool = False

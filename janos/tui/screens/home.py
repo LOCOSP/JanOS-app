@@ -32,6 +32,7 @@ class SidebarPanel(urwid.WidgetWrap):
 
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
+        self._aio_line = urwid.Text("")
         self._device = urwid.Text("")
         self._runtime = urwid.Text("")
         self._gps_line1 = urwid.Text("")
@@ -51,6 +52,7 @@ class SidebarPanel(urwid.WidgetWrap):
         items = [
             self._logo,
             self._version,
+            self._aio_line,
             self._device,
             sep,
             self._runtime,
@@ -107,6 +109,26 @@ class SidebarPanel(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
+        # AIO v2 interfaces
+        if self.state.aio_available:
+            parts = []
+            for feat, val in [("GPS", self.state.aio_gps),
+                              ("LORA", self.state.aio_lora),
+                              ("SDR", self.state.aio_sdr),
+                              ("USB", self.state.aio_usb)]:
+                if val:
+                    parts.append(("success", f"{feat}:ON"))
+                else:
+                    parts.append(("dim", f"{feat}:OFF"))
+            markup = [("bold", "  AIO  ")]
+            for i, p in enumerate(parts):
+                markup.append(p)
+                if i < len(parts) - 1:
+                    markup.append(("dim", " │ "))
+            self._aio_line.set_text(markup)
+        else:
+            self._aio_line.set_text("")
+
         # Device
         if self.state.connected:
             self._device.set_text(

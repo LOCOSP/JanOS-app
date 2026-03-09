@@ -1,4 +1,4 @@
-"""Add-ons screen — extra tools (firmware flash, etc.)."""
+"""Add-ons screen — firmware flash + AIO v2 interface control."""
 
 import queue
 import time
@@ -8,22 +8,22 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...flash_manager import FlashManager
+from ...aio_manager import AioManager
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 
-ADDONS = [
-    ("1", "Flash ESP32-C5 Firmware"),
-]
-
 
 class _AddonItem(urwid.WidgetWrap):
-    def __init__(self, key: str, label: str) -> None:
-        text = urwid.Text(("default", f"  [{key}] {label}"))
+    def __init__(self, key: str, label: str, active: bool = False) -> None:
+        if active:
+            text = urwid.Text(("success", f"  [{key}] {label}  [ON]"))
+        else:
+            text = urwid.Text(("default", f"  [{key}] {label}"))
         super().__init__(text)
 
 
 class AddOnsScreen(urwid.WidgetWrap):
-    """Add-ons menu with firmware flashing and live log output."""
+    """Add-ons menu with firmware flashing, AIO control, and live log."""
 
     def __init__(self, state: AppState, serial: SerialManager, app) -> None:
         self.state = state
@@ -31,32 +31,75 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._app = app
         self._flash = FlashManager()
         self._flashing = False
+        self._installing_aio = False
         self._reconnect_pending = False
         self._reconnect_at: float = 0.0
+        self._last_menu_key = ""  # track menu state for rebuild
 
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=500)
-        self._status = urwid.Text(("dim", "  [1] Flash Firmware"))
+        self._status = urwid.Text(("dim", ""))
 
         log_label = urwid.AttrMap(
             urwid.Text(("dim", "  ── Output ──")), "default",
         )
 
-        self._view = urwid.Pile([
-            ("fixed", len(ADDONS) + 1, self._listbox),
+        self._menu_height = 3  # initial estimate
+        self._pile = urwid.Pile([
+            ("fixed", self._menu_height, self._listbox),
             ("pack", log_label),
             self._log,
             ("pack", urwid.Divider("─")),
             ("pack", self._status),
         ])
-        super().__init__(self._view)
+        super().__init__(self._pile)
         self._rebuild_menu()
+
+    def _menu_key(self) -> str:
+        """Key representing current menu state — rebuild only when changed."""
+        return (
+            f"{self.state.aio_available},"
+            f"{self.state.aio_gps},{self.state.aio_lora},"
+            f"{self.state.aio_sdr},{self.state.aio_usb}"
+        )
 
     def _rebuild_menu(self) -> None:
         self._walker.clear()
-        for key, label in ADDONS:
-            self._walker.append(_AddonItem(key, label))
+        self._walker.append(_AddonItem("1", "Flash ESP32-C5 Firmware"))
+
+        if self.state.aio_available:
+            self._walker.append(
+                _AddonItem("2", "GPS", self.state.aio_gps))
+            self._walker.append(
+                _AddonItem("3", "LORA", self.state.aio_lora))
+            self._walker.append(
+                _AddonItem("4", "SDR", self.state.aio_sdr))
+            self._walker.append(
+                _AddonItem("5", "USB", self.state.aio_usb))
+        else:
+            self._walker.append(_AddonItem("2", "Install AIO v2 Control"))
+
+        # Update menu height in the Pile
+        new_height = len(self._walker) + 1
+        if new_height != self._menu_height:
+            self._menu_height = new_height
+            self._pile.contents[0] = (
+                self._listbox, ("given", new_height),
+            )
+
+        self._last_menu_key = self._menu_key()
+        self._update_status_hint()
+
+    def _update_status_hint(self) -> None:
+        if self._flashing or self._installing_aio:
+            return
+        if self.state.aio_available:
+            self._status.set_text(
+                ("dim", "  [1]Flash  [2-5]AIO toggle  [x]Clear"))
+        else:
+            self._status.set_text(
+                ("dim", "  [1]Flash  [2]Install AIO  [x]Clear"))
 
     # ------------------------------------------------------------------
     # Refresh (called every 1s by app._tick)
@@ -64,12 +107,10 @@ class AddOnsScreen(urwid.WidgetWrap):
 
     def refresh(self) -> None:
         # Drain flash output queue
-        drained = 0
         while not self._flash.queue.empty():
             try:
                 line, attr = self._flash.queue.get_nowait()
                 self._log.append(line, attr)
-                drained += 1
             except queue.Empty:
                 break
 
@@ -85,7 +126,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._flashing = False
             if self._flash.success:
                 self._reconnect_pending = True
-                self._reconnect_at = time.time() + 3  # wait for ESP32 boot
+                self._reconnect_at = time.time() + 3
                 self._status.set_text(
                     ("success", "  Flash OK! Reconnecting serial in 3s..."),
                 )
@@ -98,6 +139,10 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self._reconnect_pending and time.time() >= self._reconnect_at:
             self._reconnect_pending = False
             self._reconnect_serial()
+
+        # Rebuild menu if AIO state changed
+        if self._menu_key() != self._last_menu_key:
+            self._rebuild_menu()
 
     # ------------------------------------------------------------------
     # Flash firmware
@@ -167,6 +212,63 @@ class AddOnsScreen(urwid.WidgetWrap):
             )
 
     # ------------------------------------------------------------------
+    # AIO v2 control
+    # ------------------------------------------------------------------
+
+    def _toggle_aio(self, feature: str) -> None:
+        """Toggle an AIO feature and update state."""
+        attr = f"aio_{feature}"
+        current = getattr(self.state, attr, False)
+        new_val = not current
+
+        self._log.append(
+            f"Toggling AIO {feature.upper()} {'ON' if new_val else 'OFF'}...",
+            "dim",
+        )
+
+        ok = AioManager.toggle(feature, new_val)
+        if ok:
+            setattr(self.state, attr, new_val)
+            state_str = "ON" if new_val else "OFF"
+            self._log.append(
+                f"AIO {feature.upper()} → {state_str}", "success",
+            )
+        else:
+            self._log.append(
+                f"Failed to toggle {feature.upper()}", "error",
+            )
+        self._rebuild_menu()
+
+    def _install_aio(self) -> None:
+        """Install aiov2_ctl from GitHub."""
+        if self._installing_aio:
+            return
+        self._installing_aio = True
+        self._log.clear()
+        self._status.set_text(
+            ("attack_active", "  Installing aiov2_ctl..."))
+
+        def _callback(line: str, attr: str) -> None:
+            # Queue for thread safety — drain in refresh()
+            self._flash.queue.put((line, attr))
+            # Check if install finished
+            if "installed successfully" in line.lower():
+                self._installing_aio = False
+                self.state.aio_available = AioManager.is_installed()
+                # Try to get initial status
+                if self.state.aio_available:
+                    status = AioManager.get_status()
+                    if status:
+                        self.state.aio_gps = status.get("gps", False)
+                        self.state.aio_lora = status.get("lora", False)
+                        self.state.aio_sdr = status.get("sdr", False)
+                        self.state.aio_usb = status.get("usb", False)
+            elif "failed" in line.lower() or "error" in line.lower():
+                self._installing_aio = False
+
+        AioManager.install(_callback)
+
+    # ------------------------------------------------------------------
     # Keyboard
     # ------------------------------------------------------------------
 
@@ -174,9 +276,19 @@ class AddOnsScreen(urwid.WidgetWrap):
         if key == "1" and not self._flashing:
             self._start_flash()
             return None
+        if key == "2":
+            if self.state.aio_available:
+                self._toggle_aio("gps")
+            else:
+                self._install_aio()
+            return None
+        if self.state.aio_available and key in ("3", "4", "5"):
+            features = {"3": "lora", "4": "sdr", "5": "usb"}
+            self._toggle_aio(features[key])
+            return None
         if key == "x":
-            if not self._flashing:
+            if not self._flashing and not self._installing_aio:
                 self._log.clear()
-                self._status.set_text(("dim", "  [1] Flash Firmware"))
+                self._update_status_hint()
             return None
         return super().keypress(size, key)

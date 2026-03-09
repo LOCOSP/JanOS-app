@@ -12,6 +12,7 @@ from ..serial_manager import SerialManager
 from ..network_manager import NetworkManager
 from ..loot_manager import LootManager
 from ..gps_manager import GpsManager
+from ..aio_manager import AioManager
 from .. import privacy
 from ..config import CRASH_KEYWORDS
 from .palette import PALETTE
@@ -71,6 +72,16 @@ class JanOSTUI:
         # GPS module — optional, graceful degradation
         self.gps = GpsManager()
         self.state.gps_available = self.gps.setup()
+
+        # AIO v2 module — optional
+        self.state.aio_available = AioManager.is_installed()
+        if self.state.aio_available:
+            status = AioManager.get_status()
+            if status:
+                self.state.aio_gps = status.get("gps", False)
+                self.state.aio_lora = status.get("lora", False)
+                self.state.aio_sdr = status.get("sdr", False)
+                self.state.aio_usb = status.get("usb", False)
 
         # Loot manager — save captured data to disk
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -157,7 +168,8 @@ class JanOSTUI:
         if self.state.gps_available:
             self._loop.watch_file(self.gps.fd, self._on_gps_data)
 
-        # 1-second refresh timer
+        # 1-second refresh timer + AIO counter
+        self._aio_tick = 0
         self._loop.set_alarm_in(1, self._tick)
 
         # Startup check dialog
@@ -309,6 +321,16 @@ class JanOSTUI:
 
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()
+        # AIO status refresh every 10 seconds
+        self._aio_tick += 1
+        if self._aio_tick >= 10 and self.state.aio_available:
+            self._aio_tick = 0
+            status = AioManager.get_status()
+            if status:
+                self.state.aio_gps = status.get("gps", False)
+                self.state.aio_lora = status.get("lora", False)
+                self.state.aio_sdr = status.get("sdr", False)
+                self.state.aio_usb = status.get("usb", False)
         self._loop.set_alarm_in(1, self._tick)
 
     def _refresh_ui(self) -> None:

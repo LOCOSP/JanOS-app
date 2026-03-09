@@ -92,4 +92,11 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
     else:
         checks.append(("info", "GPS not found"))
 
+    # AIO v2 check (optional)
+    from ...aio_manager import AioManager
+    if AioManager.is_installed():
+        checks.append(("ok", "AIO v2 (aiov2_ctl)"))
+    else:
+        checks.append(("info", "AIO v2 not installed"))
+
     return checks

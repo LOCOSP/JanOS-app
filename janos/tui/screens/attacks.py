@@ -25,7 +25,7 @@ ATTACKS = [
     ("2", "Blackout Attack",         CMD_START_BLACKOUT,          "blackout_running"),
     ("3", "WPA3 SAE Overflow",       CMD_SAE_OVERFLOW,            "sae_overflow_running"),
     ("4", "Handshake Capture",       CMD_START_HANDSHAKE,         "handshake_running"),
-    ("5", "Handshake → Serial PCAP", CMD_START_HANDSHAKE_SERIAL,  "handshake_running"),
+    ("5", "Handshake No SD Card",    CMD_START_HANDSHAKE_SERIAL,  "handshake_running"),
     ("6", "Captive Portal",          None,                        "portal_running"),
     ("7", "Evil Twin",               None,                        "evil_twin_running"),
 ]

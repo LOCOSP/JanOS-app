@@ -32,8 +32,8 @@ class SidebarPanel(urwid.WidgetWrap):
 
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
-        self._aio_line = urwid.Text("")
         self._device = urwid.Text("")
+        self._aio_line = urwid.Text("")
         self._runtime = urwid.Text("")
         self._gps_line1 = urwid.Text("")
         self._gps_line2 = urwid.Text("")
@@ -52,7 +52,6 @@ class SidebarPanel(urwid.WidgetWrap):
         items = [
             self._logo,
             self._version,
-            self._aio_line,
             self._device,
             sep,
             self._runtime,
@@ -67,6 +66,8 @@ class SidebarPanel(urwid.WidgetWrap):
             urwid.Divider("─"),
             self._loot_info,
             self._loot_total,
+            urwid.Divider("─"),
+            self._aio_line,
             urwid.Divider("─"),
             self._ops,
         ]

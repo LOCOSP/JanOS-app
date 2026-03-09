@@ -89,7 +89,8 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 - **Serial event loop** -- no background threads, uses urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** -- all captured data auto-saved to disk (see below)
 - **Private Mode** -- press `Shift+P` to mask SSIDs, MACs, IPs, and passwords on screen (for recording/streaming). Loot files are NOT affected
-- **Add-ons tab** -- extensible tools tab; currently includes **Flash ESP32-C5 Firmware** (downloads latest release from GitHub, flashes via esptool with live progress log, auto-reconnects serial)
+- **Add-ons tab** -- extensible tools tab with **Flash ESP32-C5 Firmware** and **AIO v2 interface control** (toggle GPS/LORA/SDR/USB via `aiov2_ctl`, install from GitHub if missing)
+- **AIO v2 sidebar** -- live status of HackerGadgets AIO v2 GPIO interfaces (GPS, LORA, SDR, USB) displayed below loot section, auto-refreshed every 10s
 
 ### Loot System
 
@@ -187,6 +188,24 @@ The **Add-ons** tab (key `4`) provides a built-in firmware flasher for the ESP32
 5. After flashing, esptool auto-resets the ESP32 via RTS/DTR and JanOS reconnects serial
 
 **Requirements:** `esptool` must be installed (`pip install esptool`). The ESP32-C5 must be connected via a USB-UART bridge (e.g., CP2102N) that supports RTS/DTR auto-reset — no BOOT button or replug needed.
+
+### Add-ons: AIO v2 Control
+
+The **Add-ons** tab integrates with **[HackerGadgets AIO v2](https://github.com/hackergadgets/aiov2_ctl)** — a GPIO expansion module for ClockworkPi uConsole with 4 switchable interfaces: GPS (GPIO27), LORA (GPIO16), SDR (GPIO7), USB (GPIO23).
+
+**Sidebar status** (below Loot section):
+```
+AIO  GPS:ON │ LORA:OFF │ SDR:OFF │ USB:OFF
+```
+
+**Toggle interfaces** from the Add-ons tab:
+1. Switch to Add-ons (`4`)
+2. Press `2`-`5` to toggle GPS / LORA / SDR / USB on or off
+3. Sidebar updates immediately, status auto-refreshes every 10 seconds
+
+**Install `aiov2_ctl`** — if not already installed, Add-ons shows `[2] Install AIO v2 Control` which installs directly from GitHub with live progress log.
+
+**Startup check** reports AIO v2 availability: `[OK] AIO v2 (aiov2_ctl)` or `[--] AIO v2 not installed`.
 
 ### Flags
 ```

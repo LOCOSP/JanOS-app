@@ -65,6 +65,7 @@ class ScanScreen(urwid.WidgetWrap):
         if self._scanning:
             return
         self._scanning = True
+        self.state.scanning = True
         self.net_mgr.clear()
         self._last_net_count = 0
         self._table.clear_selection()
@@ -81,6 +82,7 @@ class ScanScreen(urwid.WidgetWrap):
             self._last_net_count = len(self.state.networks)
         if "Scan results printed" in line:
             self._scanning = False
+            self.state.scanning = False
             self.state.scan_done = True
             # Register SSIDs for privacy masking
             register_ssids([n.ssid for n in self.state.networks])

@@ -39,6 +39,7 @@ class AppState:
     # Scan
     networks: List[Network] = field(default_factory=list)
     scan_done: bool = False
+    scanning: bool = False
     selected_networks: str = ""
 
     # Sniffer
@@ -90,6 +91,10 @@ class AppState:
     aio_sdr: bool = False
     aio_usb: bool = False
 
+    # Add-ons
+    flashing: bool = False
+    aio_toggling: float = 0.0
+
     # Runtime
     start_time: float = 0.0
     firmware_crashed: bool = False
@@ -114,6 +119,7 @@ class AppState:
         self.sniffer_running = False
         self.portal_running = False
         self.evil_twin_running = False
+        self.scanning = False
 
     def reset_sniffer(self) -> None:
         self.sniffer_running = False

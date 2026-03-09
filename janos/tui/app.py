@@ -25,6 +25,7 @@ from .screens.attacks import AttacksScreen
 from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
 from .widgets.confirm_dialog import ConfirmDialog
+from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +154,22 @@ class JanOSTUI:
 
         # 1-second refresh timer
         self._loop.set_alarm_in(1, self._tick)
+
+        # Startup check dialog
+        from ..config import GPS_DEVICE
+        checks = run_startup_checks(
+            device, self.state.connected, self.state.gps_available, GPS_DEVICE,
+        )
+        has_errors = any(c[0] == "fail" for c in checks)
+        self._startup_screen = StartupScreen(checks, has_errors, on_dismiss=self._dismiss_startup)
+        height = len(checks) + 6
+        self.show_overlay(self._startup_screen, width=50, height=height)
+        if not has_errors:
+            self._loop.set_alarm_in(1, self._startup_screen.tick)
+
+    def _dismiss_startup(self) -> None:
+        self._startup_screen = None
+        self.dismiss_overlay()
 
     # ------------------------------------------------------------------
     # Overlay support (for dialogs)

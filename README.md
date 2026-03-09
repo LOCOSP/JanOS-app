@@ -59,7 +59,7 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 ### Keyboard Controls
 | Key | Action |
 |-----|--------|
-| `1-3` | Switch tabs (Scan, Sniffer, Attacks) |
+| `1-4` | Switch tabs (Scan, Sniffer, Attacks, Add-ons) |
 | `Tab` / `Shift+Tab` | Cycle tabs forward / backward |
 | `Left` / `Right` | Switch tabs (D-pad navigation) |
 | `Up` / `Down` | Navigate lists and tables |
@@ -89,6 +89,7 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 - **Serial event loop** -- no background threads, uses urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** -- all captured data auto-saved to disk (see below)
 - **Private Mode** -- press `Shift+P` to mask SSIDs, MACs, IPs, and passwords on screen (for recording/streaming). Loot files are NOT affected
+- **Add-ons tab** -- extensible tools tab; currently includes **Flash ESP32-C5 Firmware** (downloads latest release from GitHub, flashes via esptool with live progress log, auto-reconnects serial)
 
 ### Loot System
 
@@ -173,6 +174,19 @@ You can create your own captive portal HTML pages and deploy them to the ESP32 w
 ```
 
 **Firmware requirement:** Requires JanOS firmware with `set_html` chunked protocol support — see [LOCOSP/projectZero releases](https://github.com/LOCOSP/projectZero/releases).
+
+### Add-ons: Flash Firmware
+
+The **Add-ons** tab (key `4`) provides a built-in firmware flasher for the ESP32-C5.
+
+**How it works:**
+1. Switch to the Add-ons tab (`4`)
+2. Press `1` to start Flash Firmware
+3. Confirm the dialog — JanOS closes the serial port, downloads the latest firmware release from GitHub, and flashes it via `esptool`
+4. Live progress is shown in the log (download %, esptool output, flash status)
+5. After flashing, esptool auto-resets the ESP32 via RTS/DTR and JanOS reconnects serial
+
+**Requirements:** `esptool` must be installed (`pip install esptool`). The ESP32-C5 must be connected via a USB-UART bridge (e.g., CP2102N) that supports RTS/DTR auto-reset — no BOOT button or replug needed.
 
 ### Flags
 ```

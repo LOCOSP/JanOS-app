@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import threading
 import time
 
 import urwid
@@ -321,17 +322,21 @@ class JanOSTUI:
 
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()
-        # AIO status refresh every 10 seconds
+        # AIO status refresh every 10 seconds (non-blocking thread)
         self._aio_tick += 1
         if self._aio_tick >= 10 and self.state.aio_available:
             self._aio_tick = 0
-            status = AioManager.get_status()
-            if status:
-                self.state.aio_gps = status.get("gps", False)
-                self.state.aio_lora = status.get("lora", False)
-                self.state.aio_sdr = status.get("sdr", False)
-                self.state.aio_usb = status.get("usb", False)
+            threading.Thread(target=self._refresh_aio, daemon=True).start()
         self._loop.set_alarm_in(1, self._tick)
+
+    def _refresh_aio(self) -> None:
+        """Fetch AIO status in background thread to avoid blocking UI."""
+        status = AioManager.get_status()
+        if status:
+            self.state.aio_gps = status.get("gps", False)
+            self.state.aio_lora = status.get("lora", False)
+            self.state.aio_sdr = status.get("sdr", False)
+            self.state.aio_usb = status.get("usb", False)
 
     def _refresh_ui(self) -> None:
         self._header.refresh()

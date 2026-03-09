@@ -43,6 +43,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._forms = urwid.Text("")
         self._captures = urwid.Text("")
         self._loot_info = urwid.Text("")
+        self._loot_total = urwid.Text("")
         self._ops = urwid.Text("")
 
         sep = urwid.Divider("─")
@@ -63,6 +64,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._captures,
             urwid.Divider("─"),
             self._loot_info,
+            self._loot_total,
             urwid.Divider("─"),
             self._ops,
         ]
@@ -210,6 +212,25 @@ class SidebarPanel(urwid.WidgetWrap):
             )
         else:
             self._loot_info.set_text(("dim", "  Loot: —"))
+
+        # --- Total Loot (all sessions) ---
+        totals = self.loot.loot_totals
+        if totals.get("sessions", 0) > 0:
+            tp = []
+            tp.append(f"S:{totals['sessions']}")
+            if totals.get("pcap"):
+                tp.append(f"PCAP:{totals['pcap']}")
+            if totals.get("hccapx"):
+                tp.append(f"HCCAPX:{totals['hccapx']}")
+            if totals.get("passwords"):
+                tp.append(f"PWD:{totals['passwords']}")
+            if totals.get("et_captures"):
+                tp.append(f"ET:{totals['et_captures']}")
+            self._loot_total.set_text(
+                ("bold", f"  All:  {' │ '.join(tp)}")
+            )
+        else:
+            self._loot_total.set_text("")
 
         # Active operations
         ops = []

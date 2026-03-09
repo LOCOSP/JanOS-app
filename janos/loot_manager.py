@@ -64,6 +64,11 @@ class LootManager:
         self._pcap_meta_ssid = "unknown"
         self._pcap_meta_bssid = "unknown"
 
+        # Aggregate loot database
+        self._db_path = self._base / "loot_db.json"
+        self._db: dict = {}
+        self._session_key = ts
+
         try:
             self._session.mkdir(parents=True, exist_ok=True)
             (self._session / "handshakes").mkdir(exist_ok=True)
@@ -76,6 +81,9 @@ class LootManager:
         except OSError as exc:
             log.error("Cannot create loot directory: %s", exc)
 
+        # Load or build aggregate loot database
+        self._db = self._load_or_build_db()
+
     @property
     def session_path(self) -> str:
         return str(self._session)
@@ -83,6 +91,99 @@ class LootManager:
     @property
     def active(self) -> bool:
         return self._session_active
+
+    # ------------------------------------------------------------------
+    # Aggregate loot database
+    # ------------------------------------------------------------------
+
+    def _load_or_build_db(self) -> dict:
+        """Load loot_db.json, or rebuild from session dirs if missing/corrupt."""
+        if self._db_path.is_file():
+            try:
+                with open(self._db_path, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if isinstance(data, dict) and "version" in data and "sessions" in data:
+                    log.info("Loot DB loaded: %d sessions", len(data.get("sessions", {})))
+                    return data
+            except (json.JSONDecodeError, OSError) as exc:
+                log.warning("Loot DB corrupted (%s), rebuilding", exc)
+        return self._rebuild_db()
+
+    def _rebuild_db(self) -> dict:
+        """Scan all loot session directories and build the DB from scratch."""
+        db: dict = {"version": 1, "sessions": {}, "totals": {}}
+        if not self._base.is_dir():
+            return db
+        for entry in sorted(self._base.iterdir()):
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if len(name) >= 19 and name[4] == "-" and name[7] == "_" and name[10] == "-":
+                db["sessions"][name] = self._scan_session_dir(entry)
+        self._recalc_totals(db)
+        self._save_db(db)
+        log.info("Loot DB rebuilt: %d sessions", len(db["sessions"]))
+        return db
+
+    def _scan_session_dir(self, session_path: Path) -> dict:
+        """Count loot items in a single session directory."""
+        counts = {"pcap": 0, "hccapx": 0, "passwords": 0, "et_captures": 0}
+        hs_dir = session_path / "handshakes"
+        if hs_dir.is_dir():
+            try:
+                for f in hs_dir.iterdir():
+                    if f.suffix == ".pcap":
+                        counts["pcap"] += 1
+                    elif f.suffix == ".hccapx":
+                        counts["hccapx"] += 1
+            except OSError:
+                pass
+        pw_file = session_path / "portal_passwords.log"
+        if pw_file.is_file():
+            try:
+                counts["passwords"] = sum(1 for _ in open(pw_file, encoding="utf-8"))
+            except OSError:
+                pass
+        et_file = session_path / "evil_twin_capture.log"
+        if et_file.is_file():
+            try:
+                counts["et_captures"] = sum(1 for _ in open(et_file, encoding="utf-8"))
+            except OSError:
+                pass
+        return counts
+
+    def _recalc_totals(self, db: dict) -> None:
+        """Recalculate totals from all session entries."""
+        keys = ("pcap", "hccapx", "passwords", "et_captures")
+        totals: dict = {k: 0 for k in keys}
+        totals["sessions"] = len(db["sessions"])
+        for session_counts in db["sessions"].values():
+            for k in keys:
+                totals[k] += session_counts.get(k, 0)
+        db["totals"] = totals
+
+    def _save_db(self, db: dict) -> None:
+        """Write the DB to loot_db.json atomically."""
+        try:
+            tmp = self._db_path.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(db, fh, indent=2)
+            tmp.replace(self._db_path)
+        except OSError as exc:
+            log.error("Cannot save loot DB: %s", exc)
+
+    def update_session_loot(self) -> None:
+        """Rescan current session and update aggregate DB."""
+        if not self._session_active:
+            return
+        self._db["sessions"][self._session_key] = self._scan_session_dir(self._session)
+        self._recalc_totals(self._db)
+        self._save_db(self._db)
+
+    @property
+    def loot_totals(self) -> dict:
+        """Aggregate totals across all sessions."""
+        return self._db.get("totals", {})
 
     # ------------------------------------------------------------------
     # Full serial log
@@ -185,6 +286,7 @@ class LootManager:
                     fh.write(line + "\n")
             log.info("Handshake saved: %s", filepath)
             self._save_gps_sidecar(filepath)
+            self.update_session_loot()
         except OSError as exc:
             log.error("Cannot save handshake: %s", exc)
 
@@ -306,11 +408,12 @@ class LootManager:
             except Exception as exc:
                 log.error("Cannot save HCCAPX: %s", exc)
 
-        # Reset state
+        # Reset state and update DB
         self._pcap_b64_lines = []
         self._hccapx_b64_lines = []
         self._pcap_meta_ssid = "unknown"
         self._pcap_meta_bssid = "unknown"
+        self.update_session_loot()
 
     # ------------------------------------------------------------------
     # GPS sidecar (Pwnagotchi-compatible .gps.json)
@@ -427,6 +530,7 @@ class LootManager:
             ts = datetime.now().strftime("%H:%M:%S")
             with open(filepath, "a", encoding="utf-8") as fh:
                 fh.write(f"[{ts}] {line}\n")
+            self.update_session_loot()
         except OSError:
             pass
 
@@ -443,6 +547,7 @@ class LootManager:
             ts = datetime.now().strftime("%H:%M:%S")
             with open(filepath, "a", encoding="utf-8") as fh:
                 fh.write(f"[{ts}] {line}\n")
+            self.update_session_loot()
         except OSError:
             pass
 
@@ -467,7 +572,7 @@ class LootManager:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Close file handles and write session summary."""
+        """Close file handles, write session summary, and update loot DB."""
         if self._serial_fh:
             try:
                 self._serial_fh.close()
@@ -487,3 +592,6 @@ class LootManager:
                             fh.write(f"  {f.relative_to(self._session)} ({size} bytes)\n")
             except OSError:
                 pass
+
+            # Final DB update
+            self.update_session_loot()

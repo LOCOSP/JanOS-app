@@ -118,7 +118,7 @@ class LootManager:
             if not entry.is_dir():
                 continue
             name = entry.name
-            if len(name) >= 19 and name[4] == "-" and name[7] == "_" and name[10] == "-":
+            if len(name) >= 19 and name[4] == "-" and name[7] == "-" and name[10] == "_":
                 db["sessions"][name] = self._scan_session_dir(entry)
         self._recalc_totals(db)
         self._save_db(db)

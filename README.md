@@ -38,12 +38,12 @@ python3 -m janos /dev/ttyUSB0
 
 ### ⚠️ Required Firmware
 
-JanOS-app requires a compatible firmware on the ESP32-C5. The app communicates with the board over USB serial and expects the command set from the **`feature/handshake-serial`** branch.
+JanOS-app requires a compatible firmware on the ESP32-C5. The app communicates with the board over USB serial and expects the command set from the **`feature/handshake-serial-dev`** branch.
 
-**Firmware repository:** [LOCOSP/projectZero — feature/handshake-serial](https://github.com/LOCOSP/projectZero/tree/feature/handshake-serial)
+**Firmware repository:** [LOCOSP/projectZero — feature/handshake-serial-dev](https://github.com/LOCOSP/projectZero/tree/feature/handshake-serial-dev)
 
 **Download the firmware binary:**
-1. Open the [latest CI build](https://github.com/LOCOSP/projectZero/actions/runs/22720592665) (or go to [Actions](https://github.com/LOCOSP/projectZero/actions) → pick the latest green run on `feature/handshake-serial`)
+1. Open the [latest CI build](https://github.com/LOCOSP/projectZero/actions/runs/22844078538) (or go to [Actions](https://github.com/LOCOSP/projectZero/actions) → pick the latest green run on `feature/handshake-serial-dev`)
 2. Scroll to the **Artifacts** section at the bottom of the run page
 3. Download **`esp32c5-firmware`** (~4 MB ZIP) — contains `bootloader.bin`, `projectZero.bin`, `partition-table.bin`, `oui_wifi.bin`, and `flash_board.py`
 
@@ -55,7 +55,7 @@ python flash_board.py --port COM10                 # Windows
 python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 ```
 
-> **Note:** The upstream [C5Lab/projectZero](https://github.com/C5Lab/projectZero) releases and web flasher at [c5lab.github.io/projectZero](https://c5lab.github.io/projectZero/) provide the mainline firmware which does **not** include handshake serial capture, custom portal upload (`set_html`), or other features required by this app. Always use the `feature/handshake-serial` branch from the LOCOSP fork.
+> **Note:** The upstream [C5Lab/projectZero](https://github.com/C5Lab/projectZero) releases and web flasher at [c5lab.github.io/projectZero](https://c5lab.github.io/projectZero/) provide the mainline firmware which does **not** include handshake serial capture, custom portal upload (`set_html`), or other features required by this app. Always use the `feature/handshake-serial-dev` branch from the LOCOSP fork.
 
 ### Keyboard Controls
 | Key | Action |
@@ -151,7 +151,7 @@ You can create your own captive portal HTML pages and deploy them to the ESP32 w
 </form>
 ```
 
-**Firmware requirement:** Requires JanOS firmware with `set_html` chunked protocol support (branch `feature/handshake-serial` on [projectZero](https://github.com/LOCOSP/projectZero)).
+**Firmware requirement:** Requires JanOS firmware with `set_html` chunked protocol support (branch `feature/handshake-serial-dev` on [projectZero](https://github.com/LOCOSP/projectZero)).
 
 ### Flags
 ```

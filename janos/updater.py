@@ -63,8 +63,11 @@ def do_git_pull(
     *callback(line, attr)* is called for each output line.
     Returns *True* on success.
     """
-    callback("Updating...", "attack_active")
+    callback("Updating from GitHub...", "attack_active")
     try:
+        # Ensure 'github' remote exists (public, no auth needed)
+        _ensure_github_remote(app_dir)
+
         # Stash any local changes first (e.g. manually edited files)
         subprocess.run(
             ["git", "stash", "--quiet"],
@@ -73,7 +76,7 @@ def do_git_pull(
             timeout=10,
         )
         proc = subprocess.Popen(
-            ["git", "pull"],
+            ["git", "pull", "github", "main"],
             cwd=app_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -97,3 +100,23 @@ def do_git_pull(
     except Exception as exc:
         callback(f"Update error: {exc}", "error")
         return False
+
+
+GITHUB_REPO_URL = "https://github.com/LOCOSP/JanOS-app.git"
+
+
+def _ensure_github_remote(app_dir: str) -> None:
+    """Make sure a ``github`` remote exists pointing to the public repo."""
+    result = subprocess.run(
+        ["git", "remote", "get-url", "github"],
+        cwd=app_dir,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # Remote doesn't exist — add it
+        subprocess.run(
+            ["git", "remote", "add", "github", GITHUB_REPO_URL],
+            cwd=app_dir,
+            capture_output=True,
+        )

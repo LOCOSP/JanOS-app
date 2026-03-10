@@ -63,8 +63,15 @@ def do_git_pull(
     *callback(line, attr)* is called for each output line.
     Returns *True* on success.
     """
-    callback("Running git pull...", "attack_active")
+    callback("Updating...", "attack_active")
     try:
+        # Stash any local changes first (e.g. manually edited files)
+        subprocess.run(
+            ["git", "stash", "--quiet"],
+            cwd=app_dir,
+            capture_output=True,
+            timeout=10,
+        )
         proc = subprocess.Popen(
             ["git", "pull"],
             cwd=app_dir,

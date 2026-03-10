@@ -65,6 +65,9 @@ CMD_SET_HTML_END = "set_html_end"
 CMD_SCAN_BT = "scan_bt"
 CMD_SCAN_AIRTAG = "scan_airtag"
 
+# Auto-update (JanOS-app)
+APP_UPDATE_URL = "https://raw.githubusercontent.com/LOCOSP/JanOS-app/main/janos/__init__.py"
+
 # Firmware flash settings (ESP32-C5)
 FIRMWARE_RELEASE_URL = "https://api.github.com/repos/LOCOSP/projectZero/releases/latest"
 FLASH_BAUD = 460800

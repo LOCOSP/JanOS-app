@@ -28,6 +28,7 @@ from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
 from .screens.addons import AddOnsScreen
 from .widgets.confirm_dialog import ConfirmDialog
+from .widgets.info_dialog import InfoDialog
 from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
@@ -173,6 +174,13 @@ class JanOSTUI:
         self._aio_tick = 0
         self._loop.set_alarm_in(1, self._tick)
 
+        # Background update check (non-blocking, result used after startup screen)
+        self._update_version: str | None = None
+        self._update_thread = threading.Thread(
+            target=self._check_update, daemon=True,
+        )
+        self._update_thread.start()
+
         # Startup check dialog
         from ..config import GPS_DEVICE
         checks = run_startup_checks(
@@ -188,6 +196,81 @@ class JanOSTUI:
     def _dismiss_startup(self) -> None:
         self._startup_screen = None
         self.dismiss_overlay()
+        # Show update dialog if a newer version was found
+        if self._update_version:
+            self._show_update_dialog()
+
+    # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+
+    def _check_update(self) -> None:
+        """Background thread: check GitHub for a newer version."""
+        try:
+            from ..updater import check_remote_version, is_newer
+            from .. import __version__
+
+            remote = check_remote_version(timeout=5)
+            if remote and is_newer(remote, __version__):
+                self._update_version = remote
+                log.info("Update available: %s -> %s", __version__, remote)
+        except Exception as exc:
+            log.debug("Update check error: %s", exc)
+
+    def _show_update_dialog(self) -> None:
+        """Show a y/n dialog offering to update."""
+        from .. import __version__
+
+        msg = f"Update v{__version__} \u2192 v{self._update_version}?"
+
+        def _on_answer(yes: bool) -> None:
+            self.dismiss_overlay()
+            if yes:
+                self._do_update()
+
+        dialog = ConfirmDialog(msg, _on_answer)
+        self.show_overlay(dialog, 40, 7)
+
+    def _do_update(self) -> None:
+        """Run git pull in background and show result."""
+        from ..updater import do_git_pull
+        from queue import Queue
+
+        q: Queue = Queue()
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def _callback(line: str, attr: str = "default") -> None:
+            q.put((line, attr))
+
+        def _run() -> None:
+            do_git_pull(app_dir, _callback)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+        # Show info overlay, poll queue for result
+        def _poll(_loop=None, _data=None) -> None:
+            result_line = ""
+            while not q.empty():
+                line, _attr = q.get_nowait()
+                result_line = line
+            if "complete" in result_line.lower() or "failed" in result_line.lower() or "error" in result_line.lower():
+                self.dismiss_overlay()
+                dialog = InfoDialog(
+                    result_line.strip(),
+                    lambda: self.dismiss_overlay(),
+                    title="Update",
+                )
+                self.show_overlay(dialog, 50, 7)
+            else:
+                self._loop.set_alarm_in(0.5, _poll)
+
+        dialog = InfoDialog(
+            "Updating...",
+            lambda: None,  # not dismissable yet
+            title="Update",
+        )
+        self.show_overlay(dialog, 40, 7)
+        self._loop.set_alarm_in(0.5, _poll)
 
     # ------------------------------------------------------------------
     # Overlay support (for dialogs)

@@ -27,16 +27,81 @@ log = logging.getLogger(__name__)
 # Firmware console max_cmdline_length = 1024; keep chunks well under that
 _B64_CHUNK = 256
 
+# ---------------------------------------------------------------------------
+# Sample portal HTML — embedded so the portals/ dir is pure user-data
+# (git-ignored).  Written on first access if the folder is empty.
+# ---------------------------------------------------------------------------
+_SAMPLE_PORTAL_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WiFi Login</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#0a0a23;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:#1a1a3e;border-radius:12px;padding:32px;width:90%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+h1{text-align:center;font-size:1.4em;margin-bottom:6px;color:#fff}
+.sub{text-align:center;font-size:.85em;color:#888;margin-bottom:24px}
+label{display:block;font-size:.85em;color:#aaa;margin-bottom:4px}
+input{width:100%;padding:10px 12px;border:1px solid #333;border-radius:6px;background:#12122a;color:#fff;font-size:1em;margin-bottom:16px}
+input:focus{outline:none;border-color:#4a6cf7}
+button{width:100%;padding:12px;border:none;border-radius:6px;background:#4a6cf7;color:#fff;font-size:1em;font-weight:600;cursor:pointer}
+button:hover{background:#3b5de7}
+.footer{text-align:center;font-size:.75em;color:#555;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>WiFi Access</h1>
+  <p class="sub">Sign in to connect to the network</p>
+  <form method="POST" action="/login">
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" placeholder="you@example.com" required>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" placeholder="Enter password" required>
+    <button type="submit">Connect</button>
+  </form>
+  <p class="footer">By connecting you agree to the Terms of Service</p>
+</div>
+</body>
+</html>
+"""
+
+_SAMPLE_NAME = "Custom-portal.html"
+
 
 def _portals_dir() -> str:
     """Return absolute path to the portals/ directory (next to janos/ package).
 
     portal.py lives at janos/tui/screens/ — 4 levels up to reach app root.
+    The directory is git-ignored; user portal files live only here.
     """
     # janos/tui/screens/portal.py → screens → tui → janos → JanOS-app/
     app_root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))))
     return os.path.join(app_root, "portals")
+
+
+def _ensure_portals_dir() -> str:
+    """Create portals/ dir + seed sample if the folder is empty or missing."""
+    pdir = _portals_dir()
+    os.makedirs(pdir, exist_ok=True)
+    sample = os.path.join(pdir, _SAMPLE_NAME)
+    # Only write sample when folder has zero .html files (don't overwrite user edits)
+    try:
+        has_html = any(f.lower().endswith(".html") for f in os.listdir(pdir))
+    except OSError:
+        has_html = False
+    if not has_html:
+        try:
+            with open(sample, "w", encoding="utf-8") as fh:
+                fh.write(_SAMPLE_PORTAL_HTML)
+            log.info("Created sample portal: %s", sample)
+        except OSError as exc:
+            log.warning("Cannot write sample portal: %s", exc)
+    return pdir
 
 
 class PortalScreen(urwid.WidgetWrap):
@@ -237,7 +302,7 @@ class PortalScreen(urwid.WidgetWrap):
 
     def _show_local_portals(self) -> None:
         """Scan portals/ folder and show file picker."""
-        pdir = _portals_dir()
+        pdir = _ensure_portals_dir()
         try:
             files = sorted(
                 f for f in os.listdir(pdir)

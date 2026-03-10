@@ -6,5 +6,6 @@ dist/
 build/
 .eggs/
 loot/
+portals/
 nul
 test_esp_*.py

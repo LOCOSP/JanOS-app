@@ -97,6 +97,15 @@ class AddOnsScreen(urwid.WidgetWrap):
                     "8", "Balloon Tracker",
                     self._lora.running and self._lora.mode == "tracker",
                 ))
+                self._walker.append(urwid.Divider("─"))
+                self._walker.append(_AddonItem(
+                    "9", "MeshCore Sniffer",
+                    self._lora.running and self._lora.mode == "meshcore",
+                ))
+                self._walker.append(_AddonItem(
+                    "0", "Meshtastic Sniffer",
+                    self._lora.running and self._lora.mode == "meshtastic",
+                ))
         else:
             self._walker.append(_AddonItem("2", "Install AIO v2 Control"))
 
@@ -126,7 +135,7 @@ class AddOnsScreen(urwid.WidgetWrap):
                 self._status.set_text(
                     ("dim",
                      "  [1]Flash  [2-5]AIO  [6]Sniff  [7]Scan  "
-                     "[8]Track  [x]Clear"))
+                     "[8]Track  [9]Mesh  [0]Meshtastic  [x]Clear"))
             else:
                 self._status.set_text(
                     ("dim", "  [1]Flash  [2-5]AIO toggle  [x]Clear"))
@@ -338,6 +347,10 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._lora.start_scanner()
         elif key == "8":
             self._lora.start_tracker()
+        elif key == "9":
+            self._lora.start_meshcore()
+        elif key == "0":
+            self._lora.start_meshtastic()
         self._rebuild_menu()
 
     # ------------------------------------------------------------------
@@ -359,7 +372,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._toggle_aio(features[key])
             return None
         # LoRa features (only when LORA ON)
-        if self.state.aio_lora and key in ("6", "7", "8"):
+        if self.state.aio_lora and key in ("6", "7", "8", "9", "0"):
             self._start_lora(key)
             return None
         # Stop running LoRa operation

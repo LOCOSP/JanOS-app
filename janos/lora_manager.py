@@ -191,9 +191,7 @@ class LoRaManager:
         lora.setFrequency(freq)
         lora.setLoRaModulation(sf, bw, cr, False)
         if sync_word:
-            hi = (sync_word >> 8) & 0xFF
-            lo = sync_word & 0xFF
-            lora.setSyncWord(hi, lo)
+            lora.setSyncWord(sync_word)
         if preamble:
             lora.setLoRaPacket(preamble, 0, 255, True)
 

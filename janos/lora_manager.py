@@ -230,7 +230,15 @@ class LoRaManager:
             while not self._stop_event.is_set():
                 try:
                     if use_continuous:
-                        time.sleep(0.1)
+                        lora.wait(2)
+                        # status() clears _statusIrq so next wait()
+                        # properly blocks until new packet arrives
+                        stat = lora.status()
+                        if stat == lora.STATUS_RX_DONE:
+                            if lora.available() > 0:
+                                handler(lora, tag)
+                        errors = 0
+                        continue
                     else:
                         lora.request(lora.RX_SINGLE)
                         lora.wait(2)  # 2s timeout

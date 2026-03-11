@@ -91,6 +91,9 @@ class AppState:
     aio_sdr: bool = False
     aio_usb: bool = False
 
+    # LoRa
+    lora_packets: int = 0
+
     # Add-ons
     flashing: bool = False
     aio_toggling: float = 0.0

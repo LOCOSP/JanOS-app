@@ -42,6 +42,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._device = urwid.Text("")
         self._fw_version = urwid.Text("")
         self._aio_line = urwid.Text("")
+        self._lora_line = urwid.Text("")
         self._runtime = urwid.Text("")
         self._gps_line1 = urwid.Text("")
         self._gps_line2 = urwid.Text("")
@@ -77,6 +78,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._loot_total,
             urwid.Divider("─"),
             self._aio_line,
+            self._lora_line,
             urwid.Divider("─"),
             self._ops,
         ]
@@ -138,6 +140,13 @@ class SidebarPanel(urwid.WidgetWrap):
             self._aio_line.set_text(markup)
         else:
             self._aio_line.set_text("")
+
+        # LoRa packets (when LORA is on and packets received)
+        if self.state.aio_lora and self.state.lora_packets > 0:
+            self._lora_line.set_text(
+                ("success", f"  LoRa Packets: {self.state.lora_packets}"))
+        else:
+            self._lora_line.set_text("")
 
         # Device
         if self.state.connected:

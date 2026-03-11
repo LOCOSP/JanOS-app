@@ -1,4 +1,4 @@
-"""Add-ons screen — firmware flash + AIO v2 interface control."""
+"""Add-ons screen — firmware flash + AIO v2 interface control + LoRa."""
 
 import queue
 import time
@@ -9,6 +9,7 @@ from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...flash_manager import FlashManager
 from ...aio_manager import AioManager
+from ...lora_manager import LoRaManager
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 
@@ -23,13 +24,14 @@ class _AddonItem(urwid.WidgetWrap):
 
 
 class AddOnsScreen(urwid.WidgetWrap):
-    """Add-ons menu with firmware flashing, AIO control, and live log."""
+    """Add-ons menu with firmware flashing, AIO control, LoRa, and live log."""
 
     def __init__(self, state: AppState, serial: SerialManager, app) -> None:
         self.state = state
         self.serial = serial
         self._app = app
         self._flash = FlashManager()
+        self._lora = LoRaManager()
         self._flashing = False
         self._installing_aio = False
         self._reconnect_pending = False
@@ -58,10 +60,12 @@ class AddOnsScreen(urwid.WidgetWrap):
 
     def _menu_key(self) -> str:
         """Key representing current menu state — rebuild only when changed."""
+        lora_mode = self._lora.mode if self._lora.running else ""
         return (
             f"{self.state.aio_available},"
             f"{self.state.aio_gps},{self.state.aio_lora},"
-            f"{self.state.aio_sdr},{self.state.aio_usb}"
+            f"{self.state.aio_sdr},{self.state.aio_usb},"
+            f"{lora_mode}"
         )
 
     def _rebuild_menu(self) -> None:
@@ -77,6 +81,22 @@ class AddOnsScreen(urwid.WidgetWrap):
                 _AddonItem("4", "SDR", self.state.aio_sdr))
             self._walker.append(
                 _AddonItem("5", "USB", self.state.aio_usb))
+
+            # LoRa sub-features (only when LORA is ON)
+            if self.state.aio_lora:
+                self._walker.append(urwid.Divider("─"))
+                self._walker.append(_AddonItem(
+                    "6", "LoRa Sniffer",
+                    self._lora.running and self._lora.mode == "sniffer",
+                ))
+                self._walker.append(_AddonItem(
+                    "7", "LoRa Scanner",
+                    self._lora.running and self._lora.mode == "scanner",
+                ))
+                self._walker.append(_AddonItem(
+                    "8", "Balloon Tracker",
+                    self._lora.running and self._lora.mode == "tracker",
+                ))
         else:
             self._walker.append(_AddonItem("2", "Install AIO v2 Control"))
 
@@ -94,9 +114,22 @@ class AddOnsScreen(urwid.WidgetWrap):
     def _update_status_hint(self) -> None:
         if self._flashing or self._installing_aio:
             return
-        if self.state.aio_available:
+        if self._lora.running:
+            mode = self._lora.mode.capitalize()
             self._status.set_text(
-                ("dim", "  [1]Flash  [2-5]AIO toggle  [x]Clear"))
+                ("attack_active",
+                 f"  LoRa {mode} RUNNING "
+                 f"({self._lora.packets_received} pkts)  [s]Stop  [x]Clear"))
+            return
+        if self.state.aio_available:
+            if self.state.aio_lora:
+                self._status.set_text(
+                    ("dim",
+                     "  [1]Flash  [2-5]AIO  [6]Sniff  [7]Scan  "
+                     "[8]Track  [x]Clear"))
+            else:
+                self._status.set_text(
+                    ("dim", "  [1]Flash  [2-5]AIO toggle  [x]Clear"))
         else:
             self._status.set_text(
                 ("dim", "  [1]Flash  [2]Install AIO  [x]Clear"))
@@ -113,6 +146,19 @@ class AddOnsScreen(urwid.WidgetWrap):
                 self._log.append(line, attr)
             except queue.Empty:
                 break
+
+        # Drain LoRa output queue
+        while not self._lora.queue.empty():
+            try:
+                line, attr = self._lora.queue.get_nowait()
+                self._log.append(line, attr)
+            except queue.Empty:
+                break
+
+        # Update LoRa packet count in shared state
+        if self._lora.running:
+            self.state.lora_packets = self._lora.packets_received
+            self._update_status_hint()
 
         if self._flash.running:
             self._status.set_text(
@@ -141,7 +187,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._reconnect_pending = False
             self._reconnect_serial()
 
-        # Rebuild menu if AIO state changed
+        # Rebuild menu if AIO state changed (or LoRa mode changed)
         if self._menu_key() != self._last_menu_key:
             self._rebuild_menu()
 
@@ -233,6 +279,11 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._log.append(
                 f"AIO {feature.upper()} → {state_str}", "success",
             )
+            # Auto-stop LoRa if LORA toggled OFF
+            if feature == "lora" and not new_val and self._lora.running:
+                self._lora.stop()
+                self._log.append("LoRa stopped (LORA OFF)", "warning")
+                self.state.lora_packets = 0
         else:
             self._log.append(
                 f"Failed to toggle {feature.upper()}", "error",
@@ -269,6 +320,26 @@ class AddOnsScreen(urwid.WidgetWrap):
         AioManager.install(_callback)
 
     # ------------------------------------------------------------------
+    # LoRa features
+    # ------------------------------------------------------------------
+
+    def _start_lora(self, key: str) -> None:
+        """Start or stop a LoRa operation based on key."""
+        if self._lora.running:
+            self._lora.stop()
+            self.state.lora_packets = 0
+            return
+
+        self._log.clear()
+        if key == "6":
+            self._lora.start_sniffer()
+        elif key == "7":
+            self._lora.start_scanner()
+        elif key == "8":
+            self._lora.start_tracker()
+        self._rebuild_menu()
+
+    # ------------------------------------------------------------------
     # Keyboard
     # ------------------------------------------------------------------
 
@@ -285,6 +356,15 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self.state.aio_available and key in ("3", "4", "5"):
             features = {"3": "lora", "4": "sdr", "5": "usb"}
             self._toggle_aio(features[key])
+            return None
+        # LoRa features (only when LORA ON)
+        if self.state.aio_lora and key in ("6", "7", "8"):
+            self._start_lora(key)
+            return None
+        # Stop running LoRa operation
+        if key == "s" and self._lora.running:
+            self._lora.stop()
+            self.state.lora_packets = 0
             return None
         if key == "x":
             if not self._flashing and not self._installing_aio:

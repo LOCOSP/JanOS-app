@@ -40,6 +40,11 @@ class StartupScreen(urwid.WidgetWrap):
             lines.append(("banner", f"\n  Starting in {self._countdown}...\n"))
         self._status_text.set_text(lines)
 
+    def add_check(self, status: str, text: str) -> None:
+        """Dynamically append a check line and refresh display."""
+        self._checks.append((status, text))
+        self._rebuild_text()
+
     def tick(self, loop, _data=None):
         """Called every second to update countdown."""
         if self._has_errors:

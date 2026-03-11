@@ -99,6 +99,7 @@ class LoRaManager:
         self.running = False
         self.mode = ""  # "sniffer", "scanner", "tracker"
         self.packets_received = 0
+        self._seen_packets: dict[bytes, float] = {}  # hash→timestamp
 
     def _emit(self, line: str, attr: str = "default") -> None:
         self.queue.put((line, attr))
@@ -160,6 +161,7 @@ class LoRaManager:
         self.running = True
         self.mode = "sniffer"
         self.packets_received = 0
+        self._seen_packets.clear()
         self._thread = threading.Thread(
             target=self._run_sniffer,
             args=(freq, sf, cr, bw, label, sync_word, preamble),
@@ -660,6 +662,20 @@ class LoRaManager:
 
         hops = hash_count
         payload = data[offset:] if offset < len(data) else bytearray()
+
+        # Deduplicate retransmissions: hash header + payload (skip path)
+        dedup_key = bytes(data[:1]) + bytes(payload)
+        now = time.time()
+        if dedup_key in self._seen_packets:
+            if now - self._seen_packets[dedup_key] < 30:
+                return  # retransmission, skip
+        self._seen_packets[dedup_key] = now
+        # Prune old entries every so often
+        if len(self._seen_packets) > 50:
+            self._seen_packets = {
+                k: v for k, v in self._seen_packets.items()
+                if now - v < 60
+            }
 
         self._emit(
             f"[{self.packets_received}] MC {type_name} {route_name} "

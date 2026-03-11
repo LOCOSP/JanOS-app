@@ -43,7 +43,9 @@ python3 -m venv .venv
 .venv/bin/python3 -m janos /dev/ttyUSB0
 ```
 
-> **Note:** JanOS runs from a project virtual environment (`.venv/`). The `setup.sh` script creates it and installs all dependencies. The auto-updater also runs `pip install` after each `git pull` to pick up new dependencies automatically.
+> **Note:** JanOS runs from a project virtual environment (`.venv/`). The `setup.sh` script creates it, installs all dependencies, and applies platform-specific fixes (e.g. Pi 5 GPIO shim). The auto-updater runs `setup.sh` after each `git pull` to keep everything in sync. `run.sh` will auto-run `setup.sh` on first launch if `.venv/` doesn't exist yet.
+
+> **Raspberry Pi 5 / CM5:** The LoRa library (`LoRaRF`) requires GPIO access. On Pi 5, install the system shim first: `sudo apt install python3-rpi-lgpio python3-lgpio`. The `setup.sh` script detects Pi 5 and links the system packages into the venv automatically.
 
 ### ⚠️ Required Firmware
 
@@ -218,7 +220,7 @@ AIO  GPS:ON │ LORA:OFF │ SDR:OFF │ USB:OFF
 
 **Install `aiov2_ctl`** — if not already installed, Add-ons shows `[2] Install AIO v2 Control` which installs directly from GitHub with live progress log.
 
-**Startup check** reports AIO v2 availability: `[OK] AIO v2 (aiov2_ctl)` or `[--] AIO v2 not installed`.
+**Startup check** reports AIO v2 availability: `[OK] AIO v2 (pinctrl)` or `[--] AIO v2 not available`.
 
 ### Add-ons: LoRa SX1262
 

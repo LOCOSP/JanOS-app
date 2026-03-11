@@ -40,6 +40,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
         self._device = urwid.Text("")
+        self._fw_version = urwid.Text("")
         self._aio_line = urwid.Text("")
         self._runtime = urwid.Text("")
         self._gps_line1 = urwid.Text("")
@@ -60,6 +61,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._logo,
             self._version,
             self._device,
+            self._fw_version,
             sep,
             self._runtime,
             self._gps_line1,
@@ -145,6 +147,12 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._device.set_text(
                 ("error", f"  {self.state.device}  DISCONNECTED")
+            )
+
+        # Firmware version (detected from ESP32 boot banner)
+        if self.state.firmware_version:
+            self._fw_version.set_text(
+                ("dim", f"  Firmware v{self.state.firmware_version}")
             )
 
         # Runtime

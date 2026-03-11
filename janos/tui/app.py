@@ -231,8 +231,12 @@ class JanOSTUI:
             )
 
             remote_fw = check_remote_firmware_version(timeout=10)
-            local_fw = get_local_fw_version()
             if remote_fw:
+                # Best local version: live ESP32 > saved file > None
+                local_fw = (
+                    self.state.firmware_version
+                    or get_local_fw_version()
+                )
                 remote_clean = remote_fw.lstrip("v")
                 local_clean = (local_fw or "").lstrip("v")
                 if not local_fw or is_newer(remote_clean, local_clean):
@@ -264,7 +268,12 @@ class JanOSTUI:
 
     def _show_fw_update_dialog(self) -> None:
         """Show an info dialog about available firmware update."""
-        local = self._fw_local_version or "unknown"
+        # Prefer live ESP32 version, fallback to saved file, then "unknown"
+        local = (
+            self.state.firmware_version
+            or self._fw_local_version
+            or "unknown"
+        )
         remote = self._fw_remote_version
         msg = (
             f"New firmware {remote} available!\n"
@@ -399,6 +408,13 @@ class JanOSTUI:
             log.debug("RX: %s", line)
             # Log every serial line to loot
             self.loot.log_serial(line)
+            # Firmware version detection from boot banner
+            # ESP32 prints: === APP_MAIN START (v1.5.5) ===
+            if not self.state.firmware_version and "APP_MAIN START" in line:
+                m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
+                if m:
+                    self.state.firmware_version = m.group(1)
+                    log.info("Firmware version detected: %s", m.group(1))
             # Crash detection — collect all crash lines, show ONE overlay
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True

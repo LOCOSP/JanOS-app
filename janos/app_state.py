@@ -99,6 +99,7 @@ class AppState:
     start_time: float = 0.0
     firmware_crashed: bool = False
     crash_message: str = ""
+    firmware_version: str = ""
 
     def any_attack_running(self) -> bool:
         return any([

@@ -64,9 +64,17 @@ class LoRaManager:
 
         try:
             lora = SX126x()
-            lora.setSPI(SPI_BUS, SPI_CS, SPI_SPEED)
-            lora.setPins(PIN_RESET, PIN_BUSY, PIN_IRQ)
-            lora.begin()
+
+            # begin() calls setSpi() + setPins() + reset internally
+            if not lora.begin(
+                bus=SPI_BUS,
+                cs=SPI_CS,
+                reset=PIN_RESET,
+                busy=PIN_BUSY,
+                irq=PIN_IRQ,
+            ):
+                self._emit("SX1262 not detected on SPI bus", "error")
+                return None
 
             # SX1262-specific: DIO2 as RF switch, DIO3 as TCXO voltage
             lora.setDio2RfSwitch(True)
@@ -121,7 +129,7 @@ class LoRaManager:
             while not self._stop_event.is_set():
                 # RX_SINGLE + timeout avoids CPU spinning
                 lora.request(lora.RX_SINGLE)
-                lora.wait(2000)  # 2s timeout
+                lora.wait(2)  # 2s timeout
                 if lora.available() > 0:
                     self._handle_packet(lora, f"{freq_mhz:.1f}MHz SF{sf}")
         except Exception as exc:
@@ -174,7 +182,7 @@ class LoRaManager:
                         lora.setFrequency(freq)
                         lora.setLoRaModulation(sf, 125_000, 5, False)
                         lora.request(lora.RX_SINGLE)
-                        lora.wait(500)  # 500ms per combo
+                        lora.wait(0.5)  # 500ms per combo
                         if lora.available() > 0:
                             self._handle_packet(
                                 lora, f"{freq_mhz:.1f}MHz SF{sf}",
@@ -217,7 +225,7 @@ class LoRaManager:
 
             while not self._stop_event.is_set():
                 lora.request(lora.RX_SINGLE)
-                lora.wait(3000)  # 3s timeout
+                lora.wait(3)  # 3s timeout
                 if lora.available() > 0:
                     data = self._read_packet(lora)
                     rssi = lora.packetRssi()

@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 from urllib.request import Request, urlopen
@@ -61,26 +62,96 @@ def do_git_pull(
     app_dir: str,
     callback: Callable[[str, str], None],
 ) -> bool:
-    """Run ``git pull`` in *app_dir* and stream output to *callback*.
+    """Run ``git pull`` in *app_dir* and install updated deps.
+
+    After a successful pull, runs ``pip install -r requirements.txt``
+    inside the project ``.venv/`` (if it exists) to pick up any new
+    or changed dependencies.
 
     *callback(line, attr)* is called for each output line.
     Returns *True* on success.
     """
+    # Resolve project root (git repo root, where .venv/ lives)
+    project_root = _find_project_root(app_dir)
+
     callback("Updating from GitHub...", "attack_active")
     try:
         # Ensure 'github' remote exists (public, no auth needed)
-        _ensure_github_remote(app_dir)
+        _ensure_github_remote(project_root)
 
         # Stash any local changes first (e.g. manually edited files)
         subprocess.run(
             ["git", "stash", "--quiet"],
-            cwd=app_dir,
+            cwd=project_root,
             capture_output=True,
             timeout=10,
         )
         proc = subprocess.Popen(
             ["git", "pull", "github", "main"],
-            cwd=app_dir,
+            cwd=project_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        for line in proc.stdout:  # type: ignore[union-attr]
+            line = line.rstrip()
+            if line:
+                callback(f"  {line}", "dim")
+        proc.wait()
+        if proc.returncode != 0:
+            callback(f"git pull failed (exit code {proc.returncode})", "error")
+            return False
+
+        # Install/update dependencies in .venv
+        _pip_install(project_root, callback)
+
+        callback("Update complete! Restart the app.", "success")
+        return True
+    except FileNotFoundError:
+        callback("git not found — install git or update manually.", "error")
+        return False
+    except Exception as exc:
+        callback(f"Update error: {exc}", "error")
+        return False
+
+
+def _find_project_root(start: str) -> str:
+    """Walk up from *start* to find the directory containing ``.git/``."""
+    current = os.path.abspath(start)
+    for _ in range(10):  # safety limit
+        if os.path.isdir(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return os.path.abspath(start)  # fallback
+
+
+def _pip_install(
+    project_root: str,
+    callback: Callable[[str, str], None],
+) -> None:
+    """Run pip install in the project .venv if it exists."""
+    venv_dir = os.path.join(project_root, ".venv")
+    req_file = os.path.join(project_root, "requirements.txt")
+
+    if not os.path.isfile(req_file):
+        return
+
+    # Find pip: prefer .venv, fallback to running interpreter
+    venv_pip = os.path.join(venv_dir, "bin", "pip")
+    if os.path.isfile(venv_pip):
+        pip_cmd = [venv_pip]
+    else:
+        pip_cmd = [sys.executable, "-m", "pip"]
+
+    callback("Installing updated dependencies...", "dim")
+    try:
+        proc = subprocess.Popen(
+            [*pip_cmd, "install", "-q", "-r", req_file],
+            cwd=project_root,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -92,17 +163,11 @@ def do_git_pull(
                 callback(f"  {line}", "dim")
         proc.wait()
         if proc.returncode == 0:
-            callback("Update complete! Restart the app.", "success")
-            return True
+            callback("Dependencies up to date.", "dim")
         else:
-            callback(f"git pull failed (exit code {proc.returncode})", "error")
-            return False
-    except FileNotFoundError:
-        callback("git not found — install git or update manually.", "error")
-        return False
+            callback("pip install had warnings (non-fatal).", "warning")
     except Exception as exc:
-        callback(f"Update error: {exc}", "error")
-        return False
+        callback(f"pip install error: {exc} (non-fatal)", "warning")
 
 
 GITHUB_REPO_URL = "https://github.com/LOCOSP/JanOS-app.git"

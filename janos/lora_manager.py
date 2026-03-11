@@ -52,6 +52,10 @@ SPREADING_FACTORS = [7, 8, 9, 10, 11, 12]
 # LoRa APRS packet prefix (3 bytes)
 APRS_PREFIX = b"\x3c\xff\x01"
 
+# Sniffer presets: (freq_hz, sf, cr, bw, label)
+PRESET_MESHCORE = (869_618_000, 8, 8, 62_500, "MeshCore 869.618 SF8 BW62.5k")
+PRESET_MESHTASTIC = (869_525_000, 11, 8, 250_000, "Meshtastic 869.525 SF11 BW250k")
+
 # Hardware config (from /etc/meshtasticd/config.yaml)
 SPI_BUS = 1
 SPI_CS = 0
@@ -119,7 +123,9 @@ class LoRaManager:
         self,
         freq: int = 868_100_000,
         sf: int = 7,
+        cr: int = 5,
         bw: int = 125_000,
+        label: str = "",
     ) -> None:
         """Start LoRa sniffer on given frequency and spreading factor."""
         if self.running:
@@ -130,24 +136,36 @@ class LoRaManager:
         self.packets_received = 0
         self._thread = threading.Thread(
             target=self._run_sniffer,
-            args=(freq, sf, bw),
+            args=(freq, sf, cr, bw, label),
             daemon=True,
         )
         self._thread.start()
 
-    def _run_sniffer(self, freq: int, sf: int, bw: int) -> None:
+    def start_meshcore(self) -> None:
+        """Start sniffer on MeshCore EU/UK Narrow (869.618 MHz)."""
+        freq, sf, cr, bw, label = PRESET_MESHCORE
+        self.start_sniffer(freq, sf, cr, bw, label)
+        self.mode = "meshcore"
+
+    def start_meshtastic(self) -> None:
+        """Start sniffer on Meshtastic Medium Fast (869.525 MHz)."""
+        freq, sf, cr, bw, label = PRESET_MESHTASTIC
+        self.start_sniffer(freq, sf, cr, bw, label)
+        self.mode = "meshtastic"
+
+    def _run_sniffer(
+        self, freq: int, sf: int, cr: int, bw: int, label: str,
+    ) -> None:
         lora = self._init_radio()
         if not lora:
             self.running = False
             return
         try:
             lora.setFrequency(freq)
-            lora.setLoRaModulation(sf, bw, 5, False)
+            lora.setLoRaModulation(sf, bw, cr, False)
             freq_mhz = freq / 1_000_000
-            self._emit(
-                f"Sniffer started: {freq_mhz:.1f} MHz SF{sf} BW{bw // 1000}k",
-                "success",
-            )
+            tag = label or f"{freq_mhz:.3f}MHz SF{sf}"
+            self._emit(f"Sniffer started: {tag}", "success")
 
             errors = 0
             while not self._stop_event.is_set():
@@ -155,7 +173,7 @@ class LoRaManager:
                     lora.request(lora.RX_SINGLE)
                     lora.wait(2)  # 2s timeout
                     if lora.available() > 0:
-                        self._handle_packet(lora, f"{freq_mhz:.1f}MHz SF{sf}")
+                        self._handle_packet(lora, tag)
                     errors = 0
                 except Exception as exc:
                     errors += 1
@@ -172,7 +190,7 @@ class LoRaManager:
                             self._emit("Radio reinit failed", "error")
                             return
                         lora.setFrequency(freq)
-                        lora.setLoRaModulation(sf, bw, 5, False)
+                        lora.setLoRaModulation(sf, bw, cr, False)
                         errors = 0
         except Exception as exc:
             self._emit(f"Sniffer error: {exc}", "error")

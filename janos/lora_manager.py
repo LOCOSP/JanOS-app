@@ -217,11 +217,20 @@ class LoRaManager:
                 else self._handle_packet
             )
 
+            # Use RX_CONTINUOUS for meshcore (narrow BW, can't
+            # afford gaps between RX_SINGLE cycles)
+            use_continuous = self.mode == "meshcore"
+            if use_continuous:
+                lora.request(lora.RX_CONTINUOUS)
+
             errors = 0
             while not self._stop_event.is_set():
                 try:
-                    lora.request(lora.RX_SINGLE)
-                    lora.wait(2)  # 2s timeout
+                    if use_continuous:
+                        time.sleep(0.1)
+                    else:
+                        lora.request(lora.RX_SINGLE)
+                        lora.wait(2)  # 2s timeout
                     if lora.available() > 0:
                         handler(lora, tag)
                     errors = 0
@@ -242,6 +251,8 @@ class LoRaManager:
                         self._configure_radio(
                             lora, freq, sf, cr, bw, sync_word, preamble,
                         )
+                        if use_continuous:
+                            lora.request(lora.RX_CONTINUOUS)
                         errors = 0
         except Exception as exc:
             self._emit(f"Sniffer error: {exc}", "error")

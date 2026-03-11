@@ -32,13 +32,18 @@ Full-screen terminal interface with tabbed navigation, real-time data, and keybo
 ```bash
 git clone https://github.com/LOCOSP/JanOS-app/
 cd JanOS-app
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 -m janos /dev/ttyUSB0
+./setup.sh                          # create .venv + install deps
+./run.sh /dev/ttyUSB0               # run JanOS
 ```
 
-> **Note:** Using a virtual environment (`.venv/`) is recommended. The included launcher scripts (`janos-launch.sh`, `janos-launcher`) use `.venv/bin/python3` by default.
+**Manual setup** (if you prefer):
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python3 -m janos /dev/ttyUSB0
+```
+
+> **Note:** JanOS runs from a project virtual environment (`.venv/`). The `setup.sh` script creates it and installs all dependencies. The auto-updater also runs `pip install` after each `git pull` to pick up new dependencies automatically.
 
 ### ⚠️ Required Firmware
 
@@ -237,8 +242,8 @@ The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface i
 
 ### Flags
 ```
-python3 -m janos /dev/ttyUSB0 --debug    # Log to /tmp/janos.log
-python3 -m janos /dev/ttyUSB0 --legacy   # Fall back to old CLI
+./run.sh /dev/ttyUSB0 --debug    # Log to /tmp/janos.log
+./run.sh /dev/ttyUSB0 --legacy   # Fall back to old CLI
 ```
 
 ### Requirements

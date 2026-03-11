@@ -193,7 +193,8 @@ class LoRaManager:
         if sync_word:
             lora.setSyncWord(sync_word)
         if preamble:
-            lora.setLoRaPacket(preamble, 0, 255, True)
+            # setLoRaPacket(headerType, preambleLength, payloadLength, crcType)
+            lora.setLoRaPacket(0x00, preamble, 255, True)
 
     def _run_sniffer(
         self, freq: int, sf: int, cr: int, bw: int, label: str,

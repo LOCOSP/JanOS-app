@@ -97,6 +97,17 @@ class JanOSTUI:
             log.error("Serial setup failed: %s", exc)
             self.state.connected = False
 
+        # Load saved firmware version (from last flash) so sidebar shows it
+        # immediately even if boot banner was already sent before we connected
+        try:
+            from ..updater import get_local_fw_version
+            saved_fw = get_local_fw_version()
+            if saved_fw:
+                self.state.firmware_version = saved_fw.lstrip("v")
+                log.info("Loaded saved firmware version: %s", saved_fw)
+        except Exception:
+            pass
+
         # Portal & Evil Twin are sub-screens of Attacks — create first
         self._portal = PortalScreen(self.state, self.serial, self, self.loot)
         self._evil_twin = EvilTwinScreen(self.state, self.serial, self.net_mgr, self, self.loot)
@@ -408,13 +419,20 @@ class JanOSTUI:
             log.debug("RX: %s", line)
             # Log every serial line to loot
             self.loot.log_serial(line)
-            # Firmware version detection from boot banner
-            # ESP32 prints: === APP_MAIN START (v1.5.5) ===
-            if not self.state.firmware_version and "APP_MAIN START" in line:
-                m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
-                if m:
-                    self.state.firmware_version = m.group(1)
-                    log.info("Firmware version detected: %s", m.group(1))
+            # Firmware version detection from serial output
+            # Pattern 1: boot banner — === APP_MAIN START (v1.5.5) ===
+            # Pattern 2: ESP-IDF log — I (xxx) main: JanOS version: 1.5.5
+            if not self.state.firmware_version:
+                if "APP_MAIN START" in line:
+                    m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
+                    if m:
+                        self.state.firmware_version = m.group(1)
+                        log.info("Firmware version detected (boot): %s", m.group(1))
+                elif "JanOS version:" in line:
+                    m = re.search(r"JanOS version:\s*v?(\d+\.\d+\.\d+)", line)
+                    if m:
+                        self.state.firmware_version = m.group(1)
+                        log.info("Firmware version detected (log): %s", m.group(1))
             # Crash detection — collect all crash lines, show ONE overlay
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True

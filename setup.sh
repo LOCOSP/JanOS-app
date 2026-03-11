@@ -12,12 +12,25 @@ else
     echo "[*] Virtual environment already exists."
 fi
 
+IS_PI5=false
+if grep -qi "Raspberry Pi.*5\|Compute Module 5" /proc/device-tree/model 2>/dev/null; then
+    IS_PI5=true
+fi
+
+# Pi 5: remove old symlinks BEFORE pip install (pip can't overwrite root-owned symlinks)
+if $IS_PI5; then
+    VENV_SP="$(.venv/bin/python3 -c 'import site; print(site.getsitepackages()[0])')"
+    [ -L "$VENV_SP/lgpio.py" ] && rm -f "$VENV_SP/lgpio.py"
+    rm -f "$VENV_SP"/_lgpio*.so 2>/dev/null || true
+    [ -L "$VENV_SP/RPi" ] && rm -f "$VENV_SP/RPi"
+fi
+
 echo "[*] Installing dependencies..."
 .venv/bin/pip install -q -r requirements.txt
 
 # Raspberry Pi 5 (BCM2712): RPi.GPIO from PyPI doesn't work.
 # Replace with system rpi-lgpio shim (uses lgpio/gpiochip).
-if grep -qi "Raspberry Pi.*5\|Compute Module 5" /proc/device-tree/model 2>/dev/null; then
+if $IS_PI5; then
     SYS_SP="/usr/lib/python3/dist-packages"
     VENV_SP="$(.venv/bin/python3 -c 'import site; print(site.getsitepackages()[0])')"
 

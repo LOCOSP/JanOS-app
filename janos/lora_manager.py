@@ -11,6 +11,7 @@ Hardware: SX1262 on /dev/spidev1.0
 import logging
 import re
 import threading
+import time
 from queue import Queue
 from typing import Optional
 
@@ -148,12 +149,31 @@ class LoRaManager:
                 "success",
             )
 
+            errors = 0
             while not self._stop_event.is_set():
-                # RX_SINGLE + timeout avoids CPU spinning
-                lora.request(lora.RX_SINGLE)
-                lora.wait(2)  # 2s timeout
-                if lora.available() > 0:
-                    self._handle_packet(lora, f"{freq_mhz:.1f}MHz SF{sf}")
+                try:
+                    lora.request(lora.RX_SINGLE)
+                    lora.wait(2)  # 2s timeout
+                    if lora.available() > 0:
+                        self._handle_packet(lora, f"{freq_mhz:.1f}MHz SF{sf}")
+                    errors = 0
+                except Exception as exc:
+                    errors += 1
+                    log.debug("Sniffer iteration error: %s", exc)
+                    if errors >= 10:
+                        self._emit(
+                            "Too many radio errors, restarting...",
+                            "warning",
+                        )
+                        lora.end()
+                        time.sleep(1)
+                        lora = self._init_radio()
+                        if not lora:
+                            self._emit("Radio reinit failed", "error")
+                            return
+                        lora.setFrequency(freq)
+                        lora.setLoRaModulation(sf, bw, 5, False)
+                        errors = 0
         except Exception as exc:
             self._emit(f"Sniffer error: {exc}", "error")
             log.error("LoRa sniffer error: %s", exc)
@@ -192,6 +212,7 @@ class LoRaManager:
                 "success",
             )
             cycle = 0
+            errors = 0
             while not self._stop_event.is_set():
                 cycle += 1
                 self._emit(f"── Scan cycle {cycle} ──", "dim")
@@ -201,15 +222,32 @@ class LoRaManager:
                     for sf in SPREADING_FACTORS:
                         if self._stop_event.is_set():
                             break
-                        freq_mhz = freq / 1_000_000
-                        lora.setFrequency(freq)
-                        lora.setLoRaModulation(sf, 125_000, 5, False)
-                        lora.request(lora.RX_SINGLE)
-                        lora.wait(0.5)  # 500ms per combo
-                        if lora.available() > 0:
-                            self._handle_packet(
-                                lora, f"{freq_mhz:.1f}MHz SF{sf}",
-                            )
+                        try:
+                            freq_mhz = freq / 1_000_000
+                            lora.setFrequency(freq)
+                            lora.setLoRaModulation(sf, 125_000, 5, False)
+                            lora.request(lora.RX_SINGLE)
+                            lora.wait(0.5)  # 500ms per combo
+                            if lora.available() > 0:
+                                self._handle_packet(
+                                    lora, f"{freq_mhz:.1f}MHz SF{sf}",
+                                )
+                            errors = 0
+                        except Exception as exc:
+                            errors += 1
+                            log.debug("Scanner iteration error: %s", exc)
+                            if errors >= 10:
+                                self._emit(
+                                    "Too many radio errors, restarting...",
+                                    "warning",
+                                )
+                                lora.end()
+                                time.sleep(1)
+                                lora = self._init_radio()
+                                if not lora:
+                                    self._emit("Radio reinit failed", "error")
+                                    return
+                                errors = 0
         except Exception as exc:
             self._emit(f"Scanner error: {exc}", "error")
             log.error("LoRa scanner error: %s", exc)
@@ -253,20 +291,38 @@ class LoRaManager:
                 "Listening for LoRa APRS + UKHAS payloads...", "dim",
             )
 
+            errors = 0
             while not self._stop_event.is_set():
                 for freq, sf, cr, bw, label in profiles:
                     if self._stop_event.is_set():
                         break
-                    lora.setFrequency(freq)
-                    lora.setLoRaModulation(sf, bw, cr, False)
-                    lora.request(lora.RX_SINGLE)
-                    lora.wait(3)  # 3s per profile
-                    if lora.available() > 0:
-                        data = self._read_packet(lora)
-                        rssi = lora.packetRssi()
-                        snr = lora.snr()
-                        self.packets_received += 1
-                        self._parse_balloon(data, rssi, snr, label)
+                    try:
+                        lora.setFrequency(freq)
+                        lora.setLoRaModulation(sf, bw, cr, False)
+                        lora.request(lora.RX_SINGLE)
+                        lora.wait(3)  # 3s per profile
+                        if lora.available() > 0:
+                            data = self._read_packet(lora)
+                            rssi = lora.packetRssi()
+                            snr = lora.snr()
+                            self.packets_received += 1
+                            self._parse_balloon(data, rssi, snr, label)
+                        errors = 0  # reset on success
+                    except Exception as exc:
+                        errors += 1
+                        log.debug("Tracker iteration error: %s", exc)
+                        if errors >= 10:
+                            self._emit(
+                                f"Too many radio errors, restarting...",
+                                "warning",
+                            )
+                            lora.end()
+                            time.sleep(1)
+                            lora = self._init_radio()
+                            if not lora:
+                                self._emit("Radio reinit failed", "error")
+                                return
+                            errors = 0
         except Exception as exc:
             self._emit(f"Tracker error: {exc}", "error")
             log.error("LoRa tracker error: %s", exc)
@@ -281,6 +337,20 @@ class LoRaManager:
         # Try LoRa APRS format first (3-byte prefix \x3c\xff\x01)
         if len(data) >= 3 and data[:3] == APRS_PREFIX:
             self._parse_aprs(data[3:], rssi, snr, tag)
+            return
+
+        # Binary/encrypted data — show hex, skip text parsing
+        if not self._is_printable(data):
+            self._emit(
+                f"[{self.packets_received}] {tag} {len(data)}B "
+                f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
+                "success",
+            )
+            self._emit(
+                f"  [Encrypted] {data[:32].hex()}"
+                + ("..." if len(data) > 32 else ""),
+                "warning",
+            )
             return
 
         try:
@@ -310,7 +380,7 @@ class LoRaManager:
                     extra = ",".join(parts[6:])
                     self._emit(f"  Extra: {extra}", "dim")
             else:
-                # Unknown format — show raw
+                # Unknown text format — show as-is
                 self._emit(
                     f"[{self.packets_received}] {tag} {len(data)}B "
                     f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
@@ -419,8 +489,16 @@ class LoRaManager:
             data.append(lora.read())
         return data
 
+    @staticmethod
+    def _is_printable(data: bytearray) -> bool:
+        """Check if data is mostly printable ASCII (>60% threshold)."""
+        if not data:
+            return False
+        printable = sum(1 for b in data if 32 <= b < 127)
+        return printable / len(data) > 0.6
+
     def _handle_packet(self, lora, tag: str) -> None:
-        """Read a packet, log it with hex + ASCII."""
+        """Read a packet, log it with hex + decoded text."""
         data = self._read_packet(lora)
         rssi = lora.packetRssi()
         snr = lora.snr()
@@ -431,17 +509,24 @@ class LoRaManager:
             f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
             "success",
         )
-        self._emit(f"  HEX: {data.hex()}", "dim")
 
-        # Try ASCII decode
-        try:
+        if not data:
+            self._emit("  (empty packet)", "dim")
+            return
+
+        if self._is_printable(data):
             text = data.decode("utf-8", errors="replace")
-            printable = "".join(
+            clean = "".join(
                 c if c.isprintable() or c == " " else "." for c in text
             )
-            self._emit(f"  TXT: {printable}", "dim")
-        except Exception:
-            pass
+            self._emit(f"  TXT: {clean}", "dim")
+        else:
+            # Encrypted/binary — show hex only, no garbled ASCII
+            self._emit(
+                f"  [Encrypted] {data[:32].hex()}"
+                + ("..." if len(data) > 32 else ""),
+                "warning",
+            )
 
     def _cleanup_radio(self, lora) -> None:
         """Release SPI and mark as not running."""

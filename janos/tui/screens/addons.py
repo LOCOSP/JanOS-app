@@ -65,7 +65,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             f"{self.state.aio_available},"
             f"{self.state.aio_gps},{self.state.aio_lora},"
             f"{self.state.aio_sdr},{self.state.aio_usb},"
-            f"{lora_mode}"
+            f"{self._lora.running},{lora_mode}"
         )
 
     def _rebuild_menu(self) -> None:
@@ -328,6 +328,7 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self._lora.running:
             self._lora.stop()
             self.state.lora_packets = 0
+            self._rebuild_menu()
             return
 
         self._log.clear()

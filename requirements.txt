@@ -1,3 +1,4 @@
 urwid>=2.1.0
 pyserial>=3.5
 LoRaRF>=1.4.0
+esptool>=4.0

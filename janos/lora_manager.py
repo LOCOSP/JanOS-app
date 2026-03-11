@@ -9,6 +9,7 @@ Hardware: SX1262 on /dev/spidev1.0
 """
 
 import logging
+import re
 import threading
 from queue import Queue
 from typing import Optional
@@ -16,7 +17,7 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 # EU868 frequencies (Hz)
-EU_FREQUENCIES = [
+EU868_FREQUENCIES = [
     868_100_000,  # 868.1 MHz
     868_300_000,  # 868.3 MHz
     868_500_000,  # 868.5 MHz
@@ -27,7 +28,28 @@ EU_FREQUENCIES = [
     867_900_000,  # 867.9 MHz
 ]
 
+# LoRa APRS frequencies (Hz) — 433 MHz ISM band
+# Ref: SQ2CPA/LoRa_APRS_Balloon project
+APRS_FREQUENCIES = [
+    433_775_000,  # 433.775 MHz — primary APRS EU (SF12/CR5 "300bps")
+    434_855_000,  # 434.855 MHz — secondary APRS (SF9/CR7 "1200bps")
+    439_912_500,  # 439.9125 MHz — tertiary APRS
+]
+
+# APRS modulation profiles: (freq_hz, sf, cr, label)
+APRS_PROFILES = [
+    (433_775_000, 12, 5, "433.775 SF12/CR5 300bps"),
+    (434_855_000,  9, 7, "434.855 SF9/CR7 1200bps"),
+    (439_912_500, 12, 5, "439.9125 SF12/CR5 300bps"),
+]
+
+# Combined scanner frequencies (EU868 + APRS 433)
+SCAN_FREQUENCIES = EU868_FREQUENCIES + APRS_FREQUENCIES
+
 SPREADING_FACTORS = [7, 8, 9, 10, 11, 12]
+
+# LoRa APRS packet prefix (3 bytes)
+APRS_PREFIX = b"\x3c\xff\x01"
 
 # Hardware config (from /etc/meshtasticd/config.yaml)
 SPI_BUS = 1
@@ -140,11 +162,11 @@ class LoRaManager:
             self._emit("Sniffer stopped.", "dim")
 
     # ------------------------------------------------------------------
-    # Scanner — cycle through EU868 frequencies × spreading factors
+    # Scanner — cycle through EU868 + APRS 433 frequencies × SFs
     # ------------------------------------------------------------------
 
     def start_scanner(self) -> None:
-        """Start scanning all EU868 frequencies × spreading factors."""
+        """Start scanning EU868 + APRS 433 frequencies × spreading factors."""
         if self.running:
             return
         self._stop_event.clear()
@@ -162,9 +184,10 @@ class LoRaManager:
             self.running = False
             return
         try:
-            total = len(EU_FREQUENCIES) * len(SPREADING_FACTORS)
+            total = len(SCAN_FREQUENCIES) * len(SPREADING_FACTORS)
             self._emit(
-                f"Scanner started: {len(EU_FREQUENCIES)} freqs × "
+                f"Scanner: {len(EU868_FREQUENCIES)} EU868 + "
+                f"{len(APRS_FREQUENCIES)} APRS freqs × "
                 f"{len(SPREADING_FACTORS)} SFs = {total} combos",
                 "success",
             )
@@ -172,7 +195,7 @@ class LoRaManager:
             while not self._stop_event.is_set():
                 cycle += 1
                 self._emit(f"── Scan cycle {cycle} ──", "dim")
-                for freq in EU_FREQUENCIES:
+                for freq in SCAN_FREQUENCIES:
                     if self._stop_event.is_set():
                         break
                     for sf in SPREADING_FACTORS:
@@ -195,11 +218,11 @@ class LoRaManager:
             self._emit("Scanner stopped.", "dim")
 
     # ------------------------------------------------------------------
-    # Balloon Tracker — listen for UKHAS / custom payloads
+    # Balloon Tracker — APRS 433 + UKHAS 868 listener
     # ------------------------------------------------------------------
 
     def start_tracker(self) -> None:
-        """Start balloon tracker (UKHAS format on 868.1 MHz SF8)."""
+        """Start balloon tracker cycling APRS 433 and UKHAS 868 frequencies."""
         if self.running:
             return
         self._stop_event.clear()
@@ -217,23 +240,33 @@ class LoRaManager:
             self.running = False
             return
         try:
-            # Balloon trackers typically: 868.1 MHz, SF8, BW125k
-            lora.setFrequency(868_100_000)
-            lora.setLoRaModulation(8, 125_000, 5, False)
-            self._emit("Balloon tracker: 868.1 MHz SF8 BW125k", "success")
-            self._emit("Listening for UKHAS/custom payloads...", "dim")
+            # Tracker profiles: APRS 433 MHz + UKHAS 868 MHz
+            profiles = [
+                # (freq_hz, sf, cr, bw, label)
+                (433_775_000, 12, 5, 125_000, "433.775 SF12 APRS"),
+                (434_855_000,  9, 7, 125_000, "434.855 SF9 APRS"),
+                (868_100_000,  8, 5, 125_000, "868.1 SF8 UKHAS"),
+            ]
+            labels = ", ".join(p[4] for p in profiles)
+            self._emit(f"Balloon tracker: {labels}", "success")
+            self._emit(
+                "Listening for LoRa APRS + UKHAS payloads...", "dim",
+            )
 
             while not self._stop_event.is_set():
-                lora.request(lora.RX_SINGLE)
-                lora.wait(3)  # 3s timeout
-                if lora.available() > 0:
-                    data = self._read_packet(lora)
-                    rssi = lora.packetRssi()
-                    snr = lora.snr()
-                    self.packets_received += 1
-
-                    # Try UKHAS format: CALL,ID,TIME,LAT,LON,ALT,...
-                    self._parse_balloon(data, rssi, snr)
+                for freq, sf, cr, bw, label in profiles:
+                    if self._stop_event.is_set():
+                        break
+                    lora.setFrequency(freq)
+                    lora.setLoRaModulation(sf, bw, cr, False)
+                    lora.request(lora.RX_SINGLE)
+                    lora.wait(3)  # 3s per profile
+                    if lora.available() > 0:
+                        data = self._read_packet(lora)
+                        rssi = lora.packetRssi()
+                        snr = lora.snr()
+                        self.packets_received += 1
+                        self._parse_balloon(data, rssi, snr, label)
         except Exception as exc:
             self._emit(f"Tracker error: {exc}", "error")
             log.error("LoRa tracker error: %s", exc)
@@ -242,19 +275,30 @@ class LoRaManager:
             self._emit("Tracker stopped.", "dim")
 
     def _parse_balloon(
-        self, data: bytearray, rssi: int, snr: float,
+        self, data: bytearray, rssi: int, snr: float, tag: str = "",
     ) -> None:
-        """Try to parse a balloon payload (UKHAS CSV format)."""
+        """Parse balloon payload — tries APRS, then UKHAS CSV, then raw."""
+        # Try LoRa APRS format first (3-byte prefix \x3c\xff\x01)
+        if len(data) >= 3 and data[:3] == APRS_PREFIX:
+            self._parse_aprs(data[3:], rssi, snr, tag)
+            return
+
         try:
             text = data.decode("utf-8", errors="replace").strip()
-            # Strip $$ prefix if present (UKHAS convention)
+
+            # Try APRS without prefix (some trackers omit it)
+            if ">" in text and ("=" in text or "!" in text or "/" in text):
+                self._parse_aprs(data, rssi, snr, tag)
+                return
+
+            # Try UKHAS CSV: $$CALL,ID,TIME,LAT,LON,ALT,...
             clean = text.lstrip("$").strip()
             parts = clean.split(",")
             if len(parts) >= 6:
                 call, sid, tm = parts[0], parts[1], parts[2]
                 lat, lon, alt = parts[3], parts[4], parts[5]
                 self._emit(
-                    f"BALLOON [{call}] #{sid} {tm}",
+                    f"UKHAS [{call}] #{sid} {tm} ({tag})",
                     "attack_active",
                 )
                 self._emit(
@@ -266,9 +310,9 @@ class LoRaManager:
                     extra = ",".join(parts[6:])
                     self._emit(f"  Extra: {extra}", "dim")
             else:
-                # Not UKHAS — show raw
+                # Unknown format — show raw
                 self._emit(
-                    f"[{self.packets_received}] {len(data)}B "
+                    f"[{self.packets_received}] {tag} {len(data)}B "
                     f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
                     "success",
                 )
@@ -277,6 +321,92 @@ class LoRaManager:
             self._emit(
                 f"[{self.packets_received}] {data.hex()}", "dim",
             )
+
+    def _parse_aprs(
+        self, data: bytearray, rssi: int, snr: float, tag: str = "",
+    ) -> None:
+        """Parse LoRa APRS packet: CALL>DEST:=DDMM.MMN/DDDMM.MMEO .../A=AAAAAA
+
+        Format from SQ2CPA/LoRa_APRS_Balloon:
+          CALL-11>APLAIX:=DDMM.MMN/DDDMM.MMEO SSS/PPP/A=AAAAAA/comment
+        Position: DDMM.MM = degrees + decimal minutes
+        Altitude: /A=AAAAAA in feet (6 digits)
+        Comment fields: P(pkt) S(sats) F(freq) O(power) N(flight) etc.
+        """
+        try:
+            text = data.decode("utf-8", errors="replace").strip()
+        except Exception:
+            self._emit(
+                f"[{self.packets_received}] APRS raw: {data.hex()}", "dim",
+            )
+            return
+
+        # Parse CALL>DEST:payload
+        m = re.match(r"([^>]+)>([^:]+):(.*)", text, re.DOTALL)
+        if not m:
+            self._emit(
+                f"[{self.packets_received}] APRS? {tag} "
+                f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
+                "success",
+            )
+            self._emit(f"  {text}", "dim")
+            return
+
+        callsign = m.group(1)
+        dest = m.group(2)
+        payload = m.group(3)
+
+        self._emit(
+            f"APRS [{callsign}] → {dest} ({tag})",
+            "attack_active",
+        )
+
+        # Try to extract position: =DDMM.MMN/DDDMM.MMEO or !DDMM.MMN/DDDMM.MMEO
+        pos = re.search(
+            r"[=!](\d{4}\.\d{2}[NS])[/\\](\d{5}\.\d{2}[EW])",
+            payload,
+        )
+        if pos:
+            lat_str, lon_str = pos.group(1), pos.group(2)
+            lat = self._aprs_to_decimal(lat_str)
+            lon = self._aprs_to_decimal(lon_str)
+            pos_text = f"  Pos: {lat:.5f},{lon:.5f}"
+        else:
+            pos_text = "  Pos: (compressed/unknown)"
+
+        # Extract altitude /A=NNNNNN (feet)
+        alt_m = re.search(r"/A=(-?\d+)", payload)
+        if alt_m:
+            alt_ft = int(alt_m.group(1))
+            alt_meters = alt_ft * 0.3048
+            pos_text += f"  Alt:{alt_meters:.0f}m ({alt_ft}ft)"
+
+        pos_text += f"  RSSI:{rssi}dBm SNR:{snr:.1f}dB"
+        self._emit(pos_text, "success")
+
+        # Show comment/telemetry (after position data)
+        comment = re.sub(
+            r"[=!]\d{4}\.\d{2}[NS][/\\]\d{5}\.\d{2}[EW]\S*\s*",
+            "", payload,
+        ).strip()
+        if comment:
+            self._emit(f"  {comment}", "dim")
+
+    @staticmethod
+    def _aprs_to_decimal(coord: str) -> float:
+        """Convert APRS DDMM.MMN or DDDMM.MME to decimal degrees."""
+        hemisphere = coord[-1]
+        numeric = coord[:-1]
+        if hemisphere in ("N", "S"):
+            degrees = float(numeric[:2])
+            minutes = float(numeric[2:])
+        else:  # E, W
+            degrees = float(numeric[:3])
+            minutes = float(numeric[3:])
+        decimal = degrees + minutes / 60.0
+        if hemisphere in ("S", "W"):
+            decimal = -decimal
+        return decimal
 
     # ------------------------------------------------------------------
     # Shared helpers

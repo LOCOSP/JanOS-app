@@ -32,9 +32,13 @@ Full-screen terminal interface with tabbed navigation, real-time data, and keybo
 ```bash
 git clone https://github.com/LOCOSP/JanOS-app/
 cd JanOS-app
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python3 -m janos /dev/ttyUSB0
 ```
+
+> **Note:** Using a virtual environment (`.venv/`) is recommended. The included launcher scripts (`janos-launch.sh`, `janos-launcher`) use `.venv/bin/python3` by default.
 
 ### ⚠️ Required Firmware
 
@@ -63,13 +67,16 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 | `Tab` / `Shift+Tab` | Cycle tabs forward / backward |
 | `Left` / `Right` | Switch tabs (D-pad navigation) |
 | `Up` / `Down` | Navigate lists and tables |
-| `s` | Start scan / sniffer / setup wizard (context-dependent) |
+| `s` | Start scan / sniffer / setup wizard / stop LoRa (context-dependent) |
 | `Space` / `Enter` | Select / toggle item in tables (auto-sends to ESP32) |
 | `r` | Fetch sniffer AP results |
 | `p` | Fetch probe requests |
 | `l` | Switch to live sniffer view |
 | `x` | Clear results / clear log (context-dependent) |
 | `d` | Show captured data (Portal / Evil Twin) |
+| `6` | LoRa Sniffer — start/stop (Add-ons tab, LORA ON) |
+| `7` | LoRa Scanner — start/stop (Add-ons tab, LORA ON) |
+| `8` | Balloon Tracker — start/stop (Add-ons tab, LORA ON) |
 | `Shift+M` | Toggle Mobile Mode (hide sidebar for small screens) |
 | `Shift+P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all running operations |
@@ -89,8 +96,9 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 - **Serial event loop** -- no background threads, uses urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** -- all captured data auto-saved to disk (see below)
 - **Private Mode** -- press `Shift+P` to mask SSIDs, MACs, IPs, and passwords on screen (for recording/streaming). Loot files are NOT affected
-- **Add-ons tab** -- extensible tools tab with **Flash ESP32-C5 Firmware** and **AIO v2 interface control** (toggle GPS/LORA/SDR/USB via `aiov2_ctl`, install from GitHub if missing)
+- **Add-ons tab** -- extensible tools tab with **Flash ESP32-C5 Firmware**, **AIO v2 interface control** (toggle GPS/LORA/SDR/USB), and **LoRa tools** (sniffer, scanner, balloon tracker)
 - **AIO v2 sidebar** -- live status of HackerGadgets AIO v2 GPIO interfaces (GPS, LORA, SDR, USB) displayed below loot section, auto-refreshed every 10s
+- **LoRa SX1262** -- direct SPI communication with SX1262 radio on AIO v2 board for packet sniffing, frequency scanning, and balloon tracking (see below)
 
 ### Loot System
 
@@ -207,6 +215,26 @@ AIO  GPS:ON │ LORA:OFF │ SDR:OFF │ USB:OFF
 
 **Startup check** reports AIO v2 availability: `[OK] AIO v2 (aiov2_ctl)` or `[--] AIO v2 not installed`.
 
+### Add-ons: LoRa SX1262
+
+The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface is enabled (`[3] LORA [ON]`). Uses direct SPI communication with the SX1262 chip on the AIO v2 board via the `LoRaRF` library.
+
+**Available tools** (keys `6`-`8`, visible only when LORA is ON):
+
+| Key | Tool | Description |
+|-----|------|-------------|
+| `6` | **LoRa Sniffer** | Listen on a single frequency (default 868.1 MHz SF7 BW125k). Shows raw packets with hex + ASCII, RSSI, SNR |
+| `7` | **LoRa Scanner** | Cycle through all EU868 (8 freqs) + APRS 433 (3 freqs) frequencies × 6 spreading factors. Detects any active LoRa transmissions |
+| `8` | **Balloon Tracker** | Cycle LoRa APRS (433.775 SF12, 434.855 SF9) and UKHAS (868.1 SF8) profiles. Auto-parses APRS position/altitude and UKHAS CSV payloads |
+
+**Balloon Tracker** supports two payload formats:
+- **LoRa APRS** — `CALL>DEST:=DDMM.MMN/DDDMM.MMEO .../A=AAAAAA` (position in degrees+minutes, altitude in feet). Ref: [SQ2CPA/LoRa_APRS_Balloon](https://github.com/SQ2CPA/LoRa_APRS_Balloon)
+- **UKHAS CSV** — `$$CALL,ID,TIME,LAT,LON,ALT,...` (comma-separated with optional `$$` prefix)
+
+**Controls**: press the same key again or `s` to stop a running LoRa operation. Toggling LORA OFF auto-stops any running LoRa tool.
+
+**Hardware**: SX1262 on `/dev/spidev1.0` (SPI bus 1, CS 0). IRQ=GPIO26, Busy=GPIO24, Reset=GPIO25. User must be in `spi` group.
+
 ### Flags
 ```
 python3 -m janos /dev/ttyUSB0 --debug    # Log to /tmp/janos.log
@@ -215,8 +243,10 @@ python3 -m janos /dev/ttyUSB0 --legacy   # Fall back to old CLI
 
 ### Requirements
 - Python 3.10+
-- `urwid >= 2.1.0`
-- `pyserial >= 3.5`
+- `urwid >= 2.1.0` — TUI framework
+- `pyserial >= 3.5` — ESP32 serial communication
+- `LoRaRF >= 1.4.0` — SX1262 SPI radio control (optional, for LoRa features)
+- `esptool >= 4.0` — ESP32 firmware flashing (optional, for Add-ons flash)
 - Works on serial terminals, SSH, and ClockworkPi uConsole
 
 ## Legacy CLI Mode
@@ -236,7 +266,7 @@ You can set up a desktop shortcut on ClockworkPi uConsole that launches JanOS in
 ```bash
 #!/bin/bash
 cd "$(dirname "$0")"
-exec lxterminal --title=JanOS --no-remote -e bash -c 'python3 -m janos /dev/ttyUSB0; read -p "Press Enter..."'
+exec lxterminal --title=JanOS --no-remote -e bash -c '.venv/bin/python3 -m janos /dev/ttyUSB0; read -p "Press Enter..."'
 ```
 ```bash
 chmod +x janos-launch.sh

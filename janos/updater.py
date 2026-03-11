@@ -2,18 +2,21 @@
 
 Non-blocking: runs in a daemon thread so it never delays startup.
 Falls back silently on any network error (no internet = no dialog).
+Also checks firmware release version on GitHub.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import subprocess
+from pathlib import Path
 from typing import Callable
 from urllib.request import Request, urlopen
 
-from .config import APP_UPDATE_URL
+from .config import APP_UPDATE_URL, FIRMWARE_RELEASE_URL
 
 log = logging.getLogger(__name__)
 
@@ -120,3 +123,46 @@ def _ensure_github_remote(app_dir: str) -> None:
             cwd=app_dir,
             capture_output=True,
         )
+
+
+# ------------------------------------------------------------------ #
+# Firmware version helpers
+# ------------------------------------------------------------------ #
+
+_FW_VERSION_FILE = Path.home() / ".janos_fw_version"
+
+
+def check_remote_firmware_version(timeout: int = 10) -> str | None:
+    """Fetch the latest firmware release tag from GitHub.
+
+    Returns the tag name (e.g. ``"v1.5.5"``) or *None* on any error.
+    """
+    try:
+        req = Request(FIRMWARE_RELEASE_URL)
+        req.add_header("User-Agent", "JanOS-App")
+        with urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        return data.get("tag_name")
+    except Exception as exc:
+        log.debug("Firmware version check failed: %s", exc)
+    return None
+
+
+def get_local_fw_version() -> str | None:
+    """Read the last-flashed firmware version from ``~/.janos_fw_version``."""
+    try:
+        if _FW_VERSION_FILE.exists():
+            ver = _FW_VERSION_FILE.read_text(encoding="utf-8").strip()
+            return ver or None
+    except Exception:
+        pass
+    return None
+
+
+def save_local_fw_version(version: str) -> None:
+    """Persist firmware version after a successful flash."""
+    try:
+        _FW_VERSION_FILE.write_text(version.strip(), encoding="utf-8")
+        log.info("Saved firmware version: %s", version.strip())
+    except Exception as exc:
+        log.warning("Cannot save firmware version: %s", exc)

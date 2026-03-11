@@ -190,7 +190,7 @@ class JanOSTUI:
         )
         has_errors = any(c[0] == "fail" for c in checks)
         self._startup_screen = StartupScreen(checks, has_errors, on_dismiss=self._dismiss_startup)
-        height = len(checks) + 6
+        height = len(checks) + 7  # +1 for firmware version (added dynamically)
         self.show_overlay(self._startup_screen, width=50, height=height)
         if not has_errors:
             self._loop.set_alarm_in(1, self._startup_screen.tick)
@@ -415,6 +415,11 @@ class JanOSTUI:
                 if m:
                     self.state.firmware_version = m.group(1)
                     log.info("Firmware version detected: %s", m.group(1))
+                    # Show on startup screen if still visible
+                    if self._startup_screen is not None:
+                        self._startup_screen.add_check(
+                            "ok", f"Firmware v{m.group(1)}"
+                        )
             # Crash detection — collect all crash lines, show ONE overlay
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True

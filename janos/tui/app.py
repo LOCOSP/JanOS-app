@@ -176,6 +176,8 @@ class JanOSTUI:
 
         # Background update check (non-blocking, result used after startup screen)
         self._update_version: str | None = None
+        self._fw_remote_version: str | None = None
+        self._fw_local_version: str | None = None
         self._update_thread = threading.Thread(
             target=self._check_update, daemon=True,
         )
@@ -199,13 +201,16 @@ class JanOSTUI:
         # Show update dialog if a newer version was found
         if self._update_version:
             self._show_update_dialog()
+        elif self._fw_remote_version:
+            self._show_fw_update_dialog()
 
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------
 
     def _check_update(self) -> None:
-        """Background thread: check GitHub for a newer version."""
+        """Background thread: check GitHub for newer app + firmware versions."""
+        # --- App version ---
         try:
             from ..updater import check_remote_version, is_newer
             from .. import __version__
@@ -217,6 +222,30 @@ class JanOSTUI:
         except Exception as exc:
             log.debug("Update check error: %s", exc)
 
+        # --- Firmware version ---
+        try:
+            from ..updater import (
+                check_remote_firmware_version,
+                get_local_fw_version,
+                is_newer,
+            )
+
+            remote_fw = check_remote_firmware_version(timeout=10)
+            local_fw = get_local_fw_version()
+            if remote_fw:
+                remote_clean = remote_fw.lstrip("v")
+                local_clean = (local_fw or "").lstrip("v")
+                if not local_fw or is_newer(remote_clean, local_clean):
+                    self._fw_remote_version = remote_fw
+                    self._fw_local_version = local_fw
+                    log.info(
+                        "Firmware update available: %s -> %s",
+                        local_fw or "unknown",
+                        remote_fw,
+                    )
+        except Exception as exc:
+            log.debug("Firmware check error: %s", exc)
+
     def _show_update_dialog(self) -> None:
         """Show a y/n dialog offering to update."""
         from .. import __version__
@@ -227,9 +256,27 @@ class JanOSTUI:
             self.dismiss_overlay()
             if yes:
                 self._do_update()
+            elif self._fw_remote_version:
+                self._show_fw_update_dialog()
 
         dialog = ConfirmDialog(msg, _on_answer)
         self.show_overlay(dialog, 40, 7)
+
+    def _show_fw_update_dialog(self) -> None:
+        """Show an info dialog about available firmware update."""
+        local = self._fw_local_version or "unknown"
+        remote = self._fw_remote_version
+        msg = (
+            f"New firmware {remote} available!\n"
+            f"  Current: {local}\n\n"
+            f"  Go to Add-ons (tab 4) to flash."
+        )
+        dialog = InfoDialog(
+            msg,
+            lambda: self.dismiss_overlay(),
+            title="Firmware Update",
+        )
+        self.show_overlay(dialog, 50, 10)
 
     def _do_update(self) -> None:
         """Run git pull in background and show result."""

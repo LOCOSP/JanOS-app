@@ -32,6 +32,7 @@ class FlashManager:
         self.running = False
         self.done = False
         self.success = False
+        self._release_tag: str = ""
 
     def _emit(self, line: str, attr: str = "default") -> None:
         self.queue.put((line, attr))
@@ -78,6 +79,15 @@ class FlashManager:
             self._emit("Flash complete! ESP32-C5 is rebooting.", "success")
             self.success = True
 
+            # Save flashed firmware version for startup check
+            if self._release_tag:
+                try:
+                    from .updater import save_local_fw_version
+                    save_local_fw_version(self._release_tag)
+                    self._emit(f"Firmware version saved: {self._release_tag}", "dim")
+                except Exception:
+                    pass
+
         except Exception as exc:
             self._emit(f"ERROR: {exc}", "error")
             log.exception("Flash failed")
@@ -99,6 +109,7 @@ class FlashManager:
                 data = json.loads(resp.read())
 
             tag = data["tag_name"]
+            self._release_tag = tag
             self._emit(f"Latest release: {tag}", "success")
 
             # Find firmware ZIP asset

@@ -53,8 +53,32 @@ SPREADING_FACTORS = [7, 8, 9, 10, 11, 12]
 APRS_PREFIX = b"\x3c\xff\x01"
 
 # Sniffer presets: (freq_hz, sf, cr, bw, label)
-PRESET_MESHCORE = (869_618_000, 8, 8, 62_500, "MeshCore 869.618 SF8 BW62.5k")
-PRESET_MESHTASTIC = (869_525_000, 11, 8, 250_000, "Meshtastic 869.525 SF11 BW250k")
+PRESET_MESHCORE = (869_618_000, 8, 5, 62_500, "MeshCore 869.618 SF8 BW62.5k CR5")
+PRESET_MESHTASTIC = (869_525_000, 11, 8, 250_000, "Meshtastic 869.525 SF11 BW250k CR8")
+
+# MeshCore protocol constants
+MESHCORE_PUBLIC_PSK = bytes.fromhex("8b3387e9c5cdea6ac9e5edbaa115cd72")
+MESHCORE_PUBLIC_HASH = 0x11
+MESHCORE_SYNC_WORD = 0x1424  # private LoRa sync word
+MESHCORE_PREAMBLE = 16
+
+# MeshCore payload types (header bits 5:2)
+MC_PAYLOAD_TYPES = {
+    0x00: "Request",
+    0x01: "Response",
+    0x02: "TextMsg",
+    0x03: "ACK",
+    0x04: "Advert",
+    0x05: "GrpTxt",
+    0x06: "GrpData",
+    0x07: "AnonReq",
+    0x08: "PathRet",
+    0x09: "Trace",
+    0x0A: "Multi",
+    0x0B: "Control",
+    0x0F: "RawCustom",
+}
+MC_ROUTE_TYPES = {0: "TFlood", 1: "Flood", 2: "Direct", 3: "TDirect"}
 
 # Hardware config (from /etc/meshtasticd/config.yaml)
 SPI_BUS = 1
@@ -126,6 +150,8 @@ class LoRaManager:
         cr: int = 5,
         bw: int = 125_000,
         label: str = "",
+        sync_word: int = 0,
+        preamble: int = 0,
     ) -> None:
         """Start LoRa sniffer on given frequency and spreading factor."""
         if self.running:
@@ -136,7 +162,7 @@ class LoRaManager:
         self.packets_received = 0
         self._thread = threading.Thread(
             target=self._run_sniffer,
-            args=(freq, sf, cr, bw, label),
+            args=(freq, sf, cr, bw, label, sync_word, preamble),
             daemon=True,
         )
         self._thread.start()
@@ -144,7 +170,11 @@ class LoRaManager:
     def start_meshcore(self) -> None:
         """Start sniffer on MeshCore EU/UK Narrow (869.618 MHz)."""
         freq, sf, cr, bw, label = PRESET_MESHCORE
-        self.start_sniffer(freq, sf, cr, bw, label)
+        self.start_sniffer(
+            freq, sf, cr, bw, label,
+            sync_word=MESHCORE_SYNC_WORD,
+            preamble=MESHCORE_PREAMBLE,
+        )
         self.mode = "meshcore"
 
     def start_meshtastic(self) -> None:
@@ -153,19 +183,41 @@ class LoRaManager:
         self.start_sniffer(freq, sf, cr, bw, label)
         self.mode = "meshtastic"
 
+    def _configure_radio(
+        self, lora, freq: int, sf: int, cr: int, bw: int,
+        sync_word: int = 0, preamble: int = 0,
+    ) -> None:
+        """Apply frequency, modulation, and optional sync/preamble."""
+        lora.setFrequency(freq)
+        lora.setLoRaModulation(sf, bw, cr, False)
+        if sync_word:
+            hi = (sync_word >> 8) & 0xFF
+            lo = sync_word & 0xFF
+            lora.setSyncWord(hi, lo)
+        if preamble:
+            lora.setLoRaPacket(preamble, 0, 255, True)
+
     def _run_sniffer(
         self, freq: int, sf: int, cr: int, bw: int, label: str,
+        sync_word: int = 0, preamble: int = 0,
     ) -> None:
         lora = self._init_radio()
         if not lora:
             self.running = False
             return
         try:
-            lora.setFrequency(freq)
-            lora.setLoRaModulation(sf, bw, cr, False)
-            freq_mhz = freq / 1_000_000
-            tag = label or f"{freq_mhz:.3f}MHz SF{sf}"
+            self._configure_radio(
+                lora, freq, sf, cr, bw, sync_word, preamble,
+            )
+            tag = label or f"{freq / 1_000_000:.3f}MHz SF{sf}"
             self._emit(f"Sniffer started: {tag}", "success")
+
+            # Pick packet handler based on mode
+            handler = (
+                self._handle_meshcore
+                if self.mode == "meshcore"
+                else self._handle_packet
+            )
 
             errors = 0
             while not self._stop_event.is_set():
@@ -173,7 +225,7 @@ class LoRaManager:
                     lora.request(lora.RX_SINGLE)
                     lora.wait(2)  # 2s timeout
                     if lora.available() > 0:
-                        self._handle_packet(lora, tag)
+                        handler(lora, tag)
                     errors = 0
                 except Exception as exc:
                     errors += 1
@@ -189,8 +241,9 @@ class LoRaManager:
                         if not lora:
                             self._emit("Radio reinit failed", "error")
                             return
-                        lora.setFrequency(freq)
-                        lora.setLoRaModulation(sf, bw, cr, False)
+                        self._configure_radio(
+                            lora, freq, sf, cr, bw, sync_word, preamble,
+                        )
                         errors = 0
         except Exception as exc:
             self._emit(f"Sniffer error: {exc}", "error")
@@ -545,6 +598,174 @@ class LoRaManager:
                 + ("..." if len(data) > 32 else ""),
                 "warning",
             )
+
+    # ------------------------------------------------------------------
+    # MeshCore packet decoder
+    # ------------------------------------------------------------------
+
+    def _handle_meshcore(self, lora, tag: str) -> None:
+        """Read and decode a MeshCore packet."""
+        data = self._read_packet(lora)
+        rssi = lora.packetRssi()
+        snr = lora.snr()
+        self.packets_received += 1
+
+        if len(data) < 2:
+            self._emit(
+                f"[{self.packets_received}] {tag} {len(data)}B "
+                f"(too short)",
+                "dim",
+            )
+            return
+
+        # Parse header byte: 0bVVPPPPRR
+        header = data[0]
+        route_type = header & 0x03
+        payload_type = (header >> 2) & 0x0F
+        version = (header >> 6) & 0x03
+
+        route_name = MC_ROUTE_TYPES.get(route_type, "?")
+        type_name = MC_PAYLOAD_TYPES.get(payload_type, f"0x{payload_type:02X}")
+
+        # Transport codes present for route 0 or 3
+        offset = 1
+        if route_type in (0, 3):
+            offset += 4  # skip 4-byte transport codes
+
+        if offset >= len(data):
+            self._emit(
+                f"[{self.packets_received}] {type_name} {route_name} "
+                f"(truncated) RSSI:{rssi}",
+                "warning",
+            )
+            return
+
+        # Parse path length byte: 0bSSNNNNNN
+        path_byte = data[offset]
+        hash_size = ((path_byte >> 6) & 0x03) + 1
+        hash_count = path_byte & 0x3F
+        offset += 1
+        path_len = hash_count * hash_size
+        offset += path_len  # skip path data
+
+        hops = hash_count
+        payload = data[offset:] if offset < len(data) else bytearray()
+
+        self._emit(
+            f"[{self.packets_received}] MC {type_name} {route_name} "
+            f"v{version} {hops}hop {len(data)}B "
+            f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
+            "success",
+        )
+
+        # Decode by type
+        if payload_type == 0x04:
+            self._decode_mc_advert(payload)
+        elif payload_type == 0x05:
+            self._decode_mc_group_text(payload)
+        elif payload_type == 0x03:
+            self._emit(f"  ACK {payload.hex()}", "dim")
+        elif payload_type in (0x00, 0x01, 0x02):
+            self._emit(f"  [Encrypted peer msg] {len(payload)}B", "dim")
+        else:
+            if payload:
+                self._emit(f"  {payload[:32].hex()}", "dim")
+
+    def _decode_mc_advert(self, payload: bytearray) -> None:
+        """Decode MeshCore Advertisement (type 0x04) — plaintext."""
+        if len(payload) < 100:  # 32 pubkey + 4 timestamp + 64 sig = 100
+            self._emit(f"  Advert: {payload.hex()}", "dim")
+            return
+
+        import struct
+
+        pubkey = payload[:32]
+        timestamp = struct.unpack_from("<I", payload, 32)[0]
+        # signature at 36:100
+        flags_and_name = payload[100:]
+
+        node_id = pubkey[:4].hex()
+        self._emit(
+            f"  Node: {node_id}... ts:{timestamp}",
+            "attack_active",
+        )
+
+        if len(flags_and_name) >= 2:
+            flags = flags_and_name[0]
+            node_types = {0: "Client", 1: "Repeater", 2: "Room", 3: "Sensor"}
+            ntype = node_types.get(flags & 0x07, "Unknown")
+
+            # Check for GPS (bit 3) and name (bit 4)
+            off = 1
+            gps_str = ""
+            if flags & 0x08 and len(flags_and_name) >= off + 8:
+                lat_i = struct.unpack_from("<i", flags_and_name, off)[0]
+                lon_i = struct.unpack_from("<i", flags_and_name, off + 4)[0]
+                lat = lat_i / 1_000_000
+                lon = lon_i / 1_000_000
+                gps_str = f" GPS:{lat:.5f},{lon:.5f}"
+                off += 8
+
+            name = ""
+            if off < len(flags_and_name):
+                name_bytes = flags_and_name[off:]
+                name = name_bytes.split(b"\x00", 1)[0].decode(
+                    "utf-8", errors="replace",
+                )
+
+            self._emit(
+                f"  [{ntype}] {name}{gps_str}",
+                "success",
+            )
+
+    def _decode_mc_group_text(self, payload: bytearray) -> None:
+        """Decode MeshCore Group Text (type 0x05) — AES-128 with known PSK."""
+        if len(payload) < 4:
+            self._emit(f"  GrpTxt: {payload.hex()}", "dim")
+            return
+
+        channel_hash = payload[0]
+        mac = payload[1:3]
+        ciphertext = payload[3:]
+
+        is_public = channel_hash == MESHCORE_PUBLIC_HASH
+        ch_label = "PUBLIC" if is_public else f"ch:0x{channel_hash:02X}"
+
+        if not is_public or not ciphertext:
+            self._emit(
+                f"  [{ch_label}] {len(ciphertext)}B encrypted",
+                "dim",
+            )
+            return
+
+        # Try AES-128 ECB decryption with public PSK
+        try:
+            from cryptography.hazmat.primitives.ciphers import (
+                Cipher, algorithms, modes,
+            )
+            cipher = Cipher(
+                algorithms.AES(MESHCORE_PUBLIC_PSK), modes.ECB(),
+            )
+            dec = cipher.decryptor()
+            # Pad to 16-byte boundary
+            pad_len = (16 - len(ciphertext) % 16) % 16
+            padded = bytes(ciphertext) + b"\x00" * pad_len
+            plaintext = dec.update(padded) + dec.finalize()
+
+            import struct
+            ts = struct.unpack_from("<I", plaintext, 0)[0]
+            text_type = plaintext[4]
+            msg = plaintext[5:].split(b"\x00", 1)[0].decode(
+                "utf-8", errors="replace",
+            )
+            self._emit(f"  [{ch_label}] {msg}", "attack_active")
+        except ImportError:
+            self._emit(
+                f"  [{ch_label}] (need: pip install cryptography)",
+                "warning",
+            )
+        except Exception as exc:
+            self._emit(f"  [{ch_label}] decrypt err: {exc}", "warning")
 
     def _cleanup_radio(self, lora) -> None:
         """Release SPI and mark as not running."""

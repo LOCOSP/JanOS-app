@@ -1,9 +1,13 @@
 """Add-ons screen — firmware flash + AIO v2 interface control."""
 
+import logging
 import queue
+import threading
 import time
 
 import urwid
+
+log = logging.getLogger(__name__)
 
 from ...app_state import AppState
 from ...serial_manager import SerialManager
@@ -32,6 +36,8 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._flash = FlashManager()
         self._flashing = False
         self._installing_aio = False
+        self._aio_toggling = False
+        self._serial_watch_removed = False
         self._reconnect_pending = False
         self._reconnect_at: float = 0.0
         self._last_menu_key = ""  # track menu state for rebuild
@@ -106,13 +112,37 @@ class AddOnsScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        # Drain flash output queue
+        # Drain flash output queue (also picks up AIO toggle results)
         while not self._flash.queue.empty():
             try:
                 line, attr = self._flash.queue.get_nowait()
                 self._log.append(line, attr)
             except queue.Empty:
                 break
+
+        # Re-add serial FD watch after AIO toggle finishes
+        if self._serial_watch_removed and not self._aio_toggling:
+            self._serial_watch_removed = False
+            if self.serial.is_open:
+                try:
+                    self._app._loop.watch_file(
+                        self.serial.fd, self._app._on_serial_data,
+                    )
+                    log.info("Serial watch re-added after AIO toggle")
+                except Exception as exc:
+                    log.warning("Cannot re-add serial watch: %s", exc)
+                    self.serial.close()
+                    self.state.connected = False
+                    self._log.append(
+                        "Serial port lost — replug device or restart",
+                        "warning",
+                    )
+            else:
+                self.state.connected = False
+                self._log.append(
+                    "Serial port lost after AIO toggle", "warning",
+                )
+            self._update_status_hint()
 
         if self._flash.running:
             self._status.set_text(
@@ -218,8 +248,19 @@ class AddOnsScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def _toggle_aio(self, feature: str) -> None:
-        """Toggle an AIO feature and update state."""
-        self.state.aio_toggling = time.time()
+        """Toggle an AIO feature in a background thread.
+
+        ``aiov2_ctl`` can block or cause USB resets (especially LORA OFF),
+        so we must NOT run it synchronously in the urwid event loop.
+        The serial FD watch is removed before the toggle to prevent
+        urwid from crashing if the FD becomes invalid during the toggle.
+        Results are communicated via ``self._flash.queue``.
+        """
+        if self._aio_toggling:
+            self._status.set_text(("warning", "  Toggle already in progress"))
+            return
+
+        self._aio_toggling = True
         attr = f"aio_{feature}"
         current = getattr(self.state, attr, False)
         new_val = not current
@@ -228,19 +269,41 @@ class AddOnsScreen(urwid.WidgetWrap):
             f"Toggling AIO {feature.upper()} {'ON' if new_val else 'OFF'}...",
             "dim",
         )
+        self._status.set_text(
+            ("attack_active", f"  Toggling {feature.upper()}..."),
+        )
 
-        ok = AioManager.toggle(feature, new_val)
-        if ok:
-            setattr(self.state, attr, new_val)
-            state_str = "ON" if new_val else "OFF"
-            self._log.append(
-                f"AIO {feature.upper()} → {state_str}", "success",
-            )
-        else:
-            self._log.append(
-                f"Failed to toggle {feature.upper()}", "error",
-            )
-        self._rebuild_menu()
+        # Remove serial FD watch BEFORE toggle — USB bus may reset
+        # and invalidate the FD.  We re-add it in refresh() afterwards.
+        had_serial = self.state.connected and self.serial.is_open
+        if had_serial:
+            try:
+                self._app._loop.remove_watch_file(self.serial.fd)
+            except Exception:
+                pass
+            self._serial_watch_removed = True
+
+        def _run() -> None:
+            try:
+                ok = AioManager.toggle(feature, new_val)
+                if ok:
+                    setattr(self.state, attr, new_val)
+                    state_str = "ON" if new_val else "OFF"
+                    self._flash.queue.put(
+                        (f"AIO {feature.upper()} → {state_str}", "success"),
+                    )
+                else:
+                    self._flash.queue.put(
+                        (f"Failed to toggle {feature.upper()}", "error"),
+                    )
+            except Exception as exc:
+                self._flash.queue.put(
+                    (f"Toggle error: {exc}", "error"),
+                )
+            finally:
+                self._aio_toggling = False
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _install_aio(self) -> None:
         """Install aiov2_ctl from GitHub."""

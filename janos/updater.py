@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -133,14 +134,45 @@ def _pip_install(
     project_root: str,
     callback: Callable[[str, str], None],
 ) -> None:
-    """Run pip install in the project .venv if it exists."""
-    venv_dir = os.path.join(project_root, ".venv")
-    req_file = os.path.join(project_root, "requirements.txt")
+    """Install deps after update.
 
+    Prefers ``setup.sh`` (handles pip install **and** Pi 5 rpi-lgpio fix).
+    Falls back to plain ``pip install`` on Windows or when bash is missing.
+    """
+    # --- Try setup.sh first (Linux/macOS) ---
+    setup_script = os.path.join(project_root, "setup.sh")
+    if os.path.isfile(setup_script) and shutil.which("bash"):
+        callback("Running setup.sh (deps + platform fixes)...", "dim")
+        try:
+            proc = subprocess.Popen(
+                ["bash", setup_script],
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for line in proc.stdout:  # type: ignore[union-attr]
+                line = line.rstrip()
+                if line:
+                    callback(f"  {line}", "dim")
+            proc.wait()
+            if proc.returncode == 0:
+                callback("Dependencies up to date.", "dim")
+            else:
+                callback("setup.sh had warnings (non-fatal).", "warning")
+            return
+        except Exception as exc:
+            callback(
+                f"setup.sh error: {exc} — falling back to pip...", "warning",
+            )
+
+    # --- Fallback: plain pip install (Windows / no bash) ---
+    req_file = os.path.join(project_root, "requirements.txt")
     if not os.path.isfile(req_file):
         return
 
-    # Find pip: prefer .venv, fallback to running interpreter
+    venv_dir = os.path.join(project_root, ".venv")
     venv_pip = os.path.join(venv_dir, "bin", "pip")
     if os.path.isfile(venv_pip):
         pip_cmd = [venv_pip]

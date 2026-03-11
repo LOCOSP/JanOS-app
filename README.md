@@ -84,6 +84,8 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 | `6` | LoRa Sniffer — start/stop (Add-ons tab, LORA ON) |
 | `7` | LoRa Scanner — start/stop (Add-ons tab, LORA ON) |
 | `8` | Balloon Tracker — start/stop (Add-ons tab, LORA ON) |
+| `9` | MeshCore Sniffer — start/stop (Add-ons tab, LORA ON) |
+| `0` | Meshtastic Sniffer — start/stop (Add-ons tab, LORA ON) |
 | `Shift+M` | Toggle Mobile Mode (hide sidebar for small screens) |
 | `Shift+P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all running operations |
@@ -226,17 +228,25 @@ AIO  GPS:ON │ LORA:OFF │ SDR:OFF │ USB:OFF
 
 The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface is enabled (`[3] LORA [ON]`). Uses direct SPI communication with the SX1262 chip on the AIO v2 board via the `LoRaRF` library.
 
-**Available tools** (keys `6`-`8`, visible only when LORA is ON):
+**Available tools** (keys `6`-`0`, visible only when LORA is ON):
 
 | Key | Tool | Description |
 |-----|------|-------------|
 | `6` | **LoRa Sniffer** | Listen on a single frequency (default 868.1 MHz SF7 BW125k). Shows raw packets with hex + ASCII, RSSI, SNR |
 | `7` | **LoRa Scanner** | Cycle through all EU868 (8 freqs) + APRS 433 (3 freqs) frequencies × 6 spreading factors. Detects any active LoRa transmissions |
 | `8` | **Balloon Tracker** | Cycle LoRa APRS (433.775 SF12, 434.855 SF9) and UKHAS (868.1 SF8) profiles. Auto-parses APRS position/altitude and UKHAS CSV payloads |
+| `9` | **MeshCore Sniffer** | EU/UK Narrow preset (869.618 MHz SF8 BW62.5k CR5). Decodes MeshCore packet headers, advertisements (node name, GPS), and public channel group messages (AES-128 decryption) |
+| `0` | **Meshtastic Sniffer** | Medium Fast preset (869.525 MHz SF11 BW250k CR8). Captures Meshtastic packets with hex dump and printability detection |
 
 **Balloon Tracker** supports two payload formats:
 - **LoRa APRS** — `CALL>DEST:=DDMM.MMN/DDDMM.MMEO .../A=AAAAAA` (position in degrees+minutes, altitude in feet). Ref: [SQ2CPA/LoRa_APRS_Balloon](https://github.com/SQ2CPA/LoRa_APRS_Balloon)
 - **UKHAS CSV** — `$$CALL,ID,TIME,LAT,LON,ALT,...` (comma-separated with optional `$$` prefix)
+
+**MeshCore decoder** parses the MeshCore mesh protocol (sync word 0x1424, 16-symbol preamble):
+- **Header** — version, route type (Flood/Direct), payload type (Advert, GrpTxt, TextMsg, etc.)
+- **Advertisements** — plaintext node info: public key, name, GPS coordinates, node type
+- **Public channel messages** — AES-128-ECB decryption with known public PSK, shows sender name and message text
+- Encrypted/binary payloads shown as hex with `[Encrypted]` tag
 
 **Controls**: press the same key again or `s` to stop a running LoRa operation. Toggling LORA OFF auto-stops any running LoRa tool.
 
@@ -253,6 +263,7 @@ The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface i
 - `urwid >= 2.1.0` — TUI framework
 - `pyserial >= 3.5` — ESP32 serial communication
 - `LoRaRF >= 1.4.0` — SX1262 SPI radio control (optional, for LoRa features)
+- `cryptography` — AES decryption for MeshCore public channel (optional, for MeshCore sniffer)
 - `esptool >= 4.0` — ESP32 firmware flashing (optional, for Add-ons flash)
 - Works on serial terminals, SSH, and ClockworkPi uConsole
 

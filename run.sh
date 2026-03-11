@@ -3,8 +3,8 @@
 cd "$(dirname "$0")"
 
 if [ ! -d ".venv" ]; then
-    echo "No .venv found! Run ./setup.sh first."
-    exit 1
+    echo "No .venv found — running setup..."
+    ./setup.sh || exit 1
 fi
 
 exec .venv/bin/python3 -m janos "$@"

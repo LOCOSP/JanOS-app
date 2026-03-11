@@ -29,7 +29,12 @@ class AioManager:
         try:
             result = subprocess.run(
                 ["aiov2_ctl", "--status"],
-                capture_output=True, text=True, timeout=5,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+                timeout=5,
             )
             if result.returncode != 0:
                 log.warning("aiov2_ctl --status failed: %s", result.stderr.strip())
@@ -55,14 +60,26 @@ class AioManager:
 
     @staticmethod
     def toggle(feature: str, on: bool) -> bool:
-        """Toggle an AIO feature on or off. Returns True on success."""
+        """Toggle an AIO feature on or off. Returns True on success.
+
+        ``aiov2_ctl`` spawns sub-processes (pinctrl, sudo systemctl)
+        that inherit stdio.  We must isolate stdin so they cannot
+        read from the terminal that urwid controls, and use
+        ``start_new_session`` to fully detach from the controlling tty.
+        Timeout is 15 s because ``systemctl stop meshtasticd`` can be slow.
+        """
         if feature not in FEATURES:
             return False
         action = "on" if on else "off"
         try:
             result = subprocess.run(
                 ["aiov2_ctl", feature, action],
-                capture_output=True, text=True, timeout=5,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+                timeout=15,
             )
             if result.returncode == 0:
                 log.info("AIO %s → %s", feature, action)

@@ -1,6 +1,6 @@
 # JanOS-app
 
-A Python TUI for controlling and interacting with **[JanOS](https://github.com/C5Lab/projectZero)** on ESP32-C5 devices.
+A Python TUI for controlling and interacting with **[projectZero](https://github.com/LOCOSP/projectZero)** on ESP32-C5 devices.
 
 ## TUI Mode
 
@@ -55,15 +55,16 @@ JanOS-app requires a compatible firmware on the ESP32-C5. The app communicates w
 
 **Download the firmware binary:**
 1. Go to the [latest release](https://github.com/LOCOSP/projectZero/releases/latest)
-2. Download **`esp32c5-firmware.zip`** (~4 MB) — contains `bootloader.bin`, `projectZero.bin`, `partition-table.bin`, `oui_wifi.bin`, and `flash_board.py`
+2. Download **`projectZerobyLOCOSP-X.Y.Z.zip`** (~4 MB) — contains `bootloader.bin`, `projectZerobyLOCOSP.bin`, `partition-table.bin`
 
 **Flash the ESP32-C5:**
 ```bash
 pip install --upgrade esptool pyserial
-python flash_board.py --port /dev/ttyUSB0          # Linux
-python flash_board.py --port COM10                 # Windows
-python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
+# Use JanOS built-in flasher (Add-ons tab → key 1) or manually:
+esptool.py --chip esp32c5 --baud 460800 write_flash 0x2000 bootloader.bin 0x8000 partition-table.bin 0x20000 projectZerobyLOCOSP.bin
 ```
+
+**In-app flash** (recommended): press `4` for Add-ons → `1` for Flash Firmware. Downloads the latest release from GitHub and flashes automatically via esptool.
 
 > **Note:** The upstream [C5Lab/projectZero](https://github.com/C5Lab/projectZero) releases and web flasher at [c5lab.github.io/projectZero](https://c5lab.github.io/projectZero/) provide the mainline firmware which does **not** include handshake serial capture, custom portal upload (`set_html`), or other features required by this app. Always use the firmware from [LOCOSP/projectZero releases](https://github.com/LOCOSP/projectZero/releases).
 
@@ -86,18 +87,23 @@ python flash_board.py --port /dev/ttyUSB0 --erase  # full erase before flash
 | `8` | Balloon Tracker — start/stop (Add-ons tab, LORA ON) |
 | `9` | MeshCore Sniffer — start/stop (Add-ons tab, LORA ON) |
 | `0` | Meshtastic Sniffer — start/stop (Add-ons tab, LORA ON) |
+| `b` | BLE Scan — discover Bluetooth LE devices (Attacks tab) |
+| `t` | BT Tracker — track specific BLE device by MAC (Attacks tab) |
+| `a` | AirTag Scanner — detect Apple AirTags and Samsung SmartTags (Attacks tab) |
 | `Shift+M` | Toggle Mobile Mode (hide sidebar for small screens) |
 | `Shift+P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all running operations |
 | `q` | Quit (confirmation prompt, sends stop to ESP32) |
 
 ### Features
-- **Sidebar panel** -- left-side panel with JanOS ASCII logo, version, device status, runtime, loot counters (PCAP, HCCAPX, 22K, PWD, ET), network breakdown by band (2.4/5GHz) and auth type (WPA2/WPA3/Open)
-- **Header bar** -- system stats: CPU temperature, RAM usage, load average
+- **Sidebar panel** -- left-side panel with JanOS ASCII logo, version, device status, runtime, loot counters (PCAP, HCCAPX, 22K, PWD, ET, BT), network breakdown by band (2.4/5GHz) and auth type (WPA2/WPA3/Open)
+- **Header bar** -- system stats: CPU temperature, RAM usage, load average, battery status (percent + voltage)
+- **Creature animation** -- ASCII art pet that reacts to app state (scanning, sniffing, attacking, BT hunting, LoRa listening)
 - **Mobile Mode** -- press `Shift+M` to hide the sidebar and go full-width for small screens (SSH from phone, narrow terminals)
 - **Scan** -- scan networks, browse results with RSSI colors, select targets via keyboard
 - **Sniffer** -- live packet counter, AP/client results, probe requests
 - **Attacks** -- deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin — all in one tab with sub-screen navigation
+- **Bluetooth attacks** -- BLE Scan (device discovery), BT Tracker (follow specific MAC), AirTag Scanner (detect Apple AirTags + Samsung SmartTags) — with GPS geo-tagged loot
 - **Handshake Serial PCAP** -- capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
 - **Handshake auto-rescan** -- when no network is selected, periodically rescans (45s cycle) so ESP32 discovers fresh networks as you move
 - **Custom Captive Portals** -- load custom HTML portal pages from local `portals/` folder and send to ESP32 via chunked base64 serial transfer (see below)
@@ -124,6 +130,8 @@ loot/
       HomeWifi_aabbccddeeff_153042.pcap
       HomeWifi_aabbccddeeff_153042.hccapx
       HomeWifi_aabbccddeeff_153042.22000
+    bt_devices.csv            # Bluetooth LE devices (MAC, name, RSSI, GPS)
+    bt_airtags.csv            # detected AirTags + SmartTags (MAC, type, RSSI, GPS)
     meshcore_nodes.csv        # unique MeshCore nodes (type, name, GPS, RSSI)
     meshcore_messages.log     # MeshCore PUBLIC channel messages
     portal_passwords.log      # portal form submissions (passwords, emails)
@@ -140,6 +148,8 @@ loot/
 - **HC22000 hashes** -- `.22000` files auto-generated from complete handshakes (hashcat -m 22000), with GPS coordinates if available. Incomplete captures are skipped
 - **Portal passwords** -- form submissions, usernames, emails
 - **Evil Twin captures** -- passwords, handshakes
+- **BT devices** -- Bluetooth LE devices with MAC, name, RSSI, GPS coordinates
+- **BT AirTags** -- detected Apple AirTags and Samsung SmartTags with GPS
 - **MeshCore nodes** -- unique nodes with type (Client/Repeater/Room/Sensor), name, GPS coordinates, RSSI/SNR (deduped by node ID)
 - **MeshCore messages** -- PUBLIC channel messages decrypted from AES-128 PSK
 - **Attack events** -- start/stop with target info
@@ -151,9 +161,12 @@ The loot path is displayed in the footer status bar. Each app launch creates a n
 The sidebar shows two loot lines:
 
 ```
-Loot: PCAP:2 │ HCCAPX:2 │ 22K:2 │ PWD:1       ← current session
-MC  Nodes:5 │ Msgs:12                           ← MeshCore (when active)
-All:  S:103 │ PCAP:336 │ HCCAPX:10 │ 22K:8 │ PWD:2 │ MC:5/12  ← all-time totals
+Loot: PCAP:2 │ HCCAPX:2 │ 22K:2 │ PWD:1       ← current session (WiFi)
+BT   Dev:12 │ AirTag:3 │ SmTag:1               ← BT loot (when BT active)
+MC   Nodes:5 │ Msgs:12                          ← MeshCore (when active)
+WiFi S:103 │ PCAP:336 │ 22K:8 │ PWD:2          ← all-time WiFi totals
+BT   Dev:48 │ AT:7 │ ST:2                       ← all-time BT totals
+LoRa PKT:211 │ MC:5/12                          ← all-time LoRa totals
 ```
 
 | Abbrev | Meaning |
@@ -164,6 +177,9 @@ All:  S:103 │ PCAP:336 │ HCCAPX:10 │ 22K:8 │ PWD:2 │ MC:5/12  ← all-
 | **22K** | Hashcat hc22000 hash files (`.22000`, only from complete handshakes) |
 | **PWD** | Passwords collected via captive portal submissions |
 | **ET** | Evil Twin credential captures |
+| **Dev** | Bluetooth LE devices discovered |
+| **AT** | Apple AirTags detected |
+| **ST** | Samsung SmartTags detected |
 | **MC** | MeshCore nodes/messages (format: nodes/msgs) |
 
 All-time totals are persisted in `loot/loot_db.json` and updated automatically after every capture. The database is rebuilt from existing session directories on first run.

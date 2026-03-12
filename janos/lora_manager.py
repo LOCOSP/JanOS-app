@@ -761,9 +761,14 @@ class LoRaManager:
             name = ""
             if off < len(flags_and_name):
                 name_bytes = flags_and_name[off:]
-                name = name_bytes.split(b"\x00", 1)[0].decode(
-                    "utf-8", errors="replace",
+                raw = name_bytes.split(b"\x00", 1)[0].decode(
+                    "utf-8", errors="ignore",
                 )
+                # Strip non-printable prefix (Room nodes have
+                # channel/key bytes before the actual name)
+                name = "".join(
+                    c for c in raw if c.isprintable() or c == " "
+                ).strip()
 
             self._emit(
                 f"  [{ntype}] {name}{gps_str}",

@@ -7,7 +7,7 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...loot_manager import LootManager
-from ...privacy import mask_line
+from ...privacy import mask_line, mask_mac
 from ...config import (
     CMD_START_DEAUTH,
     CMD_START_BLACKOUT,
@@ -225,7 +225,7 @@ class AttacksScreen(urwid.WidgetWrap):
                 self._log.append("── BLE Scan Results ──", "attack_active")
                 return True
             if stripped.startswith("Found ") and "devices:" in stripped:
-                self._log.append(f"  {stripped}", "dim")
+                self._log.append(f"  {mask_line(stripped)}", "dim")
                 return True
             m = self._bt_device_re.match(stripped)
             if m:
@@ -243,7 +243,7 @@ class AttacksScreen(urwid.WidgetWrap):
                     attr = "default"
                 else:
                     attr = "dim"
-                display = f"  {mac}  RSSI:{rssi}dBm"
+                display = f"  {mask_mac(mac)}  RSSI:{rssi}dBm"
                 if name:
                     display += f"  {name}"
                 if is_airtag:
@@ -256,23 +256,23 @@ class AttacksScreen(urwid.WidgetWrap):
                     self._loot.save_bt_device(mac, rssi, name, bool(is_airtag), bool(is_smarttag))
                 return True
             if stripped.startswith("Summary:"):
-                self._log.append(f"  {stripped}", "attack_active")
+                self._log.append(f"  {mask_line(stripped)}", "attack_active")
                 self.state.bt_scan_running = False
                 self._last_flags = ""
                 return True
             # Pass through other BLE scan lines
             if self.state.bt_scan_running:
-                self._log.append(f"  {stripped}", "dim")
+                self._log.append(f"  {mask_line(stripped)}", "dim")
                 return True
 
         # BLE Tracker (continuous RSSI)
         if self.state.bt_tracking_running:
             mac = self.state.bt_tracking_mac
             if "Tracking" in stripped and mac.upper() in stripped.upper():
-                self._log.append(f">>> Tracking {mac}...", "success")
+                self._log.append(f">>> Tracking {mask_mac(mac)}...", "success")
                 return True
             if "not found" in stripped:
-                self._log.append(f"  {mac}  not found", "error")
+                self._log.append(f"  {mask_mac(mac)}  not found", "error")
                 return True
             if "RSSI:" in stripped:
                 try:
@@ -285,12 +285,12 @@ class AttacksScreen(urwid.WidgetWrap):
                         attr = "default"
                     else:
                         attr = "warning"
-                    display = f"  {mac}  RSSI:{rssi}dBm"
+                    display = f"  {mask_mac(mac)}  RSSI:{rssi}dBm"
                     if name:
                         display += f"  {name}"
                     self._log.append(display, attr)
                 except (AttributeError, ValueError):
-                    self._log.append(f"  {stripped}", "dim")
+                    self._log.append(f"  {mask_line(stripped)}", "dim")
                 return True
             if "stopped" in stripped.lower():
                 self.state.bt_tracking_running = False
@@ -511,9 +511,9 @@ class AttacksScreen(urwid.WidgetWrap):
             self.state.bt_tracking_running = True
             self.state.bt_tracking_mac = mac
             self._last_flags = ""
-            self._log.append(f">>> BLE Tracker: {mac}", "success")
+            self._log.append(f">>> BLE Tracker: {mask_mac(mac)}", "success")
             if self._loot:
-                self._loot.log_attack_event(f"STARTED: BLE Tracker ({mac})")
+                self._loot.log_attack_event(f"STARTED: BLE Tracker ({mac})")  # loot = full data
 
         def on_cancel() -> None:
             self._app.dismiss_overlay()

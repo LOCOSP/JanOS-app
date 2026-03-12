@@ -146,7 +146,8 @@ class LootManager:
     def _scan_session_dir(self, session_path: Path) -> dict:
         """Count loot items in a single session directory."""
         counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
-                  "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0}
+                  "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
+                  "bt_devices_gps": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -187,8 +188,24 @@ class LootManager:
         bt_dev_file = session_path / "bt_devices.csv"
         if bt_dev_file.is_file():
             try:
-                lines = sum(1 for _ in open(bt_dev_file, encoding="utf-8"))
-                counts["bt_devices"] = max(0, lines - 1)  # minus header
+                gps_count = 0
+                total = 0
+                for i, line in enumerate(open(bt_dev_file, encoding="utf-8")):
+                    if i == 0:
+                        continue  # skip header
+                    total += 1
+                    parts = line.strip().split(",")
+                    # lat,lon are last two columns
+                    if len(parts) >= 8:
+                        try:
+                            lat = float(parts[-2])
+                            lon = float(parts[-1])
+                            if lat != 0.0 or lon != 0.0:
+                                gps_count += 1
+                        except ValueError:
+                            pass
+                counts["bt_devices"] = total
+                counts["bt_devices_gps"] = gps_count
             except OSError:
                 pass
         bt_at_file = session_path / "bt_airtag.log"
@@ -211,7 +228,7 @@ class LootManager:
     def _recalc_totals(self, db: dict) -> None:
         """Recalculate totals from all session entries."""
         keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures",
-                "mc_nodes", "mc_messages", "bt_devices", "bt_airtags")
+                "mc_nodes", "mc_messages", "bt_devices", "bt_airtags", "bt_devices_gps")
         totals: dict = {k: 0 for k in keys}
         totals["sessions"] = len(db["sessions"])
         for session_counts in db["sessions"].values():
@@ -683,10 +700,17 @@ class LootManager:
 
     def save_bt_device(self, mac: str, rssi: int, name: str,
                        is_airtag: bool, is_smarttag: bool) -> None:
-        """Append BLE device to bt_devices.csv (dedup by MAC)."""
+        """Append BLE device to bt_devices.csv (dedup by MAC). GPS auto-added if available."""
         if not self._session_active:
             return
         path = self._session / "bt_devices.csv"
+        # Get GPS coords if available
+        lat, lon = 0.0, 0.0
+        if self._gps and self._gps.available:
+            fix = self._gps.fix
+            if fix.valid:
+                lat = round(fix.latitude, 7)
+                lon = round(fix.longitude, 7)
         try:
             if path.is_file():
                 existing = path.read_text(encoding="utf-8")
@@ -694,11 +718,10 @@ class LootManager:
                     return  # already known
             else:
                 with open(path, "w", encoding="utf-8") as fh:
-                    fh.write("timestamp,mac,rssi,name,airtag,smarttag\n")
+                    fh.write("timestamp,mac,rssi,name,airtag,smarttag,lat,lon\n")
             ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            tag = "airtag" if is_airtag else ("smarttag" if is_smarttag else "")
             with open(path, "a", encoding="utf-8") as fh:
-                fh.write(f"{ts},{mac},{rssi},{name},{is_airtag},{is_smarttag}\n")
+                fh.write(f"{ts},{mac},{rssi},{name},{is_airtag},{is_smarttag},{lat},{lon}\n")
             self.update_session_loot()
         except OSError:
             pass

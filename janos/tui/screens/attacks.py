@@ -1,5 +1,6 @@
-"""Attacks screen — start/stop attack types with confirmation + live log."""
+"""Attacks screen — WiFi & Bluetooth attacks with confirmation + live log."""
 
+import re
 import time
 import urwid
 
@@ -13,14 +14,17 @@ from ...config import (
     CMD_SAE_OVERFLOW,
     CMD_START_HANDSHAKE,
     CMD_START_HANDSHAKE_SERIAL,
+    CMD_SCAN_BT,
+    CMD_SCAN_AIRTAG,
     CMD_STOP,
     HS_RESCAN_INTERVAL,
 )
 from ..widgets.confirm_dialog import ConfirmDialog
+from ..widgets.text_input_dialog import TextInputDialog
 from ..widgets.log_viewer import LogViewer
 
 
-ATTACKS = [
+WIFI_ATTACKS = [
     ("1", "Deauth Attack",           CMD_START_DEAUTH,           "attack_running"),
     ("2", "Blackout Attack",         CMD_START_BLACKOUT,          "blackout_running"),
     ("3", "WPA3 SAE Overflow",       CMD_SAE_OVERFLOW,            "sae_overflow_running"),
@@ -29,6 +33,15 @@ ATTACKS = [
     ("6", "Captive Portal",          None,                        "portal_running"),
     ("7", "Evil Twin",               None,                        "evil_twin_running"),
 ]
+
+BT_ATTACKS = [
+    ("b", "BLE Scan (10s)",          CMD_SCAN_BT,                 "bt_scan_running"),
+    ("t", "BLE Tracker",             None,                        "bt_tracking_running"),
+    ("a", "AirTag Scanner",          CMD_SCAN_AIRTAG,             "bt_airtag_running"),
+]
+
+# Combined for flag iteration
+ALL_ATTACKS = WIFI_ATTACKS + BT_ATTACKS
 
 
 class AttackItem(urwid.WidgetWrap):
@@ -63,10 +76,16 @@ class AttacksScreen(urwid.WidgetWrap):
         self._hs_restarting: bool = False    # waiting for restart delay
         self._hs_restart_at: float = 0.0    # when to send start again
 
+        # BT device parser regex: "  1. AA:BB:CC:DD:EE:FF  RSSI: -42 dBm  Name: Foo"
+        self._bt_device_re = re.compile(
+            r'^\s*\d+\.\s+([0-9A-Fa-f:]{17})\s+RSSI:\s*(-?\d+)\s*dBm'
+            r'(?:\s+Name:\s*(.+?))?(\s*\[AirTag\]|\s*\[SmartTag\])?\s*$'
+        )
+
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [1-7]Start  [9]Stop all  [x]Clear  [Esc]Back"))
+        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [9]Stop all  [x]Clear"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         log_label = urwid.AttrMap(
@@ -74,7 +93,7 @@ class AttacksScreen(urwid.WidgetWrap):
         )
 
         self._menu_view = urwid.Pile([
-            ("fixed", 8, self._listbox),
+            ("fixed", 13, self._listbox),
             ("pack", log_label),
             self._log,
             ("pack", urwid.Divider("─")),
@@ -100,34 +119,57 @@ class AttacksScreen(urwid.WidgetWrap):
             self._last_flags = flags
             self._rebuild()
 
-        sel = self.state.selected_networks
-        # Deduplicate running labels (handshake modes share same flag)
-        seen = set()
-        running = []
-        for _, label, _, flag in ATTACKS:
-            if getattr(self.state, flag, False) and flag not in seen:
-                seen.add(flag)
-                running.append(label)
-        if running:
-            run_str = ", ".join(running)
-            self._status.set_text(
-                ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear log")
-            )
-        elif sel:
-            self._status.set_text(("dim", f"  Target: {sel} | [1-7]Start  [9]Stop all  [x]Clear log"))
-        else:
-            self._status.set_text(("warning", "  No networks selected! Go to Scan tab first"))
+        # Update status bar
+        self._update_status()
 
     def _get_flags_key(self) -> str:
         return ",".join(
-            str(getattr(self.state, flag, False)) for _, _, _, flag in ATTACKS
+            str(getattr(self.state, flag, False)) for _, _, _, flag in ALL_ATTACKS
         )
 
     def _rebuild(self) -> None:
         self._walker.clear()
-        for key, label, cmd, flag in ATTACKS:
+        # WiFi section
+        self._walker.append(urwid.Text(("dim", "  ── WiFi ──")))
+        for key, label, cmd, flag in WIFI_ATTACKS:
             active = getattr(self.state, flag, False)
             self._walker.append(AttackItem(key, label, active))
+        # Bluetooth section
+        self._walker.append(urwid.Text(("dim", "  ── Bluetooth ──")))
+        for key, label, cmd, flag in BT_ATTACKS:
+            active = getattr(self.state, flag, False)
+            self._walker.append(AttackItem(key, label, active))
+
+    def _update_status(self) -> None:
+        sel = self.state.selected_networks
+        # Deduplicate running labels
+        seen = set()
+        running = []
+        for _, label, _, flag in ALL_ATTACKS:
+            if getattr(self.state, flag, False) and flag not in seen:
+                seen.add(flag)
+                running.append(label)
+
+        if self.state.bt_tracking_running and self.state.bt_tracking_mac:
+            running_str = ", ".join(running)
+            self._status.set_text(
+                ("attack_active", f"  ACTIVE: {running_str} | [9]Stop all  [x]Clear")
+            )
+        elif self.state.bt_airtag_running:
+            at = self.state.bt_airtags
+            st = self.state.bt_smarttags
+            self._status.set_text(
+                ("attack_active", f"  AirTags:{at} │ SmartTags:{st} | [9]Stop  [x]Clear")
+            )
+        elif running:
+            run_str = ", ".join(running)
+            self._status.set_text(
+                ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear")
+            )
+        elif sel:
+            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [9]Stop  [x]Clear"))
+        else:
+            self._status.set_text(("dim", "  [1-7]WiFi  [b/t/a]BT  [9]Stop all  [x]Clear"))
 
     def handle_serial_line(self, line: str) -> None:
         """Route serial data to appropriate handler."""
@@ -147,6 +189,10 @@ class AttacksScreen(urwid.WidgetWrap):
             self._evil_twin.handle_serial_line(line)
             return
 
+        # BT serial handling
+        if self._handle_bt_serial(line):
+            return
+
         # Original: show in log for basic attacks
         if not self.state.any_attack_running():
             return
@@ -161,6 +207,121 @@ class AttacksScreen(urwid.WidgetWrap):
         else:
             attr = "dim"
         self._log.append(mask_line(line.strip()), attr)
+
+    # ------------------------------------------------------------------
+    # Bluetooth serial parsing
+    # ------------------------------------------------------------------
+
+    def _handle_bt_serial(self, line: str) -> bool:
+        """Parse BT serial output. Returns True if line was consumed."""
+        stripped = line.strip()
+
+        # BLE Scan (one-time 10s)
+        if self.state.bt_scan_running:
+            if "BLE scan starting" in stripped:
+                self._log.append(">>> BLE scan started (10s)...", "success")
+                return True
+            if "=== BLE Scan Results ===" in stripped:
+                self._log.append("── BLE Scan Results ──", "attack_active")
+                return True
+            if stripped.startswith("Found ") and "devices:" in stripped:
+                self._log.append(f"  {stripped}", "dim")
+                return True
+            m = self._bt_device_re.match(stripped)
+            if m:
+                mac, rssi_s, name, tag = m.groups()
+                rssi = int(rssi_s)
+                name = (name or "").strip()
+                is_airtag = tag and "AirTag" in tag
+                is_smarttag = tag and "SmartTag" in tag
+                # Color by type
+                if is_airtag or is_smarttag:
+                    attr = "warning"
+                elif rssi > -50:
+                    attr = "success"
+                elif rssi > -70:
+                    attr = "default"
+                else:
+                    attr = "dim"
+                display = f"  {mac}  RSSI:{rssi}dBm"
+                if name:
+                    display += f"  {name}"
+                if is_airtag:
+                    display += "  [AirTag]"
+                elif is_smarttag:
+                    display += "  [SmartTag]"
+                self._log.append(display, attr)
+                self.state.bt_devices += 1
+                if self._loot:
+                    self._loot.save_bt_device(mac, rssi, name, bool(is_airtag), bool(is_smarttag))
+                return True
+            if stripped.startswith("Summary:"):
+                self._log.append(f"  {stripped}", "attack_active")
+                self.state.bt_scan_running = False
+                self._last_flags = ""
+                return True
+            # Pass through other BLE scan lines
+            if self.state.bt_scan_running:
+                self._log.append(f"  {stripped}", "dim")
+                return True
+
+        # BLE Tracker (continuous RSSI)
+        if self.state.bt_tracking_running:
+            mac = self.state.bt_tracking_mac
+            if "Tracking" in stripped and mac.upper() in stripped.upper():
+                self._log.append(f">>> Tracking {mac}...", "success")
+                return True
+            if "not found" in stripped:
+                self._log.append(f"  {mac}  not found", "error")
+                return True
+            if "RSSI:" in stripped:
+                try:
+                    rssi = int(re.search(r'RSSI:\s*(-?\d+)', stripped).group(1))
+                    name_m = re.search(r'Name:\s*(.+)', stripped)
+                    name = name_m.group(1).strip() if name_m else ""
+                    if rssi > -50:
+                        attr = "success"
+                    elif rssi > -70:
+                        attr = "default"
+                    else:
+                        attr = "warning"
+                    display = f"  {mac}  RSSI:{rssi}dBm"
+                    if name:
+                        display += f"  {name}"
+                    self._log.append(display, attr)
+                except (AttributeError, ValueError):
+                    self._log.append(f"  {stripped}", "dim")
+                return True
+            if "stopped" in stripped.lower():
+                self.state.bt_tracking_running = False
+                self._last_flags = ""
+                return True
+
+        # AirTag Scanner (continuous count)
+        if self.state.bt_airtag_running:
+            if "AirTag scanner starting" in stripped:
+                self._log.append(">>> AirTag scanner started...", "success")
+                return True
+            if "Output format:" in stripped or "Use 'stop'" in stripped:
+                return True  # skip info lines
+            # Parse "X,Y" count format
+            count_m = re.match(r'^(\d+),(\d+)$', stripped)
+            if count_m:
+                at = int(count_m.group(1))
+                st = int(count_m.group(2))
+                self.state.bt_airtags = at
+                self.state.bt_smarttags = st
+                attr = "warning" if (at > 0 or st > 0) else "dim"
+                self._log.append(f"  AirTags:{at} │ SmartTags:{st}", attr)
+                if self._loot and (at > 0 or st > 0):
+                    self._loot.save_bt_airtag_event(at, st)
+                return True
+            if "stopped" in stripped.lower():
+                self.state.bt_airtag_running = False
+                self._last_flags = ""
+                return True
+
+        return False
 
     # ------------------------------------------------------------------
     # Sub-screen management (Portal / Evil Twin)
@@ -223,13 +384,13 @@ class AttacksScreen(urwid.WidgetWrap):
         self._hs_restart_at = 0.0
 
     # ------------------------------------------------------------------
-    # Attack start
+    # WiFi attack start
     # ------------------------------------------------------------------
 
-    def _start_attack(self, idx: int) -> None:
-        if idx >= len(ATTACKS):
+    def _start_wifi_attack(self, idx: int) -> None:
+        if idx >= len(WIFI_ATTACKS):
             return
-        key, label, cmd, flag = ATTACKS[idx]
+        key, label, cmd, flag = WIFI_ATTACKS[idx]
 
         # Portal → sub-screen
         if cmd is None and flag == "portal_running" and self._portal:
@@ -314,6 +475,87 @@ class AttacksScreen(urwid.WidgetWrap):
         dialog = ConfirmDialog(confirm_msg, on_confirm)
         self._app.show_overlay(dialog, 55, 10 if is_handshake else 8)
 
+    # ------------------------------------------------------------------
+    # Bluetooth attack start
+    # ------------------------------------------------------------------
+
+    def _start_bt_scan(self) -> None:
+        """Start one-time BLE scan (10s). No confirmation needed."""
+        if self.state.bt_scan_running:
+            return
+        # Stop any running operation first
+        self.serial.send_command(CMD_STOP)
+        self.state.stop_all()
+        time.sleep(0.5)
+        self.serial.read_available()
+        self.serial.send_command(CMD_SCAN_BT)
+        self.state.bt_scan_running = True
+        self.state.bt_devices = 0
+        self._last_flags = ""
+        if self._loot:
+            self._loot.log_attack_event("STARTED: BLE Scan")
+
+    def _start_bt_tracker(self) -> None:
+        """Show MAC input dialog, then start BLE tracking."""
+        def on_input(mac: str) -> None:
+            self._app.dismiss_overlay()
+            mac = mac.strip().upper()
+            if not re.match(r'^[0-9A-F]{2}(:[0-9A-F]{2}){5}$', mac):
+                self._status.set_text(("error", "  Invalid MAC format (XX:XX:XX:XX:XX:XX)"))
+                return
+            self.serial.send_command(CMD_STOP)
+            self.state.stop_all()
+            time.sleep(0.5)
+            self.serial.read_available()
+            self.serial.send_command(f"{CMD_SCAN_BT} {mac}")
+            self.state.bt_tracking_running = True
+            self.state.bt_tracking_mac = mac
+            self._last_flags = ""
+            self._log.append(f">>> BLE Tracker: {mac}", "success")
+            if self._loot:
+                self._loot.log_attack_event(f"STARTED: BLE Tracker ({mac})")
+
+        def on_cancel() -> None:
+            self._app.dismiss_overlay()
+
+        dialog = TextInputDialog(
+            "BLE MAC address (XX:XX:XX:XX:XX:XX):",
+            on_input, on_cancel
+        )
+        self._app.show_overlay(dialog, 50, 7)
+
+    def _start_bt_airtag(self) -> None:
+        """Start continuous AirTag/SmartTag scanner."""
+        if self.state.bt_airtag_running:
+            return
+
+        def on_confirm(yes: bool) -> None:
+            self._app.dismiss_overlay()
+            if yes:
+                self.serial.send_command(CMD_STOP)
+                self.state.stop_all()
+                time.sleep(0.5)
+                self.serial.read_available()
+                self.serial.send_command(CMD_SCAN_AIRTAG)
+                self.state.bt_airtag_running = True
+                self.state.bt_airtags = 0
+                self.state.bt_smarttags = 0
+                self._last_flags = ""
+                if self._loot:
+                    self._loot.log_attack_event("STARTED: AirTag Scanner")
+
+        dialog = ConfirmDialog(
+            "Start AirTag Scanner?\n"
+            "Continuous BLE scan for Apple AirTags\n"
+            "and Samsung SmartTags.",
+            on_confirm
+        )
+        self._app.show_overlay(dialog, 50, 9)
+
+    # ------------------------------------------------------------------
+    # Stop all
+    # ------------------------------------------------------------------
+
     def _stop_all(self) -> None:
         self.serial.send_command(CMD_STOP)
         self.state.stop_all()
@@ -335,10 +577,22 @@ class AttacksScreen(urwid.WidgetWrap):
                 return None
             return result  # bubble up (e.g. "9" → global stop)
 
-        # Attack menu mode
+        # WiFi attacks (1-7)
         if key in ("1", "2", "3", "4", "5", "6", "7"):
-            self._start_attack(int(key) - 1)
+            self._start_wifi_attack(int(key) - 1)
             return None
+
+        # Bluetooth attacks
+        if key == "b":
+            self._start_bt_scan()
+            return None
+        if key == "t":
+            self._start_bt_tracker()
+            return None
+        if key == "a":
+            self._start_bt_airtag()
+            return None
+
         if key == "9":
             self._stop_all()
             return None

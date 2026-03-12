@@ -54,6 +54,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._captures = urwid.Text("")
         self._loot_info = urwid.Text("")
         self._mc_line = urwid.Text("")
+        self._bt_line = urwid.Text("")
         self._loot_total = urwid.Text("")
         self._ops = urwid.Text("")
 
@@ -77,6 +78,7 @@ class SidebarPanel(urwid.WidgetWrap):
             urwid.Divider("─"),
             self._loot_info,
             self._mc_line,
+            self._bt_line,
             self._loot_total,
             urwid.Divider("─"),
             self._aio_line,
@@ -94,7 +96,7 @@ class SidebarPanel(urwid.WidgetWrap):
     def _count_loot_files(self) -> dict:
         """Count loot files in the current session directory."""
         counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
-                        "mc_nodes": 0, "mc_messages": 0}
+                        "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -130,6 +132,19 @@ class SidebarPanel(urwid.WidgetWrap):
         if mc_msgs_file.is_file():
             try:
                 counts["mc_messages"] = sum(1 for _ in open(mc_msgs_file, encoding="utf-8"))
+            except OSError:
+                pass
+        bt_file = session / "bt_devices.csv"
+        if bt_file.is_file():
+            try:
+                lines = sum(1 for _ in open(bt_file, encoding="utf-8"))
+                counts["bt_devices"] = max(0, lines - 1)
+            except OSError:
+                pass
+        bt_at_file = session / "bt_airtag.log"
+        if bt_at_file.is_file():
+            try:
+                counts["bt_airtags"] = sum(1 for _ in open(bt_at_file, encoding="utf-8"))
             except OSError:
                 pass
         return counts
@@ -290,6 +305,16 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._mc_line.set_text("")
 
+        # BT loot (current session)
+        bt_d = loot.get("bt_devices", 0)
+        bt_a = loot.get("bt_airtags", 0)
+        if bt_d or bt_a:
+            self._bt_line.set_text(
+                ("success", f"  BT  Devices:{bt_d} │ AirTags:{bt_a}")
+            )
+        else:
+            self._bt_line.set_text("")
+
         # --- Total Loot (all sessions) ---
         totals = self.loot.loot_totals
         if totals.get("sessions", 0) > 0:
@@ -309,6 +334,10 @@ class SidebarPanel(urwid.WidgetWrap):
             mc_total_m = totals.get("mc_messages", 0)
             if mc_total_n or mc_total_m:
                 tp.append(f"MC:{mc_total_n}/{mc_total_m}")
+            bt_total_d = totals.get("bt_devices", 0)
+            bt_total_a = totals.get("bt_airtags", 0)
+            if bt_total_d or bt_total_a:
+                tp.append(f"BT:{bt_total_d}/{bt_total_a}")
             self._loot_total.set_text(
                 ("bold", f"  All:  {' │ '.join(tp)}")
             )

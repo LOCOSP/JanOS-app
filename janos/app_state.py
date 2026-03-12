@@ -73,6 +73,15 @@ class AppState:
     evil_twin_client_count: int = 0
     evil_twin_log: List[str] = field(default_factory=list)
 
+    # Bluetooth
+    bt_scan_running: bool = False
+    bt_tracking_running: bool = False
+    bt_tracking_mac: str = ""
+    bt_airtag_running: bool = False
+    bt_devices: int = 0
+    bt_airtags: int = 0
+    bt_smarttags: int = 0
+
     # GPS
     gps_available: bool = False
     gps_fix_valid: bool = False
@@ -114,6 +123,9 @@ class AppState:
             self.handshake_running,
             self.portal_running,
             self.evil_twin_running,
+            self.bt_scan_running,
+            self.bt_tracking_running,
+            self.bt_airtag_running,
         ])
 
     def stop_all(self) -> None:
@@ -126,6 +138,10 @@ class AppState:
         self.portal_running = False
         self.evil_twin_running = False
         self.scanning = False
+        self.bt_scan_running = False
+        self.bt_tracking_running = False
+        self.bt_tracking_mac = ""
+        self.bt_airtag_running = False
 
     def reset_sniffer(self) -> None:
         self.sniffer_running = False

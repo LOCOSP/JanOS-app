@@ -1,10 +1,22 @@
 """Header widget — system stats bar."""
 
+import glob
 import os
 import urwid
 
 from ..app_state import AppState
 from ..privacy import is_private
+
+# Discover battery sysfs path once at import time
+_BAT_PATH = ""
+for _p in glob.glob("/sys/class/power_supply/*/type"):
+    try:
+        with open(_p) as _f:
+            if _f.read().strip() == "Battery":
+                _BAT_PATH = os.path.dirname(_p)
+                break
+    except OSError:
+        pass
 
 
 def _read_cpu_temp() -> str:
@@ -39,36 +51,71 @@ def _read_load() -> str:
         return ""
 
 
+def _read_battery() -> tuple:
+    """Read battery percent and voltage. Returns (percent_str, voltage_str)."""
+    if not _BAT_PATH:
+        return "", ""
+    pct = ""
+    volts = ""
+    try:
+        with open(os.path.join(_BAT_PATH, "capacity")) as f:
+            pct = f.read().strip() + "%"
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(_BAT_PATH, "voltage_now")) as f:
+            uv = int(f.read().strip())
+            volts = f"{uv / 1_000_000:.2f}V"
+    except Exception:
+        pass
+    return pct, volts
+
+
 class HeaderWidget(urwid.WidgetWrap):
     """Top-of-screen header with system stats."""
 
     def __init__(self, state: AppState) -> None:
         self.state = state
-        self._text = urwid.Text("", align="center")
-        widget = urwid.AttrMap(self._text, "header")
+        self._left = urwid.Text("")
+        self._right = urwid.Text("", align="right")
+        columns = urwid.Columns([
+            self._left,
+            ("pack", self._right),
+        ])
+        widget = urwid.AttrMap(columns, "header")
         super().__init__(widget)
         self.refresh()
 
     def refresh(self) -> None:
-        parts = []
+        left = []
 
         # System stats
         temp = _read_cpu_temp()
         ram = _read_ram()
         load = _read_load()
         if temp:
-            parts.append(("header", f" CPU:{temp} "))
+            left.append(("header", f" CPU:{temp} "))
         if ram:
-            parts.append(("header", f" RAM:{ram} "))
+            left.append(("header", f" RAM:{ram} "))
         if load:
-            parts.append(("header", f" Load:{load} "))
+            left.append(("header", f" Load:{load} "))
 
         if not self.state.connected:
-            parts.append(("footer_alert", " DISCONNECTED "))
+            left.append(("footer_alert", " DISCONNECTED "))
         if is_private():
-            parts.append(("header_private", " PRIVATE MODE "))
+            left.append(("header_private", " PRIVATE MODE "))
 
-        if not parts:
-            parts.append(("header", " "))
+        if not left:
+            left.append(("header", " "))
 
-        self._text.set_text(parts)
+        self._left.set_text(left)
+
+        # Battery (right-aligned)
+        pct, volts = _read_battery()
+        if pct:
+            bat_text = f"BAT:{pct}"
+            if volts:
+                bat_text += f" {volts}"
+            self._right.set_text(("header", f" {bat_text} "))
+        else:
+            self._right.set_text("")

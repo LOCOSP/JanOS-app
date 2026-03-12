@@ -147,7 +147,7 @@ class LootManager:
         """Count loot items in a single session directory."""
         counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
                   "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
-                  "bt_devices_gps": 0}
+                  "bt_smarttags": 0, "bt_devices_gps": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -211,8 +211,8 @@ class LootManager:
         bt_at_file = session_path / "bt_airtag.log"
         if bt_at_file.is_file():
             try:
-                # Count unique non-zero airtag detections
                 total_at = 0
+                total_st = 0
                 for line in open(bt_at_file, encoding="utf-8"):
                     if "AirTags:" in line:
                         try:
@@ -220,7 +220,14 @@ class LootManager:
                             total_at = max(total_at, int(part))
                         except (ValueError, IndexError):
                             pass
+                    if "SmartTags:" in line:
+                        try:
+                            part = line.split("SmartTags:")[1].strip()
+                            total_st = max(total_st, int(part))
+                        except (ValueError, IndexError):
+                            pass
                 counts["bt_airtags"] = total_at
+                counts["bt_smarttags"] = total_st
             except OSError:
                 pass
         return counts
@@ -228,7 +235,8 @@ class LootManager:
     def _recalc_totals(self, db: dict) -> None:
         """Recalculate totals from all session entries."""
         keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures",
-                "mc_nodes", "mc_messages", "bt_devices", "bt_airtags", "bt_devices_gps")
+                "mc_nodes", "mc_messages", "bt_devices", "bt_airtags", "bt_smarttags",
+                "bt_devices_gps")
         totals: dict = {k: 0 for k in keys}
         totals["sessions"] = len(db["sessions"])
         for session_counts in db["sessions"].values():

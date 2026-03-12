@@ -145,7 +145,8 @@ class LootManager:
 
     def _scan_session_dir(self, session_path: Path) -> dict:
         """Count loot items in a single session directory."""
-        counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0}
+        counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
+                  "mc_nodes": 0, "mc_messages": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -170,11 +171,24 @@ class LootManager:
                 counts["et_captures"] = sum(1 for _ in open(et_file, encoding="utf-8"))
             except OSError:
                 pass
+        mc_nodes_file = session_path / "meshcore_nodes.csv"
+        if mc_nodes_file.is_file():
+            try:
+                lines = sum(1 for _ in open(mc_nodes_file, encoding="utf-8"))
+                counts["mc_nodes"] = max(0, lines - 1)  # minus header
+            except OSError:
+                pass
+        mc_msgs_file = session_path / "meshcore_messages.log"
+        if mc_msgs_file.is_file():
+            try:
+                counts["mc_messages"] = sum(1 for _ in open(mc_msgs_file, encoding="utf-8"))
+            except OSError:
+                pass
         return counts
 
     def _recalc_totals(self, db: dict) -> None:
         """Recalculate totals from all session entries."""
-        keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures")
+        keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures", "mc_nodes", "mc_messages")
         totals: dict = {k: 0 for k in keys}
         totals["sessions"] = len(db["sessions"])
         for session_counts in db["sessions"].values():
@@ -599,6 +613,44 @@ class LootManager:
             ts = datetime.now().strftime("%H:%M:%S")
             with open(filepath, "a", encoding="utf-8") as fh:
                 fh.write(f"[{ts}] {event}\n")
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
+    # MeshCore
+    # ------------------------------------------------------------------
+
+    def save_meshcore_node(self, node_id: str, node_type: str, name: str,
+                           lat: float, lon: float, rssi: float, snr: float) -> None:
+        """Append node to meshcore_nodes.csv (dedup by node_id)."""
+        if not self._session_active:
+            return
+        path = self._session / "meshcore_nodes.csv"
+        try:
+            if path.is_file():
+                existing = path.read_text(encoding="utf-8")
+                if f",{node_id}," in existing:
+                    return  # already known
+            else:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write("timestamp,node_id,type,name,lat,lon,rssi,snr\n")
+            ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"{ts},{node_id},{node_type},{name},{lat},{lon},{rssi},{snr}\n")
+            self.update_session_loot()
+        except OSError:
+            pass
+
+    def save_meshcore_message(self, channel: str, message: str, rssi: float) -> None:
+        """Append message to meshcore_messages.log."""
+        if not self._session_active:
+            return
+        path = self._session / "meshcore_messages.log"
+        try:
+            ts = datetime.now().strftime("%H:%M:%S")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"[{ts}] [{channel}] {message} (RSSI:{rssi})\n")
+            self.update_session_loot()
         except OSError:
             pass
 

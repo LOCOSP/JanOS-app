@@ -53,6 +53,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._forms = urwid.Text("")
         self._captures = urwid.Text("")
         self._loot_info = urwid.Text("")
+        self._mc_line = urwid.Text("")
         self._loot_total = urwid.Text("")
         self._ops = urwid.Text("")
 
@@ -75,6 +76,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._captures,
             urwid.Divider("─"),
             self._loot_info,
+            self._mc_line,
             self._loot_total,
             urwid.Divider("─"),
             self._aio_line,
@@ -91,7 +93,8 @@ class SidebarPanel(urwid.WidgetWrap):
 
     def _count_loot_files(self) -> dict:
         """Count loot files in the current session directory."""
-        counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0}
+        counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
+                        "mc_nodes": 0, "mc_messages": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -114,6 +117,19 @@ class SidebarPanel(urwid.WidgetWrap):
         if et_file.is_file() and et_file.stat().st_size > 0:
             try:
                 counts["et_captures"] = sum(1 for _ in open(et_file, encoding="utf-8"))
+            except OSError:
+                pass
+        mc_nodes_file = session / "meshcore_nodes.csv"
+        if mc_nodes_file.is_file():
+            try:
+                lines = sum(1 for _ in open(mc_nodes_file, encoding="utf-8"))
+                counts["mc_nodes"] = max(0, lines - 1)
+            except OSError:
+                pass
+        mc_msgs_file = session / "meshcore_messages.log"
+        if mc_msgs_file.is_file():
+            try:
+                counts["mc_messages"] = sum(1 for _ in open(mc_msgs_file, encoding="utf-8"))
             except OSError:
                 pass
         return counts
@@ -264,6 +280,16 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._loot_info.set_text(("dim", "  Loot: —"))
 
+        # MeshCore loot (current session)
+        mc_n = loot.get("mc_nodes", 0)
+        mc_m = loot.get("mc_messages", 0)
+        if mc_n or mc_m:
+            self._mc_line.set_text(
+                ("success", f"  MC  Nodes:{mc_n} │ Msgs:{mc_m}")
+            )
+        else:
+            self._mc_line.set_text("")
+
         # --- Total Loot (all sessions) ---
         totals = self.loot.loot_totals
         if totals.get("sessions", 0) > 0:
@@ -279,6 +305,10 @@ class SidebarPanel(urwid.WidgetWrap):
                 tp.append(f"PWD:{totals['passwords']}")
             if totals.get("et_captures"):
                 tp.append(f"ET:{totals['et_captures']}")
+            mc_total_n = totals.get("mc_nodes", 0)
+            mc_total_m = totals.get("mc_messages", 0)
+            if mc_total_n or mc_total_m:
+                tp.append(f"MC:{mc_total_n}/{mc_total_m}")
             self._loot_total.set_text(
                 ("bold", f"  All:  {' │ '.join(tp)}")
             )

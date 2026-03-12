@@ -100,6 +100,8 @@ class LoRaManager:
         self.mode = ""  # "sniffer", "scanner", "tracker"
         self.packets_received = 0
         self._seen_packets: dict[bytes, float] = {}  # hash→timestamp
+        self._on_node = None   # callback(node_id, type, name, lat, lon, rssi, snr)
+        self._on_message = None  # callback(channel, message, rssi)
 
     def _emit(self, line: str, attr: str = "default") -> None:
         self.queue.put((line, attr))
@@ -712,9 +714,9 @@ class LoRaManager:
 
         # Decode by type
         if payload_type == 0x04:
-            self._decode_mc_advert(payload)
+            self._decode_mc_advert(payload, rssi, snr)
         elif payload_type == 0x05:
-            self._decode_mc_group_text(payload)
+            self._decode_mc_group_text(payload, rssi)
         elif payload_type == 0x03:
             self._emit(f"  ACK {payload.hex()}", "dim")
         elif payload_type in (0x00, 0x01, 0x02):
@@ -723,7 +725,7 @@ class LoRaManager:
             if payload:
                 self._emit(f"  {payload[:32].hex()}", "dim")
 
-    def _decode_mc_advert(self, payload: bytearray) -> None:
+    def _decode_mc_advert(self, payload: bytearray, lora_rssi: float = 0, lora_snr: float = 0) -> None:
         """Decode MeshCore Advertisement (type 0x04) — plaintext."""
         if len(payload) < 100:  # 32 pubkey + 4 timestamp + 64 sig = 100
             self._emit(f"  Advert: {payload.hex()}", "dim")
@@ -775,7 +777,16 @@ class LoRaManager:
                 "success",
             )
 
-    def _decode_mc_group_text(self, payload: bytearray) -> None:
+            if self._on_node:
+                lat_val = lat if (flags & 0x08) else 0.0
+                lon_val = lon if (flags & 0x08) else 0.0
+                try:
+                    self._on_node(node_id, ntype, name, lat_val, lon_val,
+                                  lora_rssi, lora_snr)
+                except Exception:
+                    pass
+
+    def _decode_mc_group_text(self, payload: bytearray, lora_rssi: float = 0) -> None:
         """Decode MeshCore Group Text (type 0x05) — AES-128 with known PSK."""
         if len(payload) < 4:
             self._emit(f"  GrpTxt: {payload.hex()}", "dim")
@@ -816,6 +827,11 @@ class LoRaManager:
                 "utf-8", errors="replace",
             )
             self._emit(f"  [{ch_label}] {msg}", "attack_active")
+            if self._on_message:
+                try:
+                    self._on_message(ch_label, msg, lora_rssi)
+                except Exception:
+                    pass
         except ImportError:
             self._emit(
                 f"  [{ch_label}] (need: pip install cryptography)",
@@ -825,10 +841,17 @@ class LoRaManager:
             self._emit(f"  [{ch_label}] decrypt err: {exc}", "warning")
 
     def _cleanup_radio(self, lora) -> None:
-        """Release SPI and mark as not running."""
+        """Release SPI without GPIO.cleanup() (preserves pin mode for reuse).
+
+        LoRaRF's lora.end() calls gpio.cleanup() which clears BCM pin mode.
+        Next begin() fails because setmode() only runs at module import time.
+        We close SPI directly and skip gpio.cleanup().
+        """
         try:
             if lora:
-                lora.end()
+                lora.sleep(lora.SLEEP_COLD_START)
+                from LoRaRF import SX126x as _sx
+                _sx.spi.close()
         except Exception:
             pass
         self.running = False
@@ -838,5 +861,8 @@ class LoRaManager:
     # ------------------------------------------------------------------
 
     def stop(self) -> None:
-        """Signal the background thread to stop."""
+        """Signal the background thread to stop and wait for cleanup."""
         self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=5)
+        self._thread = None

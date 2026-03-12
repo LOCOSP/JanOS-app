@@ -32,6 +32,8 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._app = app
         self._flash = FlashManager()
         self._lora = LoRaManager()
+        self._lora._on_node = self._on_mc_node
+        self._lora._on_message = self._on_mc_message
         self._flashing = False
         self._installing_aio = False
         self._reconnect_pending = False
@@ -332,13 +334,26 @@ class AddOnsScreen(urwid.WidgetWrap):
     # LoRa features
     # ------------------------------------------------------------------
 
+    # Map key → (mode, start_method_name)
+    _LORA_KEYS = {
+        "6": "sniffer", "7": "scanner", "8": "tracker",
+        "9": "meshcore", "0": "meshtastic",
+    }
+
     def _start_lora(self, key: str) -> None:
-        """Start or stop a LoRa operation based on key."""
+        """Start, stop, or switch a LoRa operation based on key."""
+        target_mode = self._LORA_KEYS.get(key, "")
         if self._lora.running:
+            same_mode = self._lora.mode == target_mode
             self._lora.stop()
             self.state.lora_packets = 0
-            self._rebuild_menu()
-            return
+            self.state.mc_nodes = 0
+            self.state.mc_messages = 0
+            if same_mode:
+                # Toggle off
+                self._rebuild_menu()
+                return
+            # Switch to different mode — fall through to start
 
         self._log.clear()
         if key == "6":
@@ -352,6 +367,22 @@ class AddOnsScreen(urwid.WidgetWrap):
         elif key == "0":
             self._lora.start_meshtastic()
         self._rebuild_menu()
+
+    def _on_mc_node(self, node_id, ntype, name, lat, lon, rssi, snr):
+        self._app.loot.save_meshcore_node(node_id, ntype, name, lat, lon, rssi, snr)
+        # Recount from disk (dedup-safe)
+        from pathlib import Path
+        csv_path = Path(self._app.loot.session_path) / "meshcore_nodes.csv"
+        if csv_path.is_file():
+            try:
+                lines = sum(1 for _ in open(csv_path, encoding="utf-8"))
+                self.state.mc_nodes = max(0, lines - 1)
+            except OSError:
+                pass
+
+    def _on_mc_message(self, channel, message, rssi):
+        self._app.loot.save_meshcore_message(channel, message, rssi)
+        self.state.mc_messages += 1
 
     # ------------------------------------------------------------------
     # Keyboard

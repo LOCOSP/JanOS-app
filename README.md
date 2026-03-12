@@ -124,6 +124,8 @@ loot/
       HomeWifi_aabbccddeeff_153042.pcap
       HomeWifi_aabbccddeeff_153042.hccapx
       HomeWifi_aabbccddeeff_153042.22000
+    meshcore_nodes.csv        # unique MeshCore nodes (type, name, GPS, RSSI)
+    meshcore_messages.log     # MeshCore PUBLIC channel messages
     portal_passwords.log      # portal form submissions (passwords, emails)
     evil_twin_capture.log     # evil twin captured data
     attacks.log               # attack start/stop events
@@ -138,6 +140,8 @@ loot/
 - **HC22000 hashes** -- `.22000` files auto-generated from complete handshakes (hashcat -m 22000), with GPS coordinates if available. Incomplete captures are skipped
 - **Portal passwords** -- form submissions, usernames, emails
 - **Evil Twin captures** -- passwords, handshakes
+- **MeshCore nodes** -- unique nodes with type (Client/Repeater/Room/Sensor), name, GPS coordinates, RSSI/SNR (deduped by node ID)
+- **MeshCore messages** -- PUBLIC channel messages decrypted from AES-128 PSK
 - **Attack events** -- start/stop with target info
 
 The loot path is displayed in the footer status bar. Each app launch creates a new session directory.
@@ -148,7 +152,8 @@ The sidebar shows two loot lines:
 
 ```
 Loot: PCAP:2 │ HCCAPX:2 │ 22K:2 │ PWD:1       ← current session
-All:  S:103 │ PCAP:336 │ HCCAPX:10 │ 22K:8 │ PWD:2  ← all-time totals
+MC  Nodes:5 │ Msgs:12                           ← MeshCore (when active)
+All:  S:103 │ PCAP:336 │ HCCAPX:10 │ 22K:8 │ PWD:2 │ MC:5/12  ← all-time totals
 ```
 
 | Abbrev | Meaning |
@@ -159,6 +164,7 @@ All:  S:103 │ PCAP:336 │ HCCAPX:10 │ 22K:8 │ PWD:2  ← all-time totals
 | **22K** | Hashcat hc22000 hash files (`.22000`, only from complete handshakes) |
 | **PWD** | Passwords collected via captive portal submissions |
 | **ET** | Evil Twin credential captures |
+| **MC** | MeshCore nodes/messages (format: nodes/msgs) |
 
 All-time totals are persisted in `loot/loot_db.json` and updated automatically after every capture. The database is rebuilt from existing session directories on first run.
 
@@ -248,7 +254,7 @@ The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface i
 - **Public channel messages** — AES-128-ECB decryption with known public PSK, shows sender name and message text
 - Encrypted/binary payloads shown as hex with `[Encrypted]` tag
 
-**Controls**: press the same key again or `s` to stop a running LoRa operation. Toggling LORA OFF auto-stops any running LoRa tool.
+**Controls**: press the same key again or `s` to stop a running LoRa operation. Press a different sniffer key to switch directly (e.g. `0` while MeshCore is running switches to Meshtastic). Toggling LORA OFF auto-stops any running LoRa tool.
 
 **Hardware**: SX1262 on `/dev/spidev1.0` (SPI bus 1, CS 0). IRQ=GPIO26, Busy=GPIO24, Reset=GPIO25. User must be in `spi` group.
 

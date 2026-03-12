@@ -225,6 +225,13 @@ class LoRaManager:
             use_continuous = self.mode == "meshcore"
             if use_continuous:
                 lora.request(lora.RX_CONTINUOUS)
+                # Remove GPIO callback — it races with our SPI poll
+                # (callback clears IRQ before poll can read it)
+                try:
+                    import RPi.GPIO as _gpio
+                    _gpio.remove_event_detect(lora._irq)
+                except Exception:
+                    pass
 
             errors = 0
             while not self._stop_event.is_set():
@@ -270,6 +277,11 @@ class LoRaManager:
                         )
                         if use_continuous:
                             lora.request(lora.RX_CONTINUOUS)
+                            try:
+                                import RPi.GPIO as _gpio
+                                _gpio.remove_event_detect(lora._irq)
+                            except Exception:
+                                pass
                         errors = 0
         except Exception as exc:
             self._emit(f"Sniffer error: {exc}", "error")

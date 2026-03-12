@@ -77,7 +77,7 @@ FLASH_FREQ = "80m"
 FLASH_OFFSETS = {
     "bootloader.bin": "0x2000",
     "partition-table.bin": "0x8000",
-    "projectZero.bin": "0x20000",
+    "projectZerobyLOCOSP.bin": "0x20000",
 }
 FIRMWARE_DIR = "/tmp/janos-firmware"
 

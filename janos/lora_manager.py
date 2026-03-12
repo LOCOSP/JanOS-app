@@ -230,13 +230,19 @@ class LoRaManager:
             while not self._stop_event.is_set():
                 try:
                     if use_continuous:
-                        lora.wait(2)
-                        # status() clears _statusIrq so next wait()
-                        # properly blocks until new packet arrives
-                        stat = lora.status()
-                        if stat == lora.STATUS_RX_DONE:
-                            if lora.available() > 0:
+                        # Poll IRQ register directly — GPIO callback
+                        # with bouncetime is unreliable, misses packets
+                        time.sleep(0.05)
+                        irq = lora.getIrqStatus()
+                        if irq & lora.IRQ_RX_DONE:
+                            lora.clearIrqStatus(0x03FF)
+                            rxLen, rxIdx = lora.getRxBufferStatus()
+                            lora._payloadTxRx = rxLen
+                            lora._bufferIndex = rxIdx
+                            if rxLen > 0:
                                 handler(lora, tag)
+                        elif irq & (lora.IRQ_CRC_ERR | lora.IRQ_HEADER_ERR):
+                            lora.clearIrqStatus(0x03FF)
                         errors = 0
                         continue
                     else:

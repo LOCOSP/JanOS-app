@@ -112,18 +112,22 @@ class FlashManager:
             self._release_tag = tag
             self._emit(f"Latest release: {tag}", "success")
 
-            # Find firmware ZIP asset
+            # Find firmware ZIP asset (projectZero-X.Y.Z.zip, not fap/bundle)
             zip_url = None
             for asset in data.get("assets", []):
                 name = asset["name"].lower()
-                if "firmware" in name and name.endswith(".zip"):
+                if name.startswith("projectzero") and name.endswith(".zip") \
+                        and "fap" not in name and "bundle" not in name \
+                        and "with" not in name:
                     zip_url = asset["browser_download_url"]
                     break
 
             if not zip_url:
+                # Fallback: try versioned name
+                ver = tag.lstrip("v")
                 zip_url = (
                     f"https://github.com/LOCOSP/projectZero/releases"
-                    f"/download/{tag}/esp32c5-firmware.zip"
+                    f"/download/{tag}/projectZero-{ver}.zip"
                 )
 
             self._emit(f"Downloading {os.path.basename(zip_url)}...", "dim")

@@ -57,6 +57,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._bt_line = urwid.Text("")
         self._loot_total = urwid.Text("")
         self._loot_total2 = urwid.Text("")
+        self._loot_total3 = urwid.Text("")
         self._ops = urwid.Text("")
 
         sep = urwid.Divider("─")
@@ -82,6 +83,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._bt_line,
             self._loot_total,
             self._loot_total2,
+            self._loot_total3,
             urwid.Divider("─"),
             self._aio_line,
             self._lora_line,
@@ -339,8 +341,7 @@ class SidebarPanel(urwid.WidgetWrap):
         totals = self.loot.loot_totals
         if totals.get("sessions", 0) > 0:
             # Line 1: WiFi loot
-            tp = []
-            tp.append(f"S:{totals['sessions']}")
+            tp = [f"S:{totals['sessions']}"]
             if totals.get("pcap"):
                 tp.append(f"PCAP:{totals['pcap']}")
             if totals.get("hccapx"):
@@ -352,30 +353,43 @@ class SidebarPanel(urwid.WidgetWrap):
             if totals.get("et_captures"):
                 tp.append(f"ET:{totals['et_captures']}")
             self._loot_total.set_text(
-                ("bold", f"  All:  {' │ '.join(tp)}")
+                ("bold", f"  WiFi  {' │ '.join(tp)}")
             )
-            # Line 2: MC + BT totals (aligned under S:)
-            tp2 = []
-            mc_total_n = totals.get("mc_nodes", 0)
-            mc_total_m = totals.get("mc_messages", 0)
-            if mc_total_n or mc_total_m:
-                tp2.append(f"MC:{mc_total_n}/{mc_total_m}")
+            # Line 2: BT totals
+            tp_bt = []
             bt_total_d = totals.get("bt_devices", 0)
             bt_total_a = totals.get("bt_airtags", 0)
-            if bt_total_d or bt_total_a:
-                tp2.append(f"BT:{bt_total_d}/{bt_total_a}")
             bt_total_g = totals.get("bt_devices_gps", 0)
+            if bt_total_d:
+                tp_bt.append(f"Dev:{bt_total_d}")
+            if bt_total_a:
+                tp_bt.append(f"AT:{bt_total_a}")
             if bt_total_g:
-                tp2.append(f"BT+GPS:{bt_total_g}")
-            if tp2:
+                tp_bt.append(f"GPS:{bt_total_g}")
+            if tp_bt:
                 self._loot_total2.set_text(
-                    ("bold", f"        {' │ '.join(tp2)}")
+                    ("bold", f"  BT    {' │ '.join(tp_bt)}")
                 )
             else:
                 self._loot_total2.set_text("")
+            # Line 3: LoRa totals
+            tp_lr = []
+            mc_total_n = totals.get("mc_nodes", 0)
+            mc_total_m = totals.get("mc_messages", 0)
+            if mc_total_n:
+                tp_lr.append(f"Nodes:{mc_total_n}")
+            if mc_total_m:
+                tp_lr.append(f"Msgs:{mc_total_m}")
+            if tp_lr:
+                self._loot_total3.set_text(
+                    ("bold", f"  LoRa  {' │ '.join(tp_lr)}")
+                )
+            else:
+                self._loot_total3.set_text("")
         else:
             self._loot_total.set_text("")
             self._loot_total2.set_text("")
+            self._loot_total3.set_text("")
 
         # Animated creature
         creature_state = get_creature_state(self.state)

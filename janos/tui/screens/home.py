@@ -101,7 +101,7 @@ class SidebarPanel(urwid.WidgetWrap):
         """Count loot files in the current session directory."""
         counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
                         "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
-                        "bt_devices_gps": 0}
+                        "bt_smarttags": 0, "bt_devices_gps": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -164,7 +164,21 @@ class SidebarPanel(urwid.WidgetWrap):
         bt_at_file = session / "bt_airtag.log"
         if bt_at_file.is_file():
             try:
-                counts["bt_airtags"] = sum(1 for _ in open(bt_at_file, encoding="utf-8"))
+                max_at = 0
+                max_st = 0
+                for line in open(bt_at_file, encoding="utf-8"):
+                    if "AirTags:" in line:
+                        try:
+                            max_at = max(max_at, int(line.split("AirTags:")[1].split("|")[0].strip()))
+                        except (ValueError, IndexError):
+                            pass
+                    if "SmartTags:" in line:
+                        try:
+                            max_st = max(max_st, int(line.split("SmartTags:")[1].strip()))
+                        except (ValueError, IndexError):
+                            pass
+                counts["bt_airtags"] = max_at
+                counts["bt_smarttags"] = max_st
             except OSError:
                 pass
         return counts
@@ -328,12 +342,17 @@ class SidebarPanel(urwid.WidgetWrap):
         # BT loot (current session)
         bt_d = loot.get("bt_devices", 0)
         bt_a = loot.get("bt_airtags", 0)
+        bt_s = loot.get("bt_smarttags", 0)
         bt_g = loot.get("bt_devices_gps", 0)
-        if bt_d or bt_a:
-            bt_text = f"  BT  Devices:{bt_d} │ AirTags:{bt_a}"
+        if bt_d or bt_a or bt_s:
+            bt_parts = [f"Dev:{bt_d}"]
+            if bt_a:
+                bt_parts.append(f"AT:{bt_a}")
+            if bt_s:
+                bt_parts.append(f"ST:{bt_s}")
             if bt_g:
-                bt_text += f" │ BT+GPS:{bt_g}"
-            self._bt_line.set_text(("success", bt_text))
+                bt_parts.append(f"GPS:{bt_g}")
+            self._bt_line.set_text(("success", f"  BT  {' │ '.join(bt_parts)}"))
         else:
             self._bt_line.set_text("")
 
@@ -359,11 +378,14 @@ class SidebarPanel(urwid.WidgetWrap):
             tp_bt = []
             bt_total_d = totals.get("bt_devices", 0)
             bt_total_a = totals.get("bt_airtags", 0)
+            bt_total_s = totals.get("bt_smarttags", 0)
             bt_total_g = totals.get("bt_devices_gps", 0)
             if bt_total_d:
                 tp_bt.append(f"Dev:{bt_total_d}")
             if bt_total_a:
                 tp_bt.append(f"AT:{bt_total_a}")
+            if bt_total_s:
+                tp_bt.append(f"ST:{bt_total_s}")
             if bt_total_g:
                 tp_bt.append(f"GPS:{bt_total_g}")
             if tp_bt:

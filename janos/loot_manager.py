@@ -146,7 +146,7 @@ class LootManager:
     def _scan_session_dir(self, session_path: Path) -> dict:
         """Count loot items in a single session directory."""
         counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
-                  "mc_nodes": 0, "mc_messages": 0}
+                  "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -184,11 +184,34 @@ class LootManager:
                 counts["mc_messages"] = sum(1 for _ in open(mc_msgs_file, encoding="utf-8"))
             except OSError:
                 pass
+        bt_dev_file = session_path / "bt_devices.csv"
+        if bt_dev_file.is_file():
+            try:
+                lines = sum(1 for _ in open(bt_dev_file, encoding="utf-8"))
+                counts["bt_devices"] = max(0, lines - 1)  # minus header
+            except OSError:
+                pass
+        bt_at_file = session_path / "bt_airtag.log"
+        if bt_at_file.is_file():
+            try:
+                # Count unique non-zero airtag detections
+                total_at = 0
+                for line in open(bt_at_file, encoding="utf-8"):
+                    if "AirTags:" in line:
+                        try:
+                            part = line.split("AirTags:")[1].split("|")[0].strip()
+                            total_at = max(total_at, int(part))
+                        except (ValueError, IndexError):
+                            pass
+                counts["bt_airtags"] = total_at
+            except OSError:
+                pass
         return counts
 
     def _recalc_totals(self, db: dict) -> None:
         """Recalculate totals from all session entries."""
-        keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures", "mc_nodes", "mc_messages")
+        keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures",
+                "mc_nodes", "mc_messages", "bt_devices", "bt_airtags")
         totals: dict = {k: 0 for k in keys}
         totals["sessions"] = len(db["sessions"])
         for session_counts in db["sessions"].values():
@@ -650,6 +673,45 @@ class LootManager:
             ts = datetime.now().strftime("%H:%M:%S")
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(f"[{ts}] [{channel}] {message} (RSSI:{rssi})\n")
+            self.update_session_loot()
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Bluetooth
+    # ------------------------------------------------------------------
+
+    def save_bt_device(self, mac: str, rssi: int, name: str,
+                       is_airtag: bool, is_smarttag: bool) -> None:
+        """Append BLE device to bt_devices.csv (dedup by MAC)."""
+        if not self._session_active:
+            return
+        path = self._session / "bt_devices.csv"
+        try:
+            if path.is_file():
+                existing = path.read_text(encoding="utf-8")
+                if f",{mac}," in existing or existing.startswith(f"{mac},"):
+                    return  # already known
+            else:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write("timestamp,mac,rssi,name,airtag,smarttag\n")
+            ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            tag = "airtag" if is_airtag else ("smarttag" if is_smarttag else "")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"{ts},{mac},{rssi},{name},{is_airtag},{is_smarttag}\n")
+            self.update_session_loot()
+        except OSError:
+            pass
+
+    def save_bt_airtag_event(self, airtags: int, smarttags: int) -> None:
+        """Log an AirTag scanner detection event."""
+        if not self._session_active:
+            return
+        path = self._session / "bt_airtag.log"
+        try:
+            ts = datetime.now().strftime("%H:%M:%S")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(f"[{ts}] AirTags:{airtags} | SmartTags:{smarttags}\n")
             self.update_session_loot()
         except OSError:
             pass

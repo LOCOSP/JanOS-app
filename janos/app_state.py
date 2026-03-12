@@ -101,6 +101,8 @@ class AppState:
     aio_usb: bool = False
 
     # LoRa
+    lora_running: bool = False
+    lora_mode: str = ""  # "sniffer", "scanner", "tracker", "meshcore", "meshtastic"
     lora_packets: int = 0
     mc_nodes: int = 0
     mc_messages: int = 0

@@ -166,7 +166,9 @@ class AddOnsScreen(urwid.WidgetWrap):
             except queue.Empty:
                 break
 
-        # Update LoRa packet count in shared state
+        # Update LoRa state in shared AppState (for creature animation etc.)
+        self.state.lora_running = self._lora.running
+        self.state.lora_mode = self._lora.mode if self._lora.running else ""
         if self._lora.running:
             self.state.lora_packets = self._lora.packets_received
             self._update_status_hint()

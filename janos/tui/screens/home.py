@@ -56,6 +56,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._mc_line = urwid.Text("")
         self._bt_line = urwid.Text("")
         self._loot_total = urwid.Text("")
+        self._loot_total2 = urwid.Text("")
         self._ops = urwid.Text("")
 
         sep = urwid.Divider("─")
@@ -80,6 +81,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._mc_line,
             self._bt_line,
             self._loot_total,
+            self._loot_total2,
             urwid.Divider("─"),
             self._aio_line,
             self._lora_line,
@@ -96,7 +98,8 @@ class SidebarPanel(urwid.WidgetWrap):
     def _count_loot_files(self) -> dict:
         """Count loot files in the current session directory."""
         counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
-                        "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0}
+                        "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
+                        "bt_devices_gps": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -137,8 +140,23 @@ class SidebarPanel(urwid.WidgetWrap):
         bt_file = session / "bt_devices.csv"
         if bt_file.is_file():
             try:
-                lines = sum(1 for _ in open(bt_file, encoding="utf-8"))
-                counts["bt_devices"] = max(0, lines - 1)
+                gps_count = 0
+                total = 0
+                for i, line in enumerate(open(bt_file, encoding="utf-8")):
+                    if i == 0:
+                        continue
+                    total += 1
+                    parts = line.strip().split(",")
+                    if len(parts) >= 8:
+                        try:
+                            lat = float(parts[-2])
+                            lon = float(parts[-1])
+                            if lat != 0.0 or lon != 0.0:
+                                gps_count += 1
+                        except ValueError:
+                            pass
+                counts["bt_devices"] = total
+                counts["bt_devices_gps"] = gps_count
             except OSError:
                 pass
         bt_at_file = session / "bt_airtag.log"
@@ -308,16 +326,19 @@ class SidebarPanel(urwid.WidgetWrap):
         # BT loot (current session)
         bt_d = loot.get("bt_devices", 0)
         bt_a = loot.get("bt_airtags", 0)
+        bt_g = loot.get("bt_devices_gps", 0)
         if bt_d or bt_a:
-            self._bt_line.set_text(
-                ("success", f"  BT  Devices:{bt_d} │ AirTags:{bt_a}")
-            )
+            bt_text = f"  BT  Devices:{bt_d} │ AirTags:{bt_a}"
+            if bt_g:
+                bt_text += f" │ BT+GPS:{bt_g}"
+            self._bt_line.set_text(("success", bt_text))
         else:
             self._bt_line.set_text("")
 
         # --- Total Loot (all sessions) ---
         totals = self.loot.loot_totals
         if totals.get("sessions", 0) > 0:
+            # Line 1: WiFi loot
             tp = []
             tp.append(f"S:{totals['sessions']}")
             if totals.get("pcap"):
@@ -330,19 +351,31 @@ class SidebarPanel(urwid.WidgetWrap):
                 tp.append(f"PWD:{totals['passwords']}")
             if totals.get("et_captures"):
                 tp.append(f"ET:{totals['et_captures']}")
-            mc_total_n = totals.get("mc_nodes", 0)
-            mc_total_m = totals.get("mc_messages", 0)
-            if mc_total_n or mc_total_m:
-                tp.append(f"MC:{mc_total_n}/{mc_total_m}")
-            bt_total_d = totals.get("bt_devices", 0)
-            bt_total_a = totals.get("bt_airtags", 0)
-            if bt_total_d or bt_total_a:
-                tp.append(f"BT:{bt_total_d}/{bt_total_a}")
             self._loot_total.set_text(
                 ("bold", f"  All:  {' │ '.join(tp)}")
             )
+            # Line 2: MC + BT totals (aligned under S:)
+            tp2 = []
+            mc_total_n = totals.get("mc_nodes", 0)
+            mc_total_m = totals.get("mc_messages", 0)
+            if mc_total_n or mc_total_m:
+                tp2.append(f"MC:{mc_total_n}/{mc_total_m}")
+            bt_total_d = totals.get("bt_devices", 0)
+            bt_total_a = totals.get("bt_airtags", 0)
+            if bt_total_d or bt_total_a:
+                tp2.append(f"BT:{bt_total_d}/{bt_total_a}")
+            bt_total_g = totals.get("bt_devices_gps", 0)
+            if bt_total_g:
+                tp2.append(f"BT+GPS:{bt_total_g}")
+            if tp2:
+                self._loot_total2.set_text(
+                    ("bold", f"        {' │ '.join(tp2)}")
+                )
+            else:
+                self._loot_total2.set_text("")
         else:
             self._loot_total.set_text("")
+            self._loot_total2.set_text("")
 
         # Animated creature
         creature_state = get_creature_state(self.state)

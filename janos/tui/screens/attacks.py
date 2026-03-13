@@ -1,12 +1,14 @@
 """Attacks screen — WiFi & Bluetooth attacks with confirmation + live log."""
 
 import re
+import threading
 import time
 import urwid
 
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...loot_manager import LootManager
+from ...upload_manager import wpasec_configured, upload_wpasec_all
 from ...privacy import mask_line, mask_mac
 from ...config import (
     CMD_START_DEAUTH,
@@ -20,6 +22,7 @@ from ...config import (
     HS_RESCAN_INTERVAL,
 )
 from ..widgets.confirm_dialog import ConfirmDialog
+from ..widgets.info_dialog import InfoDialog
 from ..widgets.text_input_dialog import TextInputDialog
 from ..widgets.log_viewer import LogViewer
 
@@ -76,6 +79,8 @@ class AttacksScreen(urwid.WidgetWrap):
         self._hs_restarting: bool = False    # waiting for restart delay
         self._hs_restart_at: float = 0.0    # when to send start again
 
+        self._upload_result: str | None = None  # pending WPA-sec upload result
+
         # BT device parser regex: "  1. AA:BB:CC:DD:EE:FF  RSSI: -42 dBm  Name: Foo"
         self._bt_device_re = re.compile(
             r'^\s*\d+\.\s+([0-9A-Fa-f:]{17})\s+RSSI:\s*(-?\d+)\s*dBm'
@@ -104,6 +109,15 @@ class AttacksScreen(urwid.WidgetWrap):
         self._rebuild()
 
     def refresh(self) -> None:
+        # Check for pending upload result
+        if self._upload_result is not None:
+            msg = self._upload_result
+            self._upload_result = None
+            self._app.show_overlay(
+                InfoDialog(msg, lambda: self._app.dismiss_overlay(), title="WPA-sec"),
+                50, 8,
+            )
+
         # If sub-screen is active, delegate refresh
         if self._sub_screen is not None:
             if hasattr(self._sub_screen, "refresh"):
@@ -167,9 +181,11 @@ class AttacksScreen(urwid.WidgetWrap):
                 ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear")
             )
         elif sel:
-            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [9]Stop  [x]Clear"))
+            wpasec = "  [u]WPA-sec" if wpasec_configured() else ""
+            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [9]Stop  [x]Clear{wpasec}"))
         else:
-            self._status.set_text(("dim", "  [1-7]WiFi  [b/t/a]BT  [9]Stop all  [x]Clear"))
+            wpasec = "  [u]WPA-sec" if wpasec_configured() else ""
+            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [9]Stop all  [x]Clear{wpasec}"))
 
     def handle_serial_line(self, line: str) -> None:
         """Route serial data to appropriate handler."""
@@ -553,6 +569,23 @@ class AttacksScreen(urwid.WidgetWrap):
         self._app.show_overlay(dialog, 50, 9)
 
     # ------------------------------------------------------------------
+    # WPA-sec upload
+    # ------------------------------------------------------------------
+
+    def _upload_wpasec(self) -> None:
+        """Upload .pcap handshakes to WPA-sec in a background thread."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        self._log.append(">>> Uploading handshakes to WPA-sec...", "warning")
+
+        def _do():
+            _up, _total, msg = upload_wpasec_all(loot_dir)
+            self._upload_result = f"WPA-sec: {msg}"
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    # ------------------------------------------------------------------
     # Stop all
     # ------------------------------------------------------------------
 
@@ -591,6 +624,18 @@ class AttacksScreen(urwid.WidgetWrap):
             return None
         if key == "a":
             self._start_bt_airtag()
+            return None
+
+        # WPA-sec upload
+        if key == "u":
+            if wpasec_configured():
+                self._upload_wpasec()
+            else:
+                self._app.show_overlay(
+                    InfoDialog("WPA-sec not configured.\nSet JANOS_WPASEC_KEY env var.",
+                               lambda: self._app.dismiss_overlay(), title="WPA-sec"),
+                    45, 8,
+                )
             return None
 
         if key == "9":

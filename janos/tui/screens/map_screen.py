@@ -38,6 +38,9 @@ class MapScreen(urwid.WidgetWrap):
         super().__init__(pile)
         self._load_points()
 
+    def selectable(self) -> bool:
+        return True
+
     # ── legend ──
 
     def _build_legend(self) -> list:
@@ -104,21 +107,17 @@ class MapScreen(urwid.WidgetWrap):
         if key == "h":
             self._map.toggle_filter("handshake")
             self._legend.set_text(self._build_legend())
-            self._map._invalidate()
             return None
         if key == "w":
             self._map.toggle_filter("wifi")
             self._legend.set_text(self._build_legend())
-            self._map._invalidate()
             return None
         if key == "b":
             self._map.toggle_filter("bt")
             self._legend.set_text(self._build_legend())
-            self._map._invalidate()
             return None
         if key == "m":
             self._map.toggle_filter("meshcore")
             self._legend.set_text(self._build_legend())
-            self._map._invalidate()
             return None
         return key

@@ -38,7 +38,7 @@ _TYPE_ATTR = {
 
 # Zoom levels: (lon_span, lat_span) — degrees visible on screen
 _ZOOM_LEVELS = [
-    (360.0, 180.0),   # 0 — whole world
+    (360.0, 155.0),   # 0 — whole world (cropped poles: -65°S to 90°N)
     (180.0, 90.0),    # 1
     (90.0, 45.0),     # 2
     (45.0, 22.5),     # 3
@@ -127,7 +127,7 @@ class BrailleMapWidget(urwid.Widget):
         # Viewport state
         self._zoom = 0          # index into _ZOOM_LEVELS
         self._center_lon = 0.0  # degrees
-        self._center_lat = 30.0 # slightly north for better world view
+        self._center_lat = 12.5 # slightly north for better world view
 
     def set_points(self, points: list[dict]) -> None:
         """Update GPS points.  Each dict: {lat, lon, type, label}."""
@@ -199,7 +199,7 @@ class BrailleMapWidget(urwid.Widget):
         """Reset to world view."""
         self._zoom = 0
         self._center_lon = 0.0
-        self._center_lat = 30.0
+        self._center_lat = 12.5
         self._invalidate()
 
     def center_on(self, lat: float, lon: float, zoom: int | None = None) -> None:

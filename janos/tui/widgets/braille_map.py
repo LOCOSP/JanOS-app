@@ -23,18 +23,23 @@ _DOT_BITS = {
     (0, 3): 0x40, (1, 3): 0x80,
 }
 
+# Map point type → urwid palette attribute
+_TYPE_ATTR = {
+    "handshake": "error",       # red
+    "wifi":      "success",     # green
+    "bt":        "bold",        # cyan
+    "meshcore":  "warning",     # yellow
+}
+
 
 class BrailleCanvas:
     """Minimal braille canvas — set pixels, render to Unicode string."""
 
     def __init__(self, pixel_w: int, pixel_h: int) -> None:
-        # Pixel dimensions (should be multiples of 2 and 4)
         self.pw = pixel_w
         self.ph = pixel_h
-        # Character grid dimensions
         self.cw = (pixel_w + 1) // 2
         self.ch = (pixel_h + 3) // 4
-        # Storage: dict of (char_col, char_row) -> bitmask
         self._cells: dict[tuple[int, int], int] = {}
 
     def set(self, px: int, py: int) -> None:
@@ -66,14 +71,18 @@ class BrailleCanvas:
                 err += dx
                 y0 += sy
 
+    def get_char(self, col: int, row: int) -> str:
+        """Get braille character for a given cell."""
+        bits = self._cells.get((col, row), 0)
+        return chr(0x2800 + bits)
+
     def frame(self) -> list[str]:
         """Render canvas to list of strings (one per character row)."""
         lines: list[str] = []
         for row in range(self.ch):
             chars: list[str] = []
             for col in range(self.cw):
-                bits = self._cells.get((col, row), 0)
-                chars.append(chr(0x2800 + bits))
+                chars.append(self.get_char(col, row))
             lines.append("".join(chars))
         return lines
 
@@ -82,7 +91,7 @@ class BrailleMapWidget(urwid.Widget):
     """Urwid widget that renders a world map with GPS loot points."""
 
     _sizing = frozenset(["box"])
-    _selectable = False
+    _selectable = True  # must be selectable to receive keypresses
 
     def __init__(self) -> None:
         super().__init__()
@@ -119,6 +128,10 @@ class BrailleMapWidget(urwid.Widget):
         y = int((90.0 - lat) / 180.0 * ph)
         return max(0, min(pw - 1, x)), max(0, min(ph - 1, y))
 
+    def keypress(self, size: tuple[int, int], key: str) -> str | None:
+        """Pass all keys up — MapScreen handles them."""
+        return key
+
     # ── rendering ──
 
     def render(self, size: tuple[int, int], focus: bool = False) -> urwid.Canvas:  # type: ignore[override]
@@ -126,21 +139,24 @@ class BrailleMapWidget(urwid.Widget):
         pw = cols * 2   # braille pixel width
         ph = rows * 4   # braille pixel height
 
-        canvas = BrailleCanvas(pw, ph)
-
-        # Draw coastlines
+        # --- Layer 1: coastline ---
+        coast = BrailleCanvas(pw, ph)
         for segment in COASTLINES:
             for i in range(len(segment) - 1):
                 lat0, lon0 = segment[i]
                 lat1, lon1 = segment[i + 1]
-                # Skip lines that wrap around the date line
                 if abs(lon1 - lon0) > 180:
                     continue
                 x0, y0 = self._lonlat_to_pixel(lon0, lat0, pw, ph)
                 x1, y1 = self._lonlat_to_pixel(lon1, lat1, pw, ph)
-                canvas.line(x0, y0, x1, y1)
+                coast.line(x0, y0, x1, y1)
 
-        # Overlay GPS points (as 3×3 bright dots for visibility)
+        # --- Layer 2: GPS points (separate canvas + cell tracking) ---
+        points_canvas = BrailleCanvas(pw, ph)
+        # Track which character cells have points and their type
+        # (col, row) -> attr name (priority: last written wins)
+        point_cells: dict[tuple[int, int], str] = {}
+
         for pt in self._points:
             if not self._filters.get(pt.get("type", ""), True):
                 continue
@@ -148,24 +164,62 @@ class BrailleMapWidget(urwid.Widget):
             lon = pt.get("lon", 0.0)
             if lat == 0.0 and lon == 0.0:
                 continue
+            ptype = pt.get("type", "handshake")
+            attr = _TYPE_ATTR.get(ptype, "error")
             px, py = self._lonlat_to_pixel(lon, lat, pw, ph)
-            # Draw a small cross for visibility
-            for dx in (-1, 0, 1):
-                canvas.set(px + dx, py)
-            canvas.set(px, py - 1)
-            canvas.set(px, py + 1)
 
-        # Convert to urwid TextCanvas
-        braille_lines = canvas.frame()
+            # Draw a larger marker (5×5 diamond) for visibility
+            offsets = [
+                (0, 0),
+                (-1, 0), (1, 0), (0, -1), (0, 1),       # cross
+                (-2, 0), (2, 0), (0, -2), (0, 2),        # extended cross
+                (-1, -1), (1, -1), (-1, 1), (1, 1),      # diamond corners
+            ]
+            for dx, dy in offsets:
+                points_canvas.set(px + dx, py + dy)
 
-        # Build attributed text rows
+            # Mark character cells touched by this point
+            for dx, dy in offsets:
+                cpx, cpy = px + dx, py + dy
+                if 0 <= cpx < pw and 0 <= cpy < ph:
+                    ccol = cpx // 2
+                    crow = cpy // 4
+                    point_cells[(ccol, crow)] = attr
+
+        # --- Merge layers and build TextCanvas ---
         text_rows: list[bytes] = []
         attr_rows: list[list[tuple[str | None, int]]] = []
 
-        for line in braille_lines[:rows]:
-            encoded = line[:cols].encode("utf-8")
+        for row in range(min(coast.ch, rows)):
+            chars: list[str] = []
+            row_attrs: list[tuple[str | None, int]] = []
+
+            for col in range(min(coast.cw, cols)):
+                # Merge coastline + point bits
+                coast_bits = coast._cells.get((col, row), 0)
+                point_bits = points_canvas._cells.get((col, row), 0)
+                merged = coast_bits | point_bits
+                ch = chr(0x2800 + merged)
+                char_bytes = ch.encode("utf-8")
+
+                # Determine attribute: point color if has points, else dim
+                if (col, row) in point_cells:
+                    cell_attr = point_cells[(col, row)]
+                else:
+                    cell_attr = "dim"
+
+                chars.append(ch)
+                # Build per-character attributes
+                if row_attrs and row_attrs[-1][0] == cell_attr:
+                    # Extend previous run
+                    prev_attr, prev_len = row_attrs[-1]
+                    row_attrs[-1] = (prev_attr, prev_len + len(char_bytes))
+                else:
+                    row_attrs.append((cell_attr, len(char_bytes)))
+
+            encoded = "".join(chars).encode("utf-8")
             text_rows.append(encoded)
-            attr_rows.append([("dim", len(encoded))])
+            attr_rows.append(row_attrs if row_attrs else [(None, 0)])
 
         # Pad if fewer lines than rows
         while len(text_rows) < rows:

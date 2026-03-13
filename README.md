@@ -16,7 +16,7 @@ Full-screen terminal interface with tabbed navigation, real-time data, and keybo
 
 ![Scan with Private Mode](screenshots/scan_private_mode.png)
 
-**Sniffer** — live packet capture with AP/client tree and Private Mode:
+**Sniffers** — live packet capture with AP/client tree and Private Mode:
 
 ![Sniffer with Private Mode](screenshots/sniffer_private_mode.png)
 
@@ -71,11 +71,11 @@ esptool.py --chip esp32c5 --baud 460800 write_flash 0x2000 bootloader.bin 0x8000
 ### Keyboard Controls
 | Key | Action |
 |-----|--------|
-| `1-4` | Switch tabs (Scan, Sniffer, Attacks, Add-ons) |
+| `1-4` | Switch tabs (Scan, Sniffers, Attacks, Add-ons) |
 | `Tab` / `Shift+Tab` | Cycle tabs forward / backward |
 | `Left` / `Right` | Switch tabs (D-pad navigation) |
 | `Up` / `Down` | Navigate lists and tables |
-| `s` | Start scan / sniffer / setup wizard / stop LoRa (context-dependent) |
+| `s` | Start scan / sniffer / wardriving / setup wizard / stop LoRa (context-dependent) |
 | `Space` / `Enter` | Select / toggle item in tables (auto-sends to ESP32) |
 | `r` | Fetch sniffer AP results |
 | `p` | Fetch probe requests |
@@ -90,6 +90,8 @@ esptool.py --chip esp32c5 --baud 460800 write_flash 0x2000 bootloader.bin 0x8000
 | `b` | BLE Scan — discover Bluetooth LE devices (Attacks tab) |
 | `t` | BT Tracker — track specific BLE device by MAC (Attacks tab) |
 | `a` | AirTag Scanner — detect Apple AirTags and Samsung SmartTags (Attacks tab) |
+| `w` | Upload wardriving data to WiGLE (Sniffers → Wardriving, when stopped) |
+| `u` | Upload .pcap handshakes to WPA-sec (Attacks tab) |
 | `Shift+M` | Toggle Mobile Mode (hide sidebar for small screens) |
 | `Shift+P` | Toggle Private Mode (mask SSIDs, MACs, IPs, passwords) |
 | `9` | Stop all running operations |
@@ -101,10 +103,11 @@ esptool.py --chip esp32c5 --baud 460800 write_flash 0x2000 bootloader.bin 0x8000
 - **Creature animation** -- ASCII art pet that reacts to app state (scanning, sniffing, attacking, BT hunting, LoRa listening)
 - **Mobile Mode** -- press `Shift+M` to hide the sidebar and go full-width for small screens (SSH from phone, narrow terminals)
 - **Scan** -- scan networks, browse results with RSSI colors, select targets via keyboard
-- **Sniffer** -- live packet counter, AP/client results, probe requests
-- **Attacks** -- deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin — all in one tab with sub-screen navigation
+- **Sniffers** -- menu with **Wardriving** (continuous WiFi scan with GPS geo-tagging, WiGLE-format CSV) and **Packet Sniffer** (live packet counter, AP/client results, probe requests)
+- **Attacks** -- deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin, WPA-sec upload — all in one tab with sub-screen navigation
 - **Bluetooth attacks** -- BLE Scan (device discovery), BT Tracker (follow specific MAC), AirTag Scanner (detect Apple AirTags + Samsung SmartTags) — with GPS geo-tagged loot
-- **Handshake Serial PCAP** -- capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
+- **Handshake Serial PCAP** -- capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot. Upload to **WPA-sec** with `[u]` key
+- **WiGLE upload** -- wardriving data saved in WiGLE-compatible CSV format, upload directly with `[w]` key (requires WiGLE API credentials via env vars)
 - **Handshake auto-rescan** -- when no network is selected, periodically rescans (45s cycle) so ESP32 discovers fresh networks as you move
 - **Custom Captive Portals** -- load custom HTML portal pages from local `portals/` folder and send to ESP32 via chunked base64 serial transfer (see below)
 - **Crash detection** -- automatic firmware crash alert overlay with state reset, dismissable with any key
@@ -130,6 +133,7 @@ loot/
       HomeWifi_aabbccddeeff_153042.pcap
       HomeWifi_aabbccddeeff_153042.hccapx
       HomeWifi_aabbccddeeff_153042.22000
+    wardriving.csv            # WiGLE-format wardriving data (BSSID, SSID, GPS, RSSI)
     bt_devices.csv            # Bluetooth LE devices (MAC, name, RSSI, GPS)
     bt_airtags.csv            # detected AirTags + SmartTags (MAC, type, RSSI, GPS)
     meshcore_nodes.csv        # unique MeshCore nodes (type, name, GPS, RSSI)
@@ -146,6 +150,7 @@ loot/
 - **Sniffer data** -- APs (with client MACs) and probe requests as CSV
 - **Handshakes** -- binary .pcap and .hccapx files decoded from base64 serial stream (hashcat-ready)
 - **HC22000 hashes** -- `.22000` files auto-generated from complete handshakes (hashcat -m 22000), with GPS coordinates if available. Incomplete captures are skipped
+- **Wardriving data** -- WiGLE-format CSV with BSSID, SSID, AuthMode, channel, RSSI, GPS coordinates (deduped by BSSID, strongest RSSI kept)
 - **Portal passwords** -- form submissions, usernames, emails
 - **Evil Twin captures** -- passwords, handshakes
 - **BT devices** -- Bluetooth LE devices with MAC, name, RSSI, GPS coordinates
@@ -286,6 +291,7 @@ The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface i
 - `pyserial >= 3.5` — ESP32 serial communication
 - `LoRaRF >= 1.4.0` — SX1262 SPI radio control (optional, for LoRa features)
 - `cryptography` — AES decryption for MeshCore public channel (optional, for MeshCore sniffer)
+- `requests` — HTTP client for WiGLE/WPA-sec uploads (optional, for cloud upload features)
 - `esptool >= 4.0` — ESP32 firmware flashing (optional, for Add-ons flash)
 - Works on serial terminals, SSH, and ClockworkPi uConsole
 

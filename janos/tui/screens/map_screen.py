@@ -112,8 +112,10 @@ class MapScreen(urwid.WidgetWrap):
     # ── public API ──
 
     def refresh(self) -> None:
-        """Called by app main loop — auto-reload every 30s."""
+        """Called by app main loop — auto-reload every 30s, twinkle every call."""
         import time
+        # Twinkle animation — invalidate map for smooth point blinking
+        self._map.twinkle()
         if time.monotonic() - self._last_refresh > 30.0:
             self._load_points()
 

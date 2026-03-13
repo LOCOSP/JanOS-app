@@ -9,6 +9,9 @@ Supports pan (arrow keys) and zoom (+/-) with viewport state.
 No external dependencies — braille encoding is done inline.
 """
 
+import math
+import time
+
 import urwid
 
 from .coastline import COASTLINES
@@ -311,6 +314,29 @@ class BrailleMapWidget(urwid.Widget):
         return (min_lon - margin <= lon <= max_lon + margin and
                 min_lat - margin <= lat <= max_lat + margin)
 
+    def twinkle(self) -> None:
+        """Called periodically to trigger redraw for point blinking."""
+        if self._points:
+            self._invalidate()
+
+    def _point_visible(self, lat: float, lon: float) -> bool:
+        """Determine if a point should be visible this frame (twinkle effect).
+
+        Each point gets a stable phase from its coordinates.
+        A slow sine wave determines visibility — ~30% of points are
+        'off' at any moment, cycling smoothly.
+        """
+        # Stable phase from coordinates (0..2π)
+        # Use simple hash: fract(lat*137.03 + lon*59.97) * 2π
+        phase = (lat * 137.03 + lon * 59.97) % 1.0 * (2.0 * math.pi)
+        # Slow wave: period ~3-5 seconds per point, each has different phase
+        t = time.monotonic()
+        # Mix two frequencies for organic feel
+        wave = (math.sin(t * 0.8 + phase) +
+                math.sin(t * 1.3 + phase * 1.7)) / 2.0
+        # Visible when wave > -0.3  (~80% of the time visible)
+        return wave > -0.3
+
     def keypress(self, size: tuple[int, int], key: str) -> str | None:
         """Handle navigation keys directly in widget."""
         if key == "up":
@@ -417,6 +443,9 @@ class BrailleMapWidget(urwid.Widget):
                 continue
             # Skip points outside viewport
             if not self._in_viewport(lon, lat, vp, margin=clip_margin):
+                continue
+            # Twinkle: skip points that are "off" this frame
+            if not self._point_visible(lat, lon):
                 continue
             ptype = pt.get("type", "handshake")
             attr = _TYPE_ATTR.get(ptype, "error")

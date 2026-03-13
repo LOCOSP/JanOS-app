@@ -126,6 +126,8 @@ class JanOSTUI:
 
         # Map screen
         self._map = MapScreen(self.state, self.loot)
+        self._map_twinkle_active = False
+        self._map_twinkle_alarm = None
 
         self._screens: list = [
             self._scan,
@@ -383,14 +385,48 @@ class JanOSTUI:
     # ------------------------------------------------------------------
 
     _MAP_TAB = 4  # 0-based index of Map tab
+    _MAP_TWINKLE_INTERVAL = 0.3  # seconds between twinkle frames
 
     def _on_tab_switch(self, index: int) -> None:
         self._body.original_widget = self._screens[index]
         # Auto-hide sidebar on Map tab for full-width map
         if index == self._MAP_TAB:
             self._content.original_widget = self._left_panel
-        elif not self._mobile_mode:
-            self._content.original_widget = self._columns
+            self._start_map_twinkle()
+        else:
+            self._stop_map_twinkle()
+            if not self._mobile_mode:
+                self._content.original_widget = self._columns
+
+    # ------------------------------------------------------------------
+    # Map twinkle animation (fast timer only when Map tab is active)
+    # ------------------------------------------------------------------
+
+    def _start_map_twinkle(self) -> None:
+        """Start fast refresh timer for map point blinking."""
+        if not getattr(self, "_map_twinkle_active", False):
+            self._map_twinkle_active = True
+            self._map_twinkle_alarm = self._loop.set_alarm_in(
+                self._MAP_TWINKLE_INTERVAL, self._map_twinkle_tick,
+            )
+
+    def _stop_map_twinkle(self) -> None:
+        """Stop the fast map refresh timer."""
+        self._map_twinkle_active = False
+        alarm = getattr(self, "_map_twinkle_alarm", None)
+        if alarm:
+            self._loop.remove_alarm(alarm)
+            self._map_twinkle_alarm = None
+
+    def _map_twinkle_tick(self, loop=None, data=None) -> None:
+        """Fast tick for map point twinkle animation."""
+        if not self._map_twinkle_active:
+            return
+        if self._tab_bar.active == self._MAP_TAB:
+            self._map.twinkle()
+        self._map_twinkle_alarm = self._loop.set_alarm_in(
+            self._MAP_TWINKLE_INTERVAL, self._map_twinkle_tick,
+        )
 
     # ------------------------------------------------------------------
     # GPS data callback (fired by urwid event loop)

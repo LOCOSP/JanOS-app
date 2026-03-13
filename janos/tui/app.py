@@ -423,7 +423,7 @@ class JanOSTUI:
         if not self._map_twinkle_active:
             return
         if self._tab_bar.active == self._MAP_TAB:
-            self._map.twinkle()
+            self._map._map.twinkle()
         self._map_twinkle_alarm = self._loop.set_alarm_in(
             self._MAP_TWINKLE_INTERVAL, self._map_twinkle_tick,
         )

@@ -22,7 +22,7 @@ from .footer import StatusBar
 from .tabs import TabBar
 from .screens.home import SidebarPanel
 from .screens.scan import ScanScreen
-from .screens.sniffer import SnifferScreen
+from .screens.sniffers import SniffersScreen
 from .screens.attacks import AttacksScreen
 from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
@@ -33,7 +33,7 @@ from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
 
-TAB_LABELS = ["Scan", "Sniffer", "Attacks", "Add-ons"]
+TAB_LABELS = ["Scan", "Sniffers", "Attacks", "Add-ons"]
 
 
 class _CrashDialog(urwid.WidgetWrap):
@@ -114,7 +114,7 @@ class JanOSTUI:
 
         # Main screens
         self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot)
-        self._sniffer = SnifferScreen(self.state, self.serial, self.net_mgr, self.loot)
+        self._sniffer = SniffersScreen(self.state, self.serial, self.net_mgr, self.loot, self)
         self._attacks = AttacksScreen(
             self.state, self.serial, self, self.loot,
             portal=self._portal, evil_twin=self._evil_twin,
@@ -479,6 +479,10 @@ class JanOSTUI:
         # Also route to attacks screen when attacks are running (even from other tabs)
         if self.state.any_attack_running() and screen is not self._attacks:
             self._attacks.handle_serial_line(line)
+
+        # Also route to sniffers screen when wardriving is running (even from other tabs)
+        if self.state.wardriving_running and screen is not self._sniffer:
+            self._sniffer.handle_serial_line(line)
 
     # ------------------------------------------------------------------
     # Periodic refresh

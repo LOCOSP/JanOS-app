@@ -861,6 +861,123 @@ class LootManager:
             pass
 
     # ------------------------------------------------------------------
+    # GPS point collection (for Map tab)
+    # ------------------------------------------------------------------
+
+    _gps_points_cache: list[dict] | None = None
+    _gps_points_ts: float = 0.0
+
+    def get_gps_points(self) -> list[dict]:
+        """Collect all GPS-tagged loot across all sessions.
+
+        Returns list of dicts: {lat, lon, type, label}.
+        Cached for 30 seconds to avoid excessive FS scans.
+        """
+        now = time.monotonic()
+        if self._gps_points_cache is not None and now - self._gps_points_ts < 30.0:
+            return self._gps_points_cache
+
+        points: list[dict] = []
+        if not self._base.is_dir():
+            self._gps_points_cache = points
+            self._gps_points_ts = now
+            return points
+
+        for session_dir in self._base.iterdir():
+            if not session_dir.is_dir():
+                continue
+
+            # Wardriving CSV (WiGLE format)
+            wd_file = session_dir / "wardriving.csv"
+            if wd_file.is_file():
+                try:
+                    with open(wd_file, "r", encoding="utf-8") as fh:
+                        for i, line in enumerate(fh):
+                            if i <= 1:
+                                continue  # skip pre-header + header
+                            parts = line.strip().split(",")
+                            if len(parts) >= 8:
+                                try:
+                                    lat = float(parts[6])
+                                    lon = float(parts[7])
+                                    if lat != 0.0 or lon != 0.0:
+                                        points.append({
+                                            "lat": lat, "lon": lon,
+                                            "type": "wifi",
+                                            "label": parts[1],  # SSID
+                                        })
+                                except (ValueError, IndexError):
+                                    pass
+                except OSError:
+                    pass
+
+            # Handshake GPS sidecars (.gps.json)
+            hs_dir = session_dir / "handshakes"
+            if hs_dir.is_dir():
+                for gps_file in hs_dir.glob("*.gps.json"):
+                    try:
+                        with open(gps_file, "r", encoding="utf-8") as fh:
+                            data = json.load(fh)
+                        lat = data.get("Latitude", 0.0)
+                        lon = data.get("Longitude", 0.0)
+                        if lat != 0.0 or lon != 0.0:
+                            # Label from filename: MyWiFi_AABB_143022.pcap.gps.json
+                            label = gps_file.name.replace(".gps.json", "")
+                            points.append({
+                                "lat": lat, "lon": lon,
+                                "type": "handshake",
+                                "label": label,
+                            })
+                    except (OSError, json.JSONDecodeError):
+                        pass
+
+            # BT devices CSV
+            bt_file = session_dir / "bt_devices.csv"
+            if bt_file.is_file():
+                try:
+                    with open(bt_file, "r", encoding="utf-8") as fh:
+                        reader = csv.DictReader(fh)
+                        for row in reader:
+                            try:
+                                lat = float(row.get("lat", 0))
+                                lon = float(row.get("lon", 0))
+                                if lat != 0.0 or lon != 0.0:
+                                    points.append({
+                                        "lat": lat, "lon": lon,
+                                        "type": "bt",
+                                        "label": row.get("name", row.get("mac", "?")),
+                                    })
+                            except (ValueError, TypeError):
+                                pass
+                except OSError:
+                    pass
+
+            # MeshCore nodes CSV
+            mc_file = session_dir / "meshcore_nodes.csv"
+            if mc_file.is_file():
+                try:
+                    with open(mc_file, "r", encoding="utf-8") as fh:
+                        reader = csv.DictReader(fh)
+                        for row in reader:
+                            try:
+                                lat = float(row.get("lat", 0))
+                                lon = float(row.get("lon", 0))
+                                if lat != 0.0 or lon != 0.0:
+                                    points.append({
+                                        "lat": lat, "lon": lon,
+                                        "type": "meshcore",
+                                        "label": row.get("name", row.get("node_id", "?")),
+                                    })
+                            except (ValueError, TypeError):
+                                pass
+                except OSError:
+                    pass
+
+        self._gps_points_cache = points
+        self._gps_points_ts = now
+        return points
+
+    # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
 

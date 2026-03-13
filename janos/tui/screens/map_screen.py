@@ -17,7 +17,7 @@ class MapScreen(urwid.WidgetWrap):
         self._map = BrailleMapWidget()
         self._last_refresh = 0.0
 
-        # Info bar (point counts)
+        # Info bar (point counts + viewport info)
         self._info = urwid.Text(("dim", "  Map  Loading..."))
 
         # Legend bar
@@ -25,7 +25,7 @@ class MapScreen(urwid.WidgetWrap):
 
         # Key hints
         self._keys = urwid.Text(
-            ("dim", "  [r] Refresh  [h] Handshakes  [w] WiFi  [b] BT  [m] MC"),
+            ("dim", "  [↑↓←→] Pan  [+/-] Zoom  [0] World  [c] Center  [r] Refresh"),
         )
 
         pile = urwid.Pile([
@@ -58,17 +58,11 @@ class MapScreen(urwid.WidgetWrap):
             parts.append((attr if on else "dim", f" {marker} {label} "))
         return parts
 
-    # ── data loading ──
+    # ── info bar ──
 
-    def _load_points(self) -> None:
-        """Load GPS points from loot manager."""
-        import time
-        self._last_refresh = time.monotonic()
-
-        points = self.loot.get_gps_points()
-        self._map.set_points(points)
-
-        # Count per type
+    def _update_info(self) -> None:
+        """Update the info bar with point counts and viewport info."""
+        points = self._map._points
         counts: dict[str, int] = {}
         for pt in points:
             t = pt.get("type", "?")
@@ -86,7 +80,34 @@ class MapScreen(urwid.WidgetWrap):
             parts.append(f"MC:{counts['meshcore']}")
 
         summary = " │ ".join(parts) if parts else "No GPS data"
-        self._info.set_text(("dim", f"  Map  {total} points  ({summary})"))
+
+        # Viewport info
+        zoom_label = self._map.get_zoom_label()
+        lat = self._map.center_lat
+        lon = self._map.center_lon
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        coord_str = f"{abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+
+        if self._map.zoom == 0:
+            view_str = f"[{zoom_label}]"
+        else:
+            view_str = f"[{zoom_label} z{self._map.zoom}] {coord_str}"
+
+        self._info.set_text(
+            ("dim", f"  Map  {total} pts  ({summary})  {view_str}")
+        )
+
+    # ── data loading ──
+
+    def _load_points(self) -> None:
+        """Load GPS points from loot manager."""
+        import time
+        self._last_refresh = time.monotonic()
+
+        points = self.loot.get_gps_points()
+        self._map.set_points(points)
+        self._update_info()
 
     # ── public API ──
 
@@ -101,9 +122,7 @@ class MapScreen(urwid.WidgetWrap):
         pass
 
     def keypress(self, size: tuple[int, int], key: str) -> str | None:
-        if key == "r":
-            self._load_points()
-            return None
+        # Filter toggles
         if key == "h":
             self._map.toggle_filter("handshake")
             self._legend.set_text(self._build_legend())
@@ -120,4 +139,14 @@ class MapScreen(urwid.WidgetWrap):
             self._map.toggle_filter("meshcore")
             self._legend.set_text(self._build_legend())
             return None
+        if key == "r":
+            self._load_points()
+            return None
+
+        # Navigation keys — delegate to map widget
+        if key in ("up", "down", "left", "right", "+", "=", "-", "_", "0", "c"):
+            result = self._map.keypress(size, key)
+            self._update_info()
+            return result
+
         return key

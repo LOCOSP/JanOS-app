@@ -382,8 +382,15 @@ class JanOSTUI:
     # Tab switching
     # ------------------------------------------------------------------
 
+    _MAP_TAB = 4  # 0-based index of Map tab
+
     def _on_tab_switch(self, index: int) -> None:
         self._body.original_widget = self._screens[index]
+        # Auto-hide sidebar on Map tab for full-width map
+        if index == self._MAP_TAB:
+            self._content.original_widget = self._left_panel
+        elif not self._mobile_mode:
+            self._content.original_widget = self._columns
 
     # ------------------------------------------------------------------
     # GPS data callback (fired by urwid event loop)

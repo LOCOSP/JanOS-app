@@ -75,8 +75,10 @@ class WardrivingScreen(urwid.WidgetWrap):
                 self._begin_wardriving()
             else:
                 sats = self.state.gps_satellites
+                vis = self.state.gps_satellites_visible
+                sat_str = f"Sat:{sats}" if sats else f"Vis:{vis}" if vis else "no satellites"
                 self._status.set_text(
-                    ("warning", f"  Waiting for GPS fix... Satellites: {sats}")
+                    ("warning", f"  Waiting for GPS fix... {sat_str}")
                 )
             return
 

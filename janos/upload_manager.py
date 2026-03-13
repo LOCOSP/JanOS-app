@@ -124,6 +124,37 @@ def upload_wpasec_all(loot_dir: Path) -> tuple[int, int, str]:
     return uploaded, total, f"{uploaded}/{total} uploaded successfully"
 
 
+def fetch_wigle_user_stats() -> Optional[dict]:
+    """Fetch WiGLE user stats (discovered networks, rank, etc.).
+
+    Returns dict with keys: discoveredWiFiGPS, discoveredBtGPS, rank, etc.
+    Returns None on error or if not configured.
+    """
+    name = _env("JANOS_WIGLE_NAME", WIGLE_API_NAME)
+    token = _env("JANOS_WIGLE_TOKEN", WIGLE_API_TOKEN)
+    if not name or not token:
+        return None
+    try:
+        import requests
+    except ImportError:
+        return None
+    try:
+        resp = requests.get(
+            "https://api.wigle.net/api/v2/stats/user",
+            auth=(name, token),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success"):
+                stats = data.get("statistics", data)
+                return stats
+        return None
+    except Exception as exc:
+        log.error("WiGLE stats error: %s", exc)
+        return None
+
+
 def find_wardriving_csvs(loot_dir: Path) -> list[Path]:
     """Find all wardriving.csv files across loot sessions."""
     return sorted(loot_dir.rglob("wardriving.csv"))

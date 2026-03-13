@@ -319,22 +319,19 @@ class BrailleMapWidget(urwid.Widget):
         if self._points:
             self._invalidate()
 
-    def _point_visible(self, lat: float, lon: float) -> bool:
-        """Determine if a point should be visible this frame (twinkle effect).
+    def _pixel_visible(self, px: int, py: int) -> bool:
+        """Determine if a single braille pixel should be lit this frame.
 
-        Each point gets a stable, unique phase from its coordinates.
-        Two slow sine waves with different frequencies create an organic,
-        randomized blinking pattern — like city lights at night.
-        ~15-20% of points are 'off' at any moment.
+        Each pixel gets a unique phase from its absolute position.
+        Two slow sine waves create organic twinkling — individual dots
+        in a marker blink independently, like city lights at night.
+        ~80-85% of pixels are 'on' at any moment.
         """
-        # Stable phase from coordinates (0..2π) — each point has unique timing
-        phase = (lat * 137.03 + lon * 59.97) % 1.0 * (2.0 * math.pi)
+        phase = (px * 137.03 + py * 59.97) % 1.0 * (2.0 * math.pi)
         t = time.monotonic()
-        # Two slow waves with irrational frequency ratio — never repeats exactly
-        wave1 = math.sin(t * 0.6 + phase)            # ~10s period
-        wave2 = math.sin(t * 0.37 + phase * 2.13)    # ~17s period
+        wave1 = math.sin(t * 0.7 + phase)            # ~9s period
+        wave2 = math.sin(t * 0.43 + phase * 2.13)    # ~15s period
         combined = (wave1 + wave2) / 2.0
-        # Visible ~80-85% of the time — gentle, slow fade in/out feel
         return combined > -0.35
 
     def keypress(self, size: tuple[int, int], key: str) -> str | None:
@@ -444,23 +441,19 @@ class BrailleMapWidget(urwid.Widget):
             # Skip points outside viewport
             if not self._in_viewport(lon, lat, vp, margin=clip_margin):
                 continue
-            # Twinkle: skip points that are "off" this frame
-            if not self._point_visible(lat, lon):
-                continue
             ptype = pt.get("type", "handshake")
             attr = _TYPE_ATTR.get(ptype, "error")
             px, py = self._lonlat_to_pixel(lon, lat, pw, ph, vp)
 
-            for dx, dy in marker_offsets:
-                points_canvas.set(px + dx, py + dy)
-
-            # Mark character cells touched by this point
+            # Per-pixel twinkle: each dot in the marker blinks independently
             for dx, dy in marker_offsets:
                 cpx, cpy = px + dx, py + dy
                 if 0 <= cpx < pw and 0 <= cpy < ph:
-                    ccol = cpx // 2
-                    crow = cpy // 4
-                    point_cells[(ccol, crow)] = attr
+                    if self._pixel_visible(cpx, cpy):
+                        points_canvas.set(cpx, cpy)
+                        ccol = cpx // 2
+                        crow = cpy // 4
+                        point_cells[(ccol, crow)] = attr
 
         # --- Merge layers and build TextCanvas ---
         text_rows: list[bytes] = []

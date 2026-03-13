@@ -147,7 +147,7 @@ class LootManager:
         """Count loot items in a single session directory."""
         counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
                   "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
-                  "bt_smarttags": 0, "bt_devices_gps": 0}
+                  "bt_smarttags": 0, "bt_devices_gps": 0, "wardriving": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -230,13 +230,20 @@ class LootManager:
                 counts["bt_smarttags"] = total_st
             except OSError:
                 pass
+        wd_file = session_path / "wardriving.csv"
+        if wd_file.is_file():
+            try:
+                lines = sum(1 for _ in open(wd_file, encoding="utf-8"))
+                counts["wardriving"] = max(0, lines - 1)  # minus header
+            except OSError:
+                pass
         return counts
 
     def _recalc_totals(self, db: dict) -> None:
         """Recalculate totals from all session entries."""
         keys = ("pcap", "hccapx", "hc22000", "passwords", "et_captures",
                 "mc_nodes", "mc_messages", "bt_devices", "bt_airtags", "bt_smarttags",
-                "bt_devices_gps")
+                "bt_devices_gps", "wardriving")
         totals: dict = {k: 0 for k in keys}
         totals["sessions"] = len(db["sessions"])
         for session_counts in db["sessions"].values():
@@ -558,6 +565,75 @@ class LootManager:
     # ------------------------------------------------------------------
     # Scan results
     # ------------------------------------------------------------------
+
+    def save_wardriving_network(self, network: Network) -> bool:
+        """Append a geo-tagged network to wardriving.csv (dedup by BSSID).
+
+        Returns True if the network was new or updated (stronger RSSI).
+        """
+        if not self._session_active or not network.bssid:
+            return False
+        path = self._session / "wardriving.csv"
+        # Get GPS coords
+        lat, lon, alt = 0.0, 0.0, 0.0
+        if self._gps and self._gps.available:
+            fix = self._gps.fix
+            if fix.valid:
+                lat = round(fix.latitude, 7)
+                lon = round(fix.longitude, 7)
+                alt = round(fix.altitude, 1)
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            rssi_val = int(network.rssi)
+        except (ValueError, TypeError):
+            rssi_val = -100
+        # Read existing to dedup by BSSID
+        existing: dict[str, tuple[int, int]] = {}  # bssid -> (line_index, rssi)
+        lines: list[str] = []
+        if path.is_file():
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    for i, line in enumerate(fh):
+                        lines.append(line)
+                        if i == 0:
+                            continue  # header
+                        parts = line.strip().split(",")
+                        if len(parts) >= 3:
+                            bssid = parts[2]
+                            try:
+                                existing[bssid] = (i, int(parts[5]))
+                            except (ValueError, IndexError):
+                                existing[bssid] = (i, -100)
+            except OSError:
+                lines = []
+                existing = {}
+        new_row = f"{ts},{network.ssid},{network.bssid},{network.channel},{network.auth},{network.rssi},{network.band},{network.vendor},{lat},{lon},{alt}\n"
+        bssid = network.bssid
+        if bssid in existing:
+            old_idx, old_rssi = existing[bssid]
+            if rssi_val <= old_rssi:
+                return False  # existing is stronger or equal
+            # Replace the line
+            lines[old_idx] = new_row
+            try:
+                with open(path, "w", newline="", encoding="utf-8") as fh:
+                    fh.writelines(lines)
+            except OSError as exc:
+                log.error("Cannot update wardriving CSV: %s", exc)
+            return True
+        else:
+            # Append new
+            try:
+                if not lines:
+                    with open(path, "w", newline="", encoding="utf-8") as fh:
+                        fh.write("timestamp,SSID,BSSID,Channel,Auth,RSSI,Band,Vendor,Latitude,Longitude,Altitude\n")
+                        fh.write(new_row)
+                else:
+                    with open(path, "a", newline="", encoding="utf-8") as fh:
+                        fh.write(new_row)
+            except OSError as exc:
+                log.error("Cannot save wardriving network: %s", exc)
+            return True
 
     def save_scan_results(self, networks: List[Network]) -> None:
         """Save scan results as CSV."""

@@ -100,6 +100,10 @@ class AppState:
     aio_sdr: bool = False
     aio_usb: bool = False
 
+    # Wardriving
+    wardriving_running: bool = False
+    wardriving_networks: int = 0  # unique BSSIDs found
+
     # LoRa
     lora_running: bool = False
     lora_mode: str = ""  # "sniffer", "scanner", "tracker", "meshcore", "meshtastic"
@@ -137,6 +141,7 @@ class AppState:
         self.sae_overflow_running = False
         self.handshake_running = False
         self.sniffer_running = False
+        self.wardriving_running = False
         self.portal_running = False
         self.evil_twin_running = False
         self.scanning = False

@@ -31,6 +31,8 @@ _IDLE_NUDGE = [
     "LoRa time!",
     "mesh me up!",
     "radio waves~",
+    "wardrive?",
+    "GPS ready!",
 ]
 
 # Idle state tracking
@@ -359,6 +361,31 @@ _FRAMES = {
         ),
     ],
 
+    # ── Wardriving: GPS + WiFi scan ──────────────────────────────────
+    "wardriving": [
+        (
+            "  ┌─────┐\n"
+            "  │ °_° │>*>\n"
+            "  └┤/Y\\├┘\n"
+            "   ┘   └",
+            "success",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ °.° │ >*>\n"
+            "  └┤/Y\\├┘\n"
+            "   ┘   └",
+            "success",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ °_° │  >*>\n"
+            "  └┤/Y\\├┘\n"
+            "   ┘   └",
+            "success",
+        ),
+    ],
+
     # ── LoRa: radio waves ──────────────────────────────────────────────
     "lora": [
         (
@@ -416,6 +443,8 @@ def get_creature_state(state) -> str:
         return "bt_scan"
     if state.lora_running:
         return "lora"
+    if state.wardriving_running:
+        return "wardriving"
     if state.scanning:
         return "scan"
     if state.sniffer_running:

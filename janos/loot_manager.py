@@ -672,6 +672,75 @@ class LootManager:
                 log.error("Cannot save wardriving network: %s", exc)
             return True
 
+    def save_wardriving_bt(self, mac: str, rssi: int, name: str) -> bool:
+        """Append a geo-tagged BLE device to wardriving.csv (WiGLE format, dedup by MAC).
+
+        Uses the same CSV file as WiFi wardriving with Type=BLE.
+        Returns True if the device was new or updated (stronger RSSI).
+        """
+        if not self._session_active or not mac:
+            return False
+        path = self._session / "wardriving.csv"
+        # Get GPS coords + accuracy
+        lat, lon, alt, accuracy = 0.0, 0.0, 0.0, 0.0
+        if self._gps and self._gps.available:
+            fix = self._gps.fix
+            if fix.valid:
+                lat = round(fix.latitude, 7)
+                lon = round(fix.longitude, 7)
+                alt = round(fix.altitude, 1)
+                accuracy = round(fix.hdop * 5.0, 1) if fix.hdop < 99 else 0.0
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # WiGLE row: MAC,SSID(=name),AuthMode,FirstSeen,Channel,RSSI,Lat,Lon,Alt,Accuracy,Type
+        new_row = (
+            f"{mac},{name},[BLE],{ts},"
+            f",{rssi},{lat},{lon},{alt},"
+            f"{accuracy},BLE\n"
+        )
+        # Read existing to dedup by MAC (column 0, RSSI = column 5)
+        existing: dict[str, tuple[int, int]] = {}
+        lines: list[str] = []
+        if path.is_file():
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    for i, line in enumerate(fh):
+                        lines.append(line)
+                        if i <= 1:
+                            continue  # pre-header + header
+                        parts = line.strip().split(",")
+                        if len(parts) >= 6:
+                            try:
+                                existing[parts[0]] = (i, int(parts[5]))
+                            except (ValueError, IndexError):
+                                existing[parts[0]] = (i, -100)
+            except OSError:
+                lines = []
+                existing = {}
+        if mac in existing:
+            old_idx, old_rssi = existing[mac]
+            if rssi <= old_rssi:
+                return False  # existing is stronger or equal
+            lines[old_idx] = new_row
+            try:
+                with open(path, "w", newline="", encoding="utf-8") as fh:
+                    fh.writelines(lines)
+            except OSError as exc:
+                log.error("Cannot update wardriving BT CSV: %s", exc)
+            return True
+        else:
+            try:
+                if not lines:
+                    with open(path, "w", newline="", encoding="utf-8") as fh:
+                        fh.write(self._WIGLE_PRE_HEADER)
+                        fh.write(self._WIGLE_HEADER)
+                        fh.write(new_row)
+                else:
+                    with open(path, "a", newline="", encoding="utf-8") as fh:
+                        fh.write(new_row)
+            except OSError as exc:
+                log.error("Cannot save wardriving BT device: %s", exc)
+            return True
+
     def save_scan_results(self, networks: List[Network]) -> None:
         """Save scan results as CSV."""
         if not self._session_active or not networks:
@@ -901,10 +970,14 @@ class LootManager:
                                     lat = float(parts[6])
                                     lon = float(parts[7])
                                     if lat != 0.0 or lon != 0.0:
+                                        # Detect Type column (11th col = index 10)
+                                        ptype = "wifi"
+                                        if len(parts) >= 11 and parts[10].strip().upper() == "BLE":
+                                            ptype = "bt"
                                         points.append({
                                             "lat": lat, "lon": lon,
-                                            "type": "wifi",
-                                            "label": parts[1],  # SSID
+                                            "type": ptype,
+                                            "label": parts[1],  # SSID/Name
                                         })
                                 except (ValueError, IndexError):
                                     pass

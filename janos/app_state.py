@@ -74,6 +74,8 @@ class AppState:
     evil_twin_log: List[str] = field(default_factory=list)
 
     # Bluetooth
+    bt_wardriving_running: bool = False
+    bt_wardriving_devices: int = 0
     bt_scan_running: bool = False
     bt_tracking_running: bool = False
     bt_tracking_mac: str = ""
@@ -145,6 +147,7 @@ class AppState:
         self.portal_running = False
         self.evil_twin_running = False
         self.scanning = False
+        self.bt_wardriving_running = False
         self.bt_scan_running = False
         self.bt_tracking_running = False
         self.bt_tracking_mac = ""

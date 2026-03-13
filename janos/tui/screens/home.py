@@ -1,6 +1,7 @@
 """Sidebar panel — always-visible left panel with logo + app stats."""
 
 import os
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -10,6 +11,7 @@ import urwid
 from ... import __version__
 from ...app_state import AppState
 from ...loot_manager import LootManager
+from ...upload_manager import wigle_configured, fetch_wigle_user_stats
 from ...privacy import mask_coords_str, is_private
 from ..widgets.creature import get_creature_state, get_frame
 
@@ -36,6 +38,9 @@ class SidebarPanel(urwid.WidgetWrap):
         self._gps = gps
 
         self._frame_tick = 0
+        self._wigle_stats: dict | None = None
+        self._wigle_stats_ts: float = 0
+        self._wigle_fetching = False
 
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
@@ -53,8 +58,10 @@ class SidebarPanel(urwid.WidgetWrap):
         self._forms = urwid.Text("")
         self._captures = urwid.Text("")
         self._loot_info = urwid.Text("")
+        self._wd_line = urwid.Text("")
         self._mc_line = urwid.Text("")
         self._bt_line = urwid.Text("")
+        self._wigle_line = urwid.Text("")
         self._loot_total = urwid.Text("")
         self._loot_total2 = urwid.Text("")
         self._loot_total3 = urwid.Text("")
@@ -79,8 +86,10 @@ class SidebarPanel(urwid.WidgetWrap):
             self._captures,
             urwid.Divider("─"),
             self._loot_info,
+            self._wd_line,
             self._mc_line,
             self._bt_line,
+            self._wigle_line,
             self._loot_total,
             self._loot_total2,
             self._loot_total3,
@@ -101,7 +110,8 @@ class SidebarPanel(urwid.WidgetWrap):
         """Count loot files in the current session directory."""
         counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
                         "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
-                        "bt_smarttags": 0, "bt_devices_gps": 0}
+                        "bt_smarttags": 0, "bt_devices_gps": 0,
+                        "wd_wifi": 0, "wd_bt": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -179,6 +189,20 @@ class SidebarPanel(urwid.WidgetWrap):
                             pass
                 counts["bt_airtags"] = max_at
                 counts["bt_smarttags"] = max_st
+            except OSError:
+                pass
+        # Wardriving CSV — count WiFi vs BT entries
+        wd_file = session / "wardriving.csv"
+        if wd_file.is_file():
+            try:
+                for i, line in enumerate(open(wd_file, encoding="utf-8")):
+                    if i <= 1:
+                        continue  # skip pre-header + header
+                    parts = line.strip().split(",")
+                    if len(parts) >= 11 and parts[10].strip().upper() == "BLE":
+                        counts["wd_bt"] += 1
+                    else:
+                        counts["wd_wifi"] += 1
             except OSError:
                 pass
         return counts
@@ -344,6 +368,19 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._mc_line.set_text("")
 
+        # Wardriving (current session)
+        wd_w = loot.get("wd_wifi", 0)
+        wd_b = loot.get("wd_bt", 0)
+        if wd_w or wd_b:
+            wd_parts = []
+            if wd_w:
+                wd_parts.append(f"WiFi:{wd_w}")
+            if wd_b:
+                wd_parts.append(f"BT:{wd_b}")
+            self._wd_line.set_text(("success", f"  WD  {' │ '.join(wd_parts)}"))
+        else:
+            self._wd_line.set_text("")
+
         # BT loot (current session)
         bt_d = loot.get("bt_devices", 0)
         bt_a = loot.get("bt_airtags", 0)
@@ -360,6 +397,41 @@ class SidebarPanel(urwid.WidgetWrap):
             self._bt_line.set_text(("success", f"  BT  {' │ '.join(bt_parts)}"))
         else:
             self._bt_line.set_text("")
+
+        # WiGLE user stats (fetched every 5 min in background)
+        if wigle_configured():
+            now_ts = time.time()
+            if not self._wigle_fetching and (now_ts - self._wigle_stats_ts > 300):
+                self._wigle_fetching = True
+                def _fetch():
+                    self._wigle_stats = fetch_wigle_user_stats()
+                    self._wigle_stats_ts = time.time()
+                    self._wigle_fetching = False
+                threading.Thread(target=_fetch, daemon=True).start()
+            if self._wigle_stats:
+                s = self._wigle_stats
+                wifi_n = s.get("discoveredWiFiGPS", s.get("discoveredWiFi", 0))
+                bt_n = s.get("discoveredBtGPS", s.get("discoveredBt", 0))
+                rank = s.get("rank", 0)
+                parts = []
+                if wifi_n:
+                    parts.append(f"W:{wifi_n}")
+                if bt_n:
+                    parts.append(f"B:{bt_n}")
+                if rank:
+                    parts.append(f"#:{rank}")
+                if parts:
+                    self._wigle_line.set_text(
+                        ("dim", f"  WiGLE {' │ '.join(parts)}")
+                    )
+                else:
+                    self._wigle_line.set_text("")
+            elif self._wigle_fetching:
+                self._wigle_line.set_text(("dim", "  WiGLE loading..."))
+            else:
+                self._wigle_line.set_text("")
+        else:
+            self._wigle_line.set_text("")
 
         # --- Total Loot (all sessions) ---
         totals = self.loot.loot_totals

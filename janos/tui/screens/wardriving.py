@@ -9,8 +9,7 @@ from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
 from ...upload_manager import (
-    wigle_configured, wpasec_configured,
-    upload_wigle, upload_wpasec_all, find_wardriving_csvs,
+    wigle_configured, upload_wigle, find_wardriving_csvs,
 )
 from ...privacy import mask_ssid, mask_mac, mask_coords_str, is_private
 from ...config import CMD_SCAN_NETWORKS, CMD_STOP
@@ -62,8 +61,6 @@ class WardrivingScreen(urwid.WidgetWrap):
         hint = "  Press [s] to start wardriving"
         if wigle_configured():
             hint += "  [w]WiGLE"
-        if wpasec_configured():
-            hint += "  [u]WPA-sec"
         self._status = urwid.Text(("dim", hint))
         self._body = urwid.WidgetPlaceholder(self._table)
 
@@ -105,8 +102,6 @@ class WardrivingScreen(urwid.WidgetWrap):
                 extras = ""
                 if wigle_configured():
                     extras += "  [w]WiGLE"
-                if wpasec_configured():
-                    extras += "  [u]WPA-sec"
                 self._status.set_text(
                     ("dim", f"  Stopped. {n} unique networks. [s]Start  [x]Clear{extras}")
                 )
@@ -275,8 +270,6 @@ class WardrivingScreen(urwid.WidgetWrap):
         hint = "  Cleared. Press [s] to start wardriving"
         if wigle_configured():
             hint += "  [w]WiGLE"
-        if wpasec_configured():
-            hint += "  [u]WPA-sec"
         self._status.set_text(("dim", hint))
 
     # ------------------------------------------------------------------
@@ -313,19 +306,6 @@ class WardrivingScreen(urwid.WidgetWrap):
 
         threading.Thread(target=_do, daemon=True).start()
 
-    def _upload_wpasec(self) -> None:
-        """Upload .pcap handshakes to WPA-sec in a background thread."""
-        if not self._loot:
-            return
-        loot_dir = self._loot.loot_root
-        self._status.set_text(("warning", "  Uploading handshakes to WPA-sec..."))
-
-        def _do():
-            _up, _total, msg = upload_wpasec_all(loot_dir)
-            self._upload_result = f"WPA-sec: {msg}"
-
-        threading.Thread(target=_do, daemon=True).start()
-
     def _show_upload_result(self, message: str) -> None:
         """Show upload result dialog (called from main thread)."""
         self._app.show_overlay(
@@ -358,14 +338,4 @@ class WardrivingScreen(urwid.WidgetWrap):
                     45, 9,
                 )
             return None
-        if key == "u" and not self._running:
-            if wpasec_configured():
-                self._upload_wpasec()
-            else:
-                self._app.show_overlay(
-                    InfoDialog("WPA-sec not configured.\nSet JANOS_WPASEC_KEY env var.",
-                               lambda: self._app.dismiss_overlay(), title="WPA-sec"),
-                    45, 8,
-                )
-            return None
-        return super().keypress(size, key)
+return super().keypress(size, key)

@@ -1,5 +1,6 @@
 """Wardriving screen — continuous WiFi scan with GPS geo-tagging."""
 
+import threading
 import time
 import urwid
 
@@ -7,6 +8,10 @@ from ...app_state import AppState, Network
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
+from ...upload_manager import (
+    wigle_configured, wpasec_configured,
+    upload_wigle, upload_wpasec_all, find_wardriving_csvs,
+)
 from ...privacy import mask_ssid, mask_mac, mask_coords_str, is_private
 from ...config import CMD_SCAN_NETWORKS, CMD_STOP
 from ..widgets.data_table import DataTable
@@ -40,6 +45,7 @@ class WardrivingScreen(urwid.WidgetWrap):
         self._scanning = False          # currently in a scan cycle
         self._scan_done_time: float = 0  # when last cycle finished
         self._cycle_count = 0
+        self._upload_result: str | None = None  # pending upload result
         # bssid -> Network (best RSSI)
         self._seen: dict[str, Network] = {}
         # Current cycle networks (parsed from serial)
@@ -53,7 +59,12 @@ class WardrivingScreen(urwid.WidgetWrap):
             ("fixed", 6, urwid.Text("RSSI")),
             ("fixed", 22, urwid.Text("GPS")),
         ])
-        self._status = urwid.Text(("dim", "  Press [s] to start wardriving"))
+        hint = "  Press [s] to start wardriving"
+        if wigle_configured():
+            hint += "  [w]WiGLE"
+        if wpasec_configured():
+            hint += "  [u]WPA-sec"
+        self._status = urwid.Text(("dim", hint))
         self._body = urwid.WidgetPlaceholder(self._table)
 
         pile = urwid.Pile([
@@ -69,6 +80,12 @@ class WardrivingScreen(urwid.WidgetWrap):
 
     def refresh(self) -> None:
         """Called every UI tick (~0.5s)."""
+        # Check for pending upload result
+        if self._upload_result is not None:
+            msg = self._upload_result
+            self._upload_result = None
+            self._show_upload_result(msg)
+
         if self._waiting_gps:
             if self.state.gps_fix_valid:
                 self._waiting_gps = False
@@ -85,8 +102,13 @@ class WardrivingScreen(urwid.WidgetWrap):
         if not self._running:
             n = len(self._seen)
             if n:
+                extras = ""
+                if wigle_configured():
+                    extras += "  [w]WiGLE"
+                if wpasec_configured():
+                    extras += "  [u]WPA-sec"
                 self._status.set_text(
-                    ("dim", f"  Stopped. {n} unique networks found. [s]Start  [x]Clear")
+                    ("dim", f"  Stopped. {n} unique networks. [s]Start  [x]Clear{extras}")
                 )
             return
 
@@ -164,8 +186,13 @@ class WardrivingScreen(urwid.WidgetWrap):
         self.state.wardriving_running = False
         n = len(self._seen)
         self.state.wardriving_networks = n
+        extras = ""
+        if wigle_configured():
+            extras += "  [w]WiGLE"
+        if wpasec_configured():
+            extras += "  [u]WPA-sec"
         self._status.set_text(
-            ("warning", f"  Stopped. {n} unique networks. [s]Start  [x]Clear")
+            ("warning", f"  Stopped. {n} unique networks. [s]Start  [x]Clear{extras}")
         )
 
     # ------------------------------------------------------------------
@@ -245,7 +272,66 @@ class WardrivingScreen(urwid.WidgetWrap):
         self._cycle_count = 0
         self.state.wardriving_networks = 0
         self._table.clear()
-        self._status.set_text(("dim", "  Cleared. Press [s] to start wardriving"))
+        hint = "  Cleared. Press [s] to start wardriving"
+        if wigle_configured():
+            hint += "  [w]WiGLE"
+        if wpasec_configured():
+            hint += "  [u]WPA-sec"
+        self._status.set_text(("dim", hint))
+
+    # ------------------------------------------------------------------
+    # Upload
+    # ------------------------------------------------------------------
+
+    def _upload_wigle(self) -> None:
+        """Upload wardriving CSV(s) to WiGLE in a background thread."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        csvs = find_wardriving_csvs(loot_dir)
+        if not csvs:
+            self._app.show_overlay(
+                InfoDialog("No wardriving data to upload.",
+                           lambda: self._app.dismiss_overlay(), title="WiGLE"),
+                45, 7,
+            )
+            return
+        self._status.set_text(("warning", f"  Uploading {len(csvs)} file(s) to WiGLE..."))
+
+        def _do():
+            uploaded, errors = 0, []
+            for csv_path in csvs:
+                ok, msg = upload_wigle(csv_path)
+                if ok:
+                    uploaded += 1
+                else:
+                    errors.append(msg)
+            result = f"WiGLE: {uploaded}/{len(csvs)} uploaded"
+            if errors:
+                result += f"\n{errors[0]}"
+            self._upload_result = result
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _upload_wpasec(self) -> None:
+        """Upload .pcap handshakes to WPA-sec in a background thread."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        self._status.set_text(("warning", "  Uploading handshakes to WPA-sec..."))
+
+        def _do():
+            _up, _total, msg = upload_wpasec_all(loot_dir)
+            self._upload_result = f"WPA-sec: {msg}"
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _show_upload_result(self, message: str) -> None:
+        """Show upload result dialog (called from main thread)."""
+        self._app.show_overlay(
+            InfoDialog(message, lambda: self._app.dismiss_overlay(), title="Upload"),
+            50, 8,
+        )
 
     # ------------------------------------------------------------------
     # Keypress
@@ -261,5 +347,25 @@ class WardrivingScreen(urwid.WidgetWrap):
         if key == "x":
             if not self._running:
                 self._clear()
+            return None
+        if key == "w" and not self._running:
+            if wigle_configured():
+                self._upload_wigle()
+            else:
+                self._app.show_overlay(
+                    InfoDialog("WiGLE not configured.\nSet JANOS_WIGLE_NAME and\nJANOS_WIGLE_TOKEN env vars.",
+                               lambda: self._app.dismiss_overlay(), title="WiGLE"),
+                    45, 9,
+                )
+            return None
+        if key == "u" and not self._running:
+            if wpasec_configured():
+                self._upload_wpasec()
+            else:
+                self._app.show_overlay(
+                    InfoDialog("WPA-sec not configured.\nSet JANOS_WPASEC_KEY env var.",
+                               lambda: self._app.dismiss_overlay(), title="WPA-sec"),
+                    45, 8,
+                )
             return None
         return super().keypress(size, key)

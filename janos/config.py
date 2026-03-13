@@ -86,6 +86,15 @@ GPS_DEVICE = "/dev/ttyAMA0"
 GPS_BAUD_RATE = 9600
 GPS_PRIVACY_NOISE_DEG = 0.01  # ±0.01° ≈ ±1.1km randomization in private mode
 
+# WiGLE API (wardriving upload)
+WIGLE_API_URL = "https://api.wigle.net/api/v2/file/upload"
+WIGLE_API_NAME = ""   # set via config or env JANOS_WIGLE_NAME
+WIGLE_API_TOKEN = ""  # set via config or env JANOS_WIGLE_TOKEN
+
+# WPA-sec (handshake upload)
+WPASEC_URL = "https://wpa-sec.stanev.org/?submit"
+WPASEC_KEY = ""  # set via config or env JANOS_WPASEC_KEY
+
 # Firmware crash signatures (only true crash indicators, not normal boot messages)
 CRASH_KEYWORDS = (
     "Guru Meditation",

@@ -257,10 +257,15 @@ class SidebarPanel(urwid.WidgetWrap):
             )
             self._gps_line2.set_text(("dim", f"    {coords}"))
         elif self.state.gps_available:
-            vis = self.state.gps_satellites_visible
-            sat_info = f" | Vis:{vis}" if vis else ""
-            self._gps_line1.set_text(("warning", f"  GPS  Waiting for fix{sat_info}"))
-            self._gps_line2.set_text("")
+            # AIO v2 present but GPS GPIO is OFF → show OFF status
+            if self.state.aio_available and not self.state.aio_gps:
+                self._gps_line1.set_text(("dim", "  GPS  OFF"))
+                self._gps_line2.set_text("")
+            else:
+                vis = self.state.gps_satellites_visible
+                sat_info = f" | Vis:{vis}" if vis else ""
+                self._gps_line1.set_text(("warning", f"  GPS  Waiting for fix{sat_info}"))
+                self._gps_line2.set_text("")
         else:
             self._gps_line1.set_text("")
             self._gps_line2.set_text("")

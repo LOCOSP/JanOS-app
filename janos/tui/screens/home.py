@@ -401,7 +401,7 @@ class SidebarPanel(urwid.WidgetWrap):
         # WiGLE user stats (fetched every 5 min in background)
         if wigle_configured():
             now_ts = time.time()
-            if not self._wigle_fetching and (now_ts - self._wigle_stats_ts > 300):
+            if not self._wigle_fetching and (now_ts - self._wigle_stats_ts > 3600):
                 self._wigle_fetching = True
                 def _fetch():
                     self._wigle_stats = fetch_wigle_user_stats()

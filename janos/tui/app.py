@@ -27,13 +27,14 @@ from .screens.attacks import AttacksScreen
 from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
 from .screens.addons import AddOnsScreen
+from .screens.map_screen import MapScreen
 from .widgets.confirm_dialog import ConfirmDialog
 from .widgets.info_dialog import InfoDialog
 from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
 
-TAB_LABELS = ["Scan", "Sniffers", "Attacks", "Add-ons"]
+TAB_LABELS = ["Scan", "Sniffers", "Attacks", "Add-ons", "Map"]
 
 
 class _CrashDialog(urwid.WidgetWrap):
@@ -123,11 +124,15 @@ class JanOSTUI:
         # Add-ons screen
         self._addons = AddOnsScreen(self.state, self.serial, self)
 
+        # Map screen
+        self._map = MapScreen(self.state, self.loot)
+
         self._screens: list = [
             self._scan,
             self._sniffer,
             self._attacks,
             self._addons,
+            self._map,
         ]
 
         # Sidebar — always-visible left panel with logo + stats

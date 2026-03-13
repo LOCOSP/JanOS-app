@@ -282,7 +282,6 @@ The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface i
 ### Flags
 ```
 ./run.sh /dev/ttyUSB0 --debug    # Log to /tmp/janos.log
-./run.sh /dev/ttyUSB0 --legacy   # Fall back to old CLI
 ```
 
 ### Requirements
@@ -294,15 +293,6 @@ The **Add-ons** tab provides LoRa radio tools when the **LORA** GPIO interface i
 - `requests` — HTTP client for WiGLE/WPA-sec uploads (optional, for cloud upload features)
 - `esptool >= 4.0` — ESP32 firmware flashing (optional, for Add-ons flash)
 - Works on serial terminals, SSH, and ClockworkPi uConsole
-
-## Legacy CLI Mode
-
-The original `JanOS_app.py` is still available as a standalone script:
-
-```bash
-chmod +x JanOS_app.py
-python3 JanOS_app.py /dev/ttyUSB0
-```
 
 ## Desktop Shortcut (Fullscreen Launcher)
 

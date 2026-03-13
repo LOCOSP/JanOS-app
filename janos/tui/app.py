@@ -560,7 +560,7 @@ class JanOSTUI:
             self._tab_bar.prev_tab()
             return True
         # Number keys switch tabs (1-4)
-        if key in ("1", "2", "3", "4"):
+        if key in ("1", "2", "3", "4", "5"):
             idx = int(key) - 1
             if idx < len(self._screens):
                 self._tab_bar.active = idx

@@ -338,4 +338,4 @@ class WardrivingScreen(urwid.WidgetWrap):
                     45, 9,
                 )
             return None
-return super().keypress(size, key)
+        return super().keypress(size, key)

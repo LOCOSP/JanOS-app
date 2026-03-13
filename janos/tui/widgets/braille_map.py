@@ -322,20 +322,20 @@ class BrailleMapWidget(urwid.Widget):
     def _point_visible(self, lat: float, lon: float) -> bool:
         """Determine if a point should be visible this frame (twinkle effect).
 
-        Each point gets a stable phase from its coordinates.
-        A slow sine wave determines visibility — ~30% of points are
-        'off' at any moment, cycling smoothly.
+        Each point gets a stable, unique phase from its coordinates.
+        Two slow sine waves with different frequencies create an organic,
+        randomized blinking pattern — like city lights at night.
+        ~15-20% of points are 'off' at any moment.
         """
-        # Stable phase from coordinates (0..2π)
-        # Use simple hash: fract(lat*137.03 + lon*59.97) * 2π
+        # Stable phase from coordinates (0..2π) — each point has unique timing
         phase = (lat * 137.03 + lon * 59.97) % 1.0 * (2.0 * math.pi)
-        # Slow wave: period ~3-5 seconds per point, each has different phase
         t = time.monotonic()
-        # Mix two frequencies for organic feel
-        wave = (math.sin(t * 0.8 + phase) +
-                math.sin(t * 1.3 + phase * 1.7)) / 2.0
-        # Visible when wave > -0.3  (~80% of the time visible)
-        return wave > -0.3
+        # Two slow waves with irrational frequency ratio — never repeats exactly
+        wave1 = math.sin(t * 0.6 + phase)            # ~10s period
+        wave2 = math.sin(t * 0.37 + phase * 2.13)    # ~17s period
+        combined = (wave1 + wave2) / 2.0
+        # Visible ~80-85% of the time — gentle, slow fade in/out feel
+        return combined > -0.35
 
     def keypress(self, size: tuple[int, int], key: str) -> str | None:
         """Handle navigation keys directly in widget."""

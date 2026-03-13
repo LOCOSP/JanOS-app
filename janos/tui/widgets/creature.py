@@ -439,6 +439,8 @@ def get_creature_state(state) -> str:
         return "bt_tracking"
     if state.bt_airtag_running:
         return "bt_airtag"
+    if state.bt_wardriving_running:
+        return "bt_scan"
     if state.bt_scan_running:
         return "bt_scan"
     if state.lora_running:

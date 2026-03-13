@@ -1,4 +1,4 @@
-"""Sniffers tab — menu wrapper for Wardriving and Packet Sniffer."""
+"""Sniffers tab — menu wrapper for Wardriving, BT Wardriving, and Packet Sniffer."""
 
 import urwid
 
@@ -8,6 +8,7 @@ from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
 from .sniffer import SnifferScreen
 from .wardriving import WardrivingScreen
+from .bt_wardriving import BTWardrivingScreen
 
 
 class SniffersScreen(urwid.WidgetWrap):
@@ -23,14 +24,16 @@ class SniffersScreen(urwid.WidgetWrap):
 
         # Sub-screens
         self._wardriving = WardrivingScreen(state, serial, net_mgr, loot, app)
+        self._bt_wardriving = BTWardrivingScreen(state, serial, loot, app)
         self._sniffer = SnifferScreen(state, serial, net_mgr, loot)
 
         # Menu view
         self._menu_items = urwid.Pile([
             urwid.Text(("bold", "  \u2500\u2500 Sniffers \u2500\u2500")),
             urwid.Divider(),
-            urwid.Text(("default", "  [1] Wardriving")),
-            urwid.Text(("default", "  [2] Packet Sniffer")),
+            urwid.Text(("default", "  [1] Wardriving WiFi")),
+            urwid.Text(("default", "  [2] Wardriving BT")),
+            urwid.Text(("default", "  [3] Packet Sniffer")),
             urwid.Divider(),
         ])
         self._status = urwid.Text(("dim", "  Select mode"))
@@ -67,7 +70,10 @@ class SniffersScreen(urwid.WidgetWrap):
         parts = []
         if self.state.wardriving_running:
             n = self.state.wardriving_networks
-            parts.append(f"Wardriving RUNNING ({n} networks)")
+            parts.append(f"WiFi WD RUNNING ({n} networks)")
+        if self.state.bt_wardriving_running:
+            n = self.state.bt_wardriving_devices
+            parts.append(f"BT WD RUNNING ({n} devices)")
         if self.state.sniffer_running:
             parts.append(f"Sniffer RUNNING ({self.state.sniffer_packets} pkts)")
         if parts:
@@ -100,6 +106,9 @@ class SniffersScreen(urwid.WidgetWrap):
             self._enter_sub_screen(self._wardriving)
             return None
         if key == "2":
+            self._enter_sub_screen(self._bt_wardriving)
+            return None
+        if key == "3":
             self._enter_sub_screen(self._sniffer)
             return None
         return super().keypress(size, key)

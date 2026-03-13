@@ -529,7 +529,7 @@ class JanOSTUI:
             self._attacks.handle_serial_line(line)
 
         # Also route to sniffers screen when wardriving is running (even from other tabs)
-        if self.state.wardriving_running and screen is not self._sniffer:
+        if (self.state.wardriving_running or self.state.bt_wardriving_running) and screen is not self._sniffer:
             self._sniffer.handle_serial_line(line)
 
     # ------------------------------------------------------------------

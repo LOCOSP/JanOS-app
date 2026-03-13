@@ -93,6 +93,11 @@ class LootManager:
     def active(self) -> bool:
         return self._session_active
 
+    @property
+    def loot_root(self) -> Path:
+        """Root loot directory (contains all session dirs)."""
+        return self._base
+
     # ------------------------------------------------------------------
     # Aggregate loot database
     # ------------------------------------------------------------------
@@ -234,7 +239,7 @@ class LootManager:
         if wd_file.is_file():
             try:
                 lines = sum(1 for _ in open(wd_file, encoding="utf-8"))
-                counts["wardriving"] = max(0, lines - 1)  # minus header
+                counts["wardriving"] = max(0, lines - 2)  # minus pre-header + header
             except OSError:
                 pass
         return counts
@@ -566,28 +571,62 @@ class LootManager:
     # Scan results
     # ------------------------------------------------------------------
 
+    # WiGLE AuthMode mapping
+    _AUTH_MAP: dict[str, str] = {
+        "OPEN": "[ESS]",
+        "WEP": "[WEP][ESS]",
+        "WPA": "[WPA-PSK-CCMP+TKIP][ESS]",
+        "WPA2": "[WPA2-PSK-CCMP][ESS]",
+        "WPA3": "[WPA3-SAE-CCMP][ESS]",
+        "WPA/WPA2": "[WPA-PSK-CCMP+TKIP][WPA2-PSK-CCMP][ESS]",
+        "WPA2/WPA3": "[WPA2-PSK-CCMP][WPA3-SAE-CCMP][ESS]",
+    }
+
+    _WIGLE_PRE_HEADER = (
+        "WigleWifi-1.4,appRelease=JanOS,model=uConsole,"
+        "release=1.0,device=JanOS,display=TUI,board=ESP32,"
+        "brand=LOCOSP,star=Sol,body=3,subBody=0\n"
+    )
+    _WIGLE_HEADER = (
+        "MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,"
+        "CurrentLatitude,CurrentLongitude,AltitudeMeters,"
+        "AccuracyMeters,Type\n"
+    )
+
+    def _wigle_auth(self, auth: str) -> str:
+        """Convert ESP32 auth string to WiGLE AuthMode format."""
+        return self._AUTH_MAP.get(auth.strip(), f"[{auth}][ESS]")
+
     def save_wardriving_network(self, network: Network) -> bool:
-        """Append a geo-tagged network to wardriving.csv (dedup by BSSID).
+        """Append a geo-tagged network to wardriving.csv (WiGLE format, dedup by BSSID).
 
         Returns True if the network was new or updated (stronger RSSI).
         """
         if not self._session_active or not network.bssid:
             return False
         path = self._session / "wardriving.csv"
-        # Get GPS coords
-        lat, lon, alt = 0.0, 0.0, 0.0
+        # Get GPS coords + accuracy
+        lat, lon, alt, accuracy = 0.0, 0.0, 0.0, 0.0
         if self._gps and self._gps.available:
             fix = self._gps.fix
             if fix.valid:
                 lat = round(fix.latitude, 7)
                 lon = round(fix.longitude, 7)
                 alt = round(fix.altitude, 1)
+                accuracy = round(fix.hdop * 5.0, 1) if fix.hdop < 99 else 0.0
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             rssi_val = int(network.rssi)
         except (ValueError, TypeError):
             rssi_val = -100
-        # Read existing to dedup by BSSID
+        auth_mode = self._wigle_auth(network.auth)
+        # WiGLE row: MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,Lat,Lon,Alt,Accuracy,Type
+        new_row = (
+            f"{network.bssid},{network.ssid},{auth_mode},{ts},"
+            f"{network.channel},{network.rssi},{lat},{lon},{alt},"
+            f"{accuracy},WIFI\n"
+        )
+        # Read existing to dedup by BSSID (MAC = column 0, RSSI = column 5)
         existing: dict[str, tuple[int, int]] = {}  # bssid -> (line_index, rssi)
         lines: list[str] = []
         if path.is_file():
@@ -595,11 +634,11 @@ class LootManager:
                 with open(path, "r", encoding="utf-8") as fh:
                     for i, line in enumerate(fh):
                         lines.append(line)
-                        if i == 0:
-                            continue  # header
+                        if i <= 1:
+                            continue  # pre-header + header
                         parts = line.strip().split(",")
-                        if len(parts) >= 3:
-                            bssid = parts[2]
+                        if len(parts) >= 6:
+                            bssid = parts[0]  # MAC column
                             try:
                                 existing[bssid] = (i, int(parts[5]))
                             except (ValueError, IndexError):
@@ -607,13 +646,11 @@ class LootManager:
             except OSError:
                 lines = []
                 existing = {}
-        new_row = f"{ts},{network.ssid},{network.bssid},{network.channel},{network.auth},{network.rssi},{network.band},{network.vendor},{lat},{lon},{alt}\n"
         bssid = network.bssid
         if bssid in existing:
             old_idx, old_rssi = existing[bssid]
             if rssi_val <= old_rssi:
                 return False  # existing is stronger or equal
-            # Replace the line
             lines[old_idx] = new_row
             try:
                 with open(path, "w", newline="", encoding="utf-8") as fh:
@@ -622,11 +659,11 @@ class LootManager:
                 log.error("Cannot update wardriving CSV: %s", exc)
             return True
         else:
-            # Append new
             try:
                 if not lines:
                     with open(path, "w", newline="", encoding="utf-8") as fh:
-                        fh.write("timestamp,SSID,BSSID,Channel,Auth,RSSI,Band,Vendor,Latitude,Longitude,Altitude\n")
+                        fh.write(self._WIGLE_PRE_HEADER)
+                        fh.write(self._WIGLE_HEADER)
                         fh.write(new_row)
                 else:
                     with open(path, "a", newline="", encoding="utf-8") as fh:

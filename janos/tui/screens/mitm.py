@@ -442,21 +442,60 @@ class MITMScreen(urwid.WidgetWrap):
 
         ifaces = self._get_interfaces()
         if not ifaces:
-            self._app.show_overlay(
-                InfoDialog(
-                    "No network interfaces with IP found.",
-                    lambda: self._app.dismiss_overlay(),
-                    title="MITM",
-                ),
-                45, 7,
-            )
+            self._wait_for_interface()
             return
 
+        self._select_interface(ifaces)
+
+    def _wait_for_interface(self) -> None:
+        """Show waiting dialog that polls for network interfaces."""
+        self._iface_check_alarm = None
+        self._iface_waiting = True
+
+        def check_iface(loop=None, _data=None):
+            if not self._iface_waiting:
+                return
+            ifaces = self._get_interfaces()
+            if ifaces:
+                self._iface_waiting = False
+                self._app.dismiss_overlay()
+                self._select_interface(ifaces)
+                return
+            if hasattr(self._app, '_loop') and self._app._loop:
+                self._iface_check_alarm = self._app._loop.set_alarm_in(
+                    2, check_iface
+                )
+
+        msg = (
+            "Connect a network adapter with IP.\n\n"
+            "Plug in your WiFi adapter (e.g. Alfa)\n"
+            "and connect to the target network.\n\n"
+            "Waiting for interface..."
+        )
+
+        def on_dismiss():
+            self._iface_waiting = False
+            if self._iface_check_alarm and hasattr(self._app, '_loop'):
+                try:
+                    self._app._loop.remove_alarm(self._iface_check_alarm)
+                except Exception:
+                    pass
+            self._app.dismiss_overlay()
+
+        dialog = InfoDialog(msg, on_dismiss, title="MITM")
+        self._app.show_overlay(dialog, 50, 11)
+
+        if hasattr(self._app, '_loop') and self._app._loop:
+            self._iface_check_alarm = self._app._loop.set_alarm_in(
+                2, check_iface
+            )
+
+    def _select_interface(self, ifaces: list[tuple[str, str]]) -> None:
+        """Pick interface from list or auto-select if only one."""
         if len(ifaces) == 1:
             self._iface = ifaces[0][0]
             self._pick_target_mode()
         else:
-            # Pick interface
             from ..widgets.file_picker import FilePicker
             labels = [f"{iface} ({ip})" for iface, ip in ifaces]
 

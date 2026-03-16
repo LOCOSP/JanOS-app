@@ -188,8 +188,10 @@ class JanOSTUI:
         )
 
         # Serial FD watcher (if connected)
+        self._serial_watched = False
         if self.state.connected:
             self._loop.watch_file(self.serial.fd, self._on_serial_data)
+            self._serial_watched = True
 
         # GPS FD watcher (if available)
         if self.state.gps_available:
@@ -466,6 +468,7 @@ class JanOSTUI:
         except Exception as exc:
             log.error("Serial read error (device disconnected?): %s", exc)
             self.state.connected = False
+            self._serial_watched = False
             # Remove the FD watcher — device is gone
             try:
                 self._loop.remove_watch_file(self.serial.fd)
@@ -566,6 +569,16 @@ class JanOSTUI:
             self.state.aio_lora = status.get("lora", False)
             self.state.aio_sdr = status.get("sdr", False)
             self.state.aio_usb = status.get("usb", False)
+
+    def _register_serial_watcher(self) -> None:
+        """Register serial FD watcher after reconnection."""
+        if self._serial_watched or not self.state.connected:
+            return
+        try:
+            self._loop.watch_file(self.serial.fd, self._on_serial_data)
+            self._serial_watched = True
+        except Exception:
+            pass
 
     def _refresh_ui(self) -> None:
         self._header.refresh()

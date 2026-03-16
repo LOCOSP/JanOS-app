@@ -433,7 +433,7 @@ class AttacksScreen(urwid.WidgetWrap):
 
         # ESP32 attacks require serial connection
         if not self.state.connected:
-            self._status.set_text(("error", "  ESP32 not connected — use [d/m] Advanced attacks"))
+            self._wait_for_esp32(lambda: self._start_wifi_attack(idx))
             return
 
         # Handshake modes can work without selection (auto-rescan)
@@ -516,7 +516,7 @@ class AttacksScreen(urwid.WidgetWrap):
     def _start_bt_scan(self) -> None:
         """Start one-time BLE scan (10s). No confirmation needed."""
         if not self.state.connected:
-            self._status.set_text(("error", "  ESP32 not connected"))
+            self._wait_for_esp32(self._start_bt_scan)
             return
         if self.state.bt_scan_running:
             return
@@ -535,7 +535,7 @@ class AttacksScreen(urwid.WidgetWrap):
     def _start_bt_tracker(self) -> None:
         """Show MAC input dialog, then start BLE tracking."""
         if not self.state.connected:
-            self._status.set_text(("error", "  ESP32 not connected"))
+            self._wait_for_esp32(self._start_bt_tracker)
             return
         def on_input(mac: str) -> None:
             self._app.dismiss_overlay()
@@ -567,7 +567,7 @@ class AttacksScreen(urwid.WidgetWrap):
     def _start_bt_airtag(self) -> None:
         """Start continuous AirTag/SmartTag scanner."""
         if not self.state.connected:
-            self._status.set_text(("error", "  ESP32 not connected"))
+            self._wait_for_esp32(self._start_bt_airtag)
             return
         if self.state.bt_airtag_running:
             return
@@ -611,6 +611,62 @@ class AttacksScreen(urwid.WidgetWrap):
             self._upload_result = f"WPA-sec: {msg}"
 
         threading.Thread(target=_do, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # ESP32 connection waiting dialog
+    # ------------------------------------------------------------------
+
+    def _wait_for_esp32(self, on_connected) -> None:
+        """Show dialog waiting for ESP32 to be connected."""
+        self._esp32_check_alarm = None
+        self._esp32_waiting = True
+
+        def check_esp32(loop=None, _data=None):
+            if not self._esp32_waiting:
+                return
+            # Try to connect serial if not already
+            if not self.state.connected:
+                try:
+                    self.serial.setup()
+                    self.state.connected = True
+                except Exception:
+                    pass
+            if self.state.connected:
+                self._esp32_waiting = False
+                self._app.dismiss_overlay()
+                # Re-register serial watcher if app supports it
+                if hasattr(self._app, '_register_serial_watcher'):
+                    self._app._register_serial_watcher()
+                on_connected()
+                return
+            if hasattr(self._app, '_loop') and self._app._loop:
+                self._esp32_check_alarm = self._app._loop.set_alarm_in(
+                    2, check_esp32
+                )
+
+        msg = (
+            "Connect ESP32 via USB.\n\n"
+            "Plug in ESP32-C5 to /dev/ttyUSB0\n"
+            "(or your configured serial port).\n\n"
+            "Waiting for ESP32..."
+        )
+
+        def on_dismiss():
+            self._esp32_waiting = False
+            if self._esp32_check_alarm and hasattr(self._app, '_loop'):
+                try:
+                    self._app._loop.remove_alarm(self._esp32_check_alarm)
+                except Exception:
+                    pass
+            self._app.dismiss_overlay()
+
+        dialog = InfoDialog(msg, on_dismiss, title="ESP32 Required")
+        self._app.show_overlay(dialog, 48, 11)
+
+        if hasattr(self._app, '_loop') and self._app._loop:
+            self._esp32_check_alarm = self._app._loop.set_alarm_in(
+                2, check_esp32
+            )
 
     # ------------------------------------------------------------------
     # Stop all

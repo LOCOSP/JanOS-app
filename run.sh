@@ -7,5 +7,6 @@ if [ ! -d ".venv" ]; then
     ./setup.sh || exit 1
 fi
 
+# Root required for: scapy (MITM, Dragon Drain), airmon-ng, tcpdump, IP forwarding
 # Python auto-detects ESP32 port (ttyUSB0-3, ttyACM0-3) if not specified
-exec .venv/bin/python3 -m janos "$@"
+exec sudo .venv/bin/python3 -m janos "$@"

@@ -410,7 +410,7 @@ class MITMScreen(urwid.WidgetWrap):
         """Start tcpdump to save full pcap."""
         if not self._loot:
             return
-        mitm_dir = os.path.join(self._loot.session_dir, "mitm")
+        mitm_dir = os.path.join(self._loot.session_path, "mitm")
         os.makedirs(mitm_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._pcap_path = os.path.join(mitm_dir, f"capture_{ts}.pcap")
@@ -765,7 +765,7 @@ class MITMScreen(urwid.WidgetWrap):
         """Browse and inspect captured pcap files."""
         if not self._loot:
             return
-        mitm_dir = os.path.join(self._loot.session_dir, "mitm")
+        mitm_dir = os.path.join(self._loot.session_path, "mitm")
         if not os.path.isdir(mitm_dir):
             dialog = InfoDialog(
                 "No MITM captures yet.\n\nStart an attack first.",

@@ -100,9 +100,14 @@ class FlashManager:
             self._emit("Flash complete! ESP32-C5 is rebooting.", "success")
             self.success = True
 
-            # XIAO: reset USB hub so device re-enumerates after flash
+            # XIAO: reset USB hub and show reset instruction
             if self._board == "xiao":
                 self._reset_usb_hub(port)
+                self._emit("", "default")
+                self._emit(
+                    "IMPORTANT: Press RESET on XIAO (without BOOT) "
+                    "to start firmware.", "warning",
+                )
 
             # Save flashed firmware version for startup check
             if self._release_tag:

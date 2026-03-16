@@ -535,8 +535,10 @@ class MITMScreen(urwid.WidgetWrap):
 
     def _enter_single_target(self) -> None:
         """Ask for single victim IP."""
-        def on_input(ip: str) -> None:
+        def on_input(ip) -> None:
             self._app.dismiss_overlay()
+            if ip is None:
+                return  # Esc pressed
             ip = ip.strip()
             if not re.match(r'^\d{1,3}(\.\d{1,3}){3}$', ip):
                 self._status.set_text(("error", "  Invalid IP address"))
@@ -548,10 +550,7 @@ class MITMScreen(urwid.WidgetWrap):
             self._victims = [(ip, mac)]
             self._resolve_gateway_and_confirm()
 
-        def on_cancel():
-            self._app.dismiss_overlay()
-
-        dialog = TextInputDialog("Victim IP address:", on_input, on_cancel)
+        dialog = TextInputDialog("Victim IP address", on_input)
         self._app.show_overlay(dialog, 45, 7)
 
     def _scan_and_select(self) -> None:
@@ -583,8 +582,10 @@ class MITMScreen(urwid.WidgetWrap):
             # Ask for IP from the list
             self._scan_results = filtered
 
-            def on_input(ip: str) -> None:
+            def on_input(ip) -> None:
                 self._app.dismiss_overlay()
+                if ip is None:
+                    return  # Esc pressed
                 ip = ip.strip()
                 match = [(h_ip, h_mac) for h_ip, h_mac in self._scan_results
                          if h_ip == ip]
@@ -598,10 +599,7 @@ class MITMScreen(urwid.WidgetWrap):
                 self._victims = match
                 self._resolve_gateway_and_confirm()
 
-            def on_cancel():
-                self._app.dismiss_overlay()
-
-            dialog = TextInputDialog("Target IP:", on_input, on_cancel)
+            dialog = TextInputDialog("Target IP", on_input)
             self._app.show_overlay(dialog, 40, 7)
 
         threading.Thread(target=do_scan, daemon=True).start()

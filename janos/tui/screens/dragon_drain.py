@@ -380,8 +380,10 @@ class DragonDrainScreen(urwid.WidgetWrap):
 
     def _ask_bssid(self) -> None:
         """Ask for target BSSID."""
-        def on_bssid(bssid: str) -> None:
+        def on_input(bssid) -> None:
             self._app.dismiss_overlay()
+            if bssid is None:
+                return  # Esc pressed
             bssid = bssid.strip().upper()
             if not re.match(r'^[0-9A-F]{2}(:[0-9A-F]{2}){5}$', bssid):
                 self._status.set_text(
@@ -391,11 +393,8 @@ class DragonDrainScreen(urwid.WidgetWrap):
             self._target_bssid = bssid
             self._pick_interface()
 
-        def on_cancel() -> None:
-            self._app.dismiss_overlay()
-
         dialog = TextInputDialog(
-            "Target AP BSSID (XX:XX:XX:XX:XX:XX):", on_bssid, on_cancel
+            "Target AP BSSID (XX:XX:XX:XX:XX:XX)", on_input
         )
         self._app.show_overlay(dialog, 50, 7)
 

@@ -201,7 +201,63 @@ class DragonDrainScreen(urwid.WidgetWrap):
         if self.state.dragon_drain_running:
             return
 
-        # Step 1: ask for BSSID
+        # Step 0: check for monitor mode interface first
+        ifaces = self._detect_monitor_ifaces()
+        if not ifaces:
+            self._wait_for_monitor()
+            return
+        # Monitor found — proceed to BSSID input
+        self._ask_bssid()
+
+    def _wait_for_monitor(self) -> None:
+        """Show waiting dialog that polls for monitor mode interface."""
+        from ..widgets.info_dialog import InfoDialog
+
+        self._monitor_check_alarm = None
+        self._monitor_waiting = True
+
+        def check_monitor(loop=None, _data=None):
+            if not self._monitor_waiting:
+                return
+            ifaces = self._detect_monitor_ifaces()
+            if ifaces:
+                self._monitor_waiting = False
+                self._app.dismiss_overlay()
+                self._ask_bssid()
+                return
+            # Re-check every 2 seconds
+            if hasattr(self._app, '_loop') and self._app._loop:
+                self._monitor_check_alarm = self._app._loop.set_alarm_in(
+                    2, check_monitor
+                )
+
+        msg = (
+            "Connect WiFi adapter in monitor mode.\n\n"
+            "1. Plug in your WiFi adapter (e.g. Alfa)\n"
+            "2. Run: sudo airmon-ng start wlan1\n\n"
+            "Waiting for monitor interface..."
+        )
+
+        def on_dismiss():
+            self._monitor_waiting = False
+            if self._monitor_check_alarm and hasattr(self._app, '_loop'):
+                try:
+                    self._app._loop.remove_alarm(self._monitor_check_alarm)
+                except Exception:
+                    pass
+            self._app.dismiss_overlay()
+
+        dialog = InfoDialog(msg, on_dismiss, title="Dragon Drain")
+        self._app.show_overlay(dialog, 52, 12)
+
+        # Start polling
+        if hasattr(self._app, '_loop') and self._app._loop:
+            self._monitor_check_alarm = self._app._loop.set_alarm_in(
+                2, check_monitor
+            )
+
+    def _ask_bssid(self) -> None:
+        """Ask for target BSSID."""
         def on_bssid(bssid: str) -> None:
             self._app.dismiss_overlay()
             bssid = bssid.strip().upper()
@@ -226,17 +282,7 @@ class DragonDrainScreen(urwid.WidgetWrap):
         ifaces = self._detect_monitor_ifaces()
 
         if not ifaces:
-            from ..widgets.info_dialog import InfoDialog
-            self._app.show_overlay(
-                InfoDialog(
-                    "No monitor mode interface found.\n\n"
-                    "Put your adapter in monitor mode:\n"
-                    "  sudo airmon-ng start wlan1",
-                    lambda: self._app.dismiss_overlay(),
-                    title="Dragon Drain",
-                ),
-                50, 10,
-            )
+            self._wait_for_monitor()
             return
 
         if len(ifaces) == 1:

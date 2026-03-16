@@ -33,14 +33,16 @@ Full-screen terminal interface with tabbed navigation, real-time data, and keybo
 git clone https://github.com/LOCOSP/JanOS-app/
 cd JanOS-app
 ./setup.sh                          # create .venv + install deps
-./run.sh /dev/ttyUSB0               # run JanOS
+./run.sh /dev/ttyUSB0               # run JanOS with ESP32
+./run.sh                            # run without ESP32 (Advanced attacks only)
 ```
 
 **Manual setup** (if you prefer):
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python3 -m janos /dev/ttyUSB0
+.venv/bin/python3 -m janos /dev/ttyUSB0   # with ESP32
+.venv/bin/python3 -m janos                # without ESP32
 ```
 
 > **Note:** JanOS runs from a project virtual environment (`.venv/`). The `setup.sh` script creates it, installs all dependencies, and applies platform-specific fixes (e.g. Pi 5 GPIO shim). The auto-updater runs `setup.sh` after each `git pull` to keep everything in sync. `run.sh` will auto-run `setup.sh` on first launch if `.venv/` doesn't exist yet.
@@ -177,6 +179,8 @@ GPS provides:
 | Key | Action |
 |-----|--------|
 | `1`-`7` | WiFi attacks (deauth, blackout, SAE overflow, handshake, portal, evil twin) |
+| `d` | Dragon Drain — WPA3 SAE Commit flood DoS (requires monitor mode adapter) |
+| `m` | MITM — ARP spoofing man-in-the-middle (requires network adapter) |
 | `b` | BLE Scan — discover Bluetooth LE devices |
 | `t` | BT Tracker — track specific BLE device by MAC |
 | `a` | AirTag Scanner — detect Apple AirTags + Samsung SmartTags |
@@ -224,6 +228,8 @@ GPS provides:
   - **[2] Wardriving BT** — continuous BLE scan with GPS geo-tagging, dedup by MAC, saved to same WiGLE CSV with Type=BLE
   - **[3] Packet Sniffer** — live packet counter, AP/client results, probe requests
 - **Attacks** — deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin, BLE scan, BT tracker, AirTag scanner — all in one tab
+- **Dragon Drain** — WPA3 SAE Commit flood DoS (CVE-2019-9494), sends spoofed authentication frames with random ECC payloads to overwhelm AP computation. Requires external WiFi adapter in monitor mode
+- **MITM** — ARP spoofing man-in-the-middle with live DNS/HTTP/credential capture and pcap logging. Supports single target, subnet scan, or all-devices mode. Auto-restores ARP tables on stop
 - **Bluetooth** — BLE Scan (device discovery), BT Tracker (follow specific MAC), AirTag Scanner (Apple AirTags + Samsung SmartTags) — with GPS geo-tagged loot
 - **Handshake Serial PCAP** — capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
 - **WiGLE upload** — wardriving data (WiFi + BT) in WiGLE-compatible CSV, upload with `[w]` key. WiGLE user stats shown in sidebar (discovered networks, rank)
@@ -259,6 +265,8 @@ loot/
     bt_airtag.log             # AirTag/SmartTag detection events
     meshcore_nodes.csv        # unique MeshCore nodes (type, name, GPS, RSSI)
     meshcore_messages.log     # MeshCore PUBLIC channel messages
+    mitm/                     # MITM attack pcap captures
+      capture_153042.pcap
     portal_passwords.log      # portal form submissions (passwords, emails)
     evil_twin_capture.log     # evil twin captured data
     attacks.log               # attack start/stop events
@@ -429,6 +437,7 @@ The **Map** tab (key `5`) renders a vector world map using Unicode braille chara
 - `LoRaRF >= 1.4.0` — SX1262 SPI radio control (optional, for LoRa features)
 - `cryptography` — AES decryption for MeshCore public channel (optional, for MeshCore sniffer)
 - `requests` — HTTP client for WiGLE/WPA-sec uploads (optional, for cloud upload features)
+- `scapy >= 2.5.0` — packet crafting/sniffing (optional, for Dragon Drain and MITM)
 - `esptool >= 4.0` — ESP32 firmware flashing (optional, for Add-ons flash)
 - Works on serial terminals, SSH, and ClockworkPi uConsole
 

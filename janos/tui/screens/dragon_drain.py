@@ -292,26 +292,42 @@ class DragonDrainScreen(urwid.WidgetWrap):
                         self._log.append(
                             f"  Monitor interface: {mon_ifaces[0]}", "success"
                         )
-                        self._ask_bssid()
+                        # Return to main thread for UI operations
+                        if hasattr(self._app, '_loop') and self._app._loop:
+                            self._app._loop.set_alarm_in(
+                                0, lambda *_: self._ask_bssid()
+                            )
                     else:
                         self._log.append(
                             "  Warning: no monitor interface found after airmon-ng",
                             "error",
                         )
-                        self._wait_for_adapter()
+                        if hasattr(self._app, '_loop') and self._app._loop:
+                            self._app._loop.set_alarm_in(
+                                0, lambda *_: self._wait_for_adapter()
+                            )
                 else:
                     self._log.append(
                         f"  airmon-ng failed: {result.stderr.strip()}", "error"
                     )
-                    self._wait_for_adapter()
+                    if hasattr(self._app, '_loop') and self._app._loop:
+                        self._app._loop.set_alarm_in(
+                            0, lambda *_: self._wait_for_adapter()
+                        )
             except FileNotFoundError:
                 self._log.append(
                     "  airmon-ng not found — install aircrack-ng", "error"
                 )
-                self._wait_for_adapter()
+                if hasattr(self._app, '_loop') and self._app._loop:
+                    self._app._loop.set_alarm_in(
+                        0, lambda *_: self._wait_for_adapter()
+                    )
             except Exception as e:
                 self._log.append(f"  Error: {e}", "error")
-                self._wait_for_adapter()
+                if hasattr(self._app, '_loop') and self._app._loop:
+                    self._app._loop.set_alarm_in(
+                        0, lambda *_: self._wait_for_adapter()
+                    )
 
         threading.Thread(target=do_airmon, daemon=True).start()
 

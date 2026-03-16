@@ -152,7 +152,8 @@ class LootManager:
         """Count loot items in a single session directory."""
         counts = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
                   "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
-                  "bt_smarttags": 0, "bt_devices_gps": 0, "wardriving": 0}
+                  "bt_smarttags": 0, "bt_devices_gps": 0, "wardriving": 0,
+                  "mitm_pcaps": 0}
         hs_dir = session_path / "handshakes"
         if hs_dir.is_dir():
             try:
@@ -240,6 +241,14 @@ class LootManager:
             try:
                 lines = sum(1 for _ in open(wd_file, encoding="utf-8"))
                 counts["wardriving"] = max(0, lines - 2)  # minus pre-header + header
+            except OSError:
+                pass
+        mitm_dir = session_path / "mitm"
+        if mitm_dir.is_dir():
+            try:
+                counts["mitm_pcaps"] = sum(
+                    1 for f in mitm_dir.iterdir() if f.suffix == ".pcap"
+                )
             except OSError:
                 pass
         return counts

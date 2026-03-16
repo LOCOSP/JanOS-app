@@ -113,7 +113,7 @@ class SidebarPanel(urwid.WidgetWrap):
         counts: dict = {"pcap": 0, "hccapx": 0, "hc22000": 0, "passwords": 0, "et_captures": 0,
                         "mc_nodes": 0, "mc_messages": 0, "bt_devices": 0, "bt_airtags": 0,
                         "bt_smarttags": 0, "bt_devices_gps": 0,
-                        "wd_wifi": 0, "wd_bt": 0}
+                        "wd_wifi": 0, "wd_bt": 0, "mitm_pcaps": 0}
         if not self.loot.active:
             return counts
         session = Path(self.loot.session_path)
@@ -205,6 +205,14 @@ class SidebarPanel(urwid.WidgetWrap):
                         counts["wd_bt"] += 1
                     else:
                         counts["wd_wifi"] += 1
+            except OSError:
+                pass
+        mitm_dir = session / "mitm"
+        if mitm_dir.is_dir():
+            try:
+                counts["mitm_pcaps"] = sum(
+                    1 for f in mitm_dir.iterdir() if f.suffix == ".pcap"
+                )
             except OSError:
                 pass
         return counts
@@ -376,6 +384,8 @@ class SidebarPanel(urwid.WidgetWrap):
             loot_parts.append(f"PWD:{loot['passwords']}")
         if loot["et_captures"]:
             loot_parts.append(f"ET:{loot['et_captures']}")
+        if loot["mitm_pcaps"]:
+            loot_parts.append(f"MITM:{loot['mitm_pcaps']}")
         if loot_parts:
             self._loot_info.set_text(
                 ("success", f"  Loot: {' │ '.join(loot_parts)}")
@@ -473,6 +483,8 @@ class SidebarPanel(urwid.WidgetWrap):
                 tp.append(f"PWD:{totals['passwords']}")
             if totals.get("et_captures"):
                 tp.append(f"ET:{totals['et_captures']}")
+            if totals.get("mitm_pcaps"):
+                tp.append(f"MITM:{totals['mitm_pcaps']}")
             self._loot_total.set_text(
                 ("bold", f"  WiFi  {' │ '.join(tp)}")
             )

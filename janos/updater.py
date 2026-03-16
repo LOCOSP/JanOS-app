@@ -226,7 +226,14 @@ def _ensure_github_remote(app_dir: str) -> None:
 # Firmware version helpers
 # ------------------------------------------------------------------ #
 
-_FW_VERSION_FILE = Path.home() / ".janos_fw_version"
+def _real_home() -> Path:
+    """Return the real user's home even when running under sudo."""
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user:
+        return Path(os.path.expanduser(f"~{sudo_user}"))
+    return Path.home()
+
+_FW_VERSION_FILE = _real_home() / ".janos_fw_version"
 
 
 def check_remote_firmware_version(timeout: int = 10) -> str | None:

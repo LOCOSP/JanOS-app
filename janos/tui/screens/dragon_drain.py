@@ -15,6 +15,7 @@ import urwid
 
 from ...app_state import AppState
 from ...loot_manager import LootManager
+from ...privacy import mask_mac, mask_ssid, mask_line
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.text_input_dialog import TextInputDialog
@@ -78,7 +79,7 @@ class DragonDrainScreen(urwid.WidgetWrap):
             frames = self.state.dragon_drain_frames
             self._info.set_text(
                 ("attack_active",
-                 f"  Dragon Drain RUNNING | {self._target_bssid} | "
+                 f"  Dragon Drain RUNNING | {mask_mac(self._target_bssid)} | "
                  f"Frames: {frames}")
             )
             self._status.set_text(("dim", "  [x]Stop"))
@@ -142,7 +143,7 @@ class DragonDrainScreen(urwid.WidgetWrap):
             self.state.dragon_drain_running = False
             return
 
-        self._log.append(f">>> Flooding {bssid} via {iface}...", "attack_active")
+        self._log.append(f">>> Flooding {mask_mac(bssid)} via {iface}...", "attack_active")
         count = 0
         last_log = 0.0
 
@@ -506,17 +507,17 @@ class DragonDrainScreen(urwid.WidgetWrap):
         # Sort by RSSI (strongest first)
         sorted_aps = sorted(results.items(), key=lambda x: x[1][2], reverse=True)
         for bssid, (ssid, ch, rssi) in sorted_aps:
-            display_ssid = ssid if ssid else "<hidden>"
+            display_ssid = mask_ssid(ssid) if ssid else "<hidden>"
             self._log.append(
-                f"    {bssid}  {display_ssid}  CH:{ch}  {rssi}dBm", "dim"
+                f"    {mask_mac(bssid)}  {display_ssid}  CH:{ch}  {rssi}dBm", "dim"
             )
 
         from ..widgets.file_picker import FilePicker
         labels = []
         bssids = []
         for bssid, (ssid, ch, rssi) in sorted_aps:
-            display_ssid = ssid if ssid else "<hidden>"
-            labels.append(f"{display_ssid}  {bssid}  CH:{ch}  {rssi}dBm")
+            display_ssid = mask_ssid(ssid) if ssid else "<hidden>"
+            labels.append(f"{display_ssid}  {mask_mac(bssid)}  CH:{ch}  {rssi}dBm")
             bssids.append(bssid)
         labels.append("── Enter BSSID manually ──")
 
@@ -589,7 +590,7 @@ class DragonDrainScreen(urwid.WidgetWrap):
 
         dialog = ConfirmDialog(
             f"Start Dragon Drain?\n"
-            f"Target: {self._target_bssid}\n"
+            f"Target: {mask_mac(self._target_bssid)}\n"
             f"Interface: {self._iface}",
             on_confirm,
         )
@@ -603,7 +604,7 @@ class DragonDrainScreen(urwid.WidgetWrap):
         self._log.clear()
         self._body.original_widget = self._log
         self._log.append(
-            f">>> Dragon Drain: {self._target_bssid} via {self._iface}",
+            f">>> Dragon Drain: {mask_mac(self._target_bssid)} via {self._iface}",
             "attack_active",
         )
         if self._loot:

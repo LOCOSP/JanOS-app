@@ -87,7 +87,7 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
 
     # USB serial devices — list all detected ports with chip type
     try:
-        from ..serial_manager import list_usb_serial_devices
+        from ...serial_manager import list_usb_serial_devices
         usb_devs = list_usb_serial_devices()
         for dev_path, desc, is_esp in usb_devs:
             if is_esp and dev_path == device and connected:
@@ -114,25 +114,28 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
     except ImportError:
         checks.append(("info", "scapy not installed — pip install scapy"))
 
-    # Monitor mode interfaces (for Dragon Drain)
+    # WiFi interfaces — show all with driver/chipset (like wifite)
     try:
-        result = subprocess.run(
-            ["iw", "dev"], capture_output=True, text=True, timeout=3,
-        )
-        mon_ifaces = []
-        current_iface = None
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("Interface "):
-                current_iface = line.split()[1]
-            elif "type monitor" in line and current_iface:
-                mon_ifaces.append(current_iface)
-        if mon_ifaces:
-            checks.append(("ok", f"Monitor: {', '.join(mon_ifaces)}"))
-        else:
+        from ...serial_manager import list_wifi_interfaces
+        wifi_ifaces = list_wifi_interfaces()
+        has_monitor = False
+        for iface, mode, driver, chipset in wifi_ifaces:
+            label = iface
+            if driver:
+                label += f"  {driver}"
+            if chipset:
+                label += f"  {chipset}"
+            if mode == "monitor":
+                checks.append(("ok", f"WiFi {label} [monitor]"))
+                has_monitor = True
+            else:
+                checks.append(("info", f"WiFi {label}"))
+        if wifi_ifaces and not has_monitor:
             checks.append(("info", "No monitor iface (airmon-ng start wlanX)"))
+        elif not wifi_ifaces:
+            checks.append(("info", "No WiFi interfaces detected"))
     except Exception:
-        checks.append(("info", "Monitor mode — iw not available"))
+        checks.append(("info", "WiFi — iw not available"))
 
     # GPS check (optional — never a failure)
     if gps_available:

@@ -199,6 +199,8 @@ class JanOSTUI:
 
         # Serial FD watcher (if connected)
         self._serial_watched = False
+        self._reconnect_active = False
+        self._reconnect_alarm = None
         if self.state.connected:
             self._loop.watch_file(self.serial.fd, self._on_serial_data)
             self._serial_watched = True
@@ -477,15 +479,23 @@ class JanOSTUI:
             lines = self.serial.read_available()
         except Exception as exc:
             log.error("Serial read error (device disconnected?): %s", exc)
+            # Save fd BEFORE closing — fileno() fails on closed connection
+            saved_fd = None
+            try:
+                saved_fd = self.serial.fd
+            except Exception:
+                pass
             self.state.connected = False
             self._serial_watched = False
             # Remove the FD watcher — device is gone
-            try:
-                self._loop.remove_watch_file(self.serial.fd)
-            except Exception:
-                pass
+            if saved_fd is not None:
+                try:
+                    self._loop.remove_watch_file(saved_fd)
+                except Exception:
+                    pass
             self.serial.close()
             self._refresh_ui()
+            self._start_reconnect_polling()
             return
 
         crash_lines = []
@@ -589,6 +599,65 @@ class JanOSTUI:
             self._serial_watched = True
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Device reconnection polling
+    # ------------------------------------------------------------------
+
+    def _start_reconnect_polling(self) -> None:
+        """Show reconnect dialog and poll for USB device every 2s."""
+        self._reconnect_alarm = None
+        self._reconnect_active = True
+
+        def check_device(loop=None, _data=None):
+            if not self._reconnect_active:
+                return
+            if self.state.connected:
+                self._reconnect_active = False
+                return
+            from ..serial_manager import detect_esp32_port, list_usb_serial_devices
+            detected = detect_esp32_port()
+            if detected:
+                self.serial.device = detected
+                self.state.device = detected
+                # Update description
+                usb_devs = list_usb_serial_devices()
+                for d_path, d_desc, d_esp in usb_devs:
+                    if d_path == detected:
+                        self.state.device_description = d_desc
+                        break
+                try:
+                    self.serial.setup()
+                    self.state.connected = True
+                    self._register_serial_watcher()
+                    self._reconnect_active = False
+                    self.dismiss_overlay()
+                    self._refresh_ui()
+                    return
+                except Exception:
+                    pass
+            self._reconnect_alarm = self._loop.set_alarm_in(2, check_device)
+
+        msg = (
+            "Device disconnected!\n\n"
+            "Scanning for ESP32 on\n"
+            "ttyUSB0-3 / ttyACM0-3...\n\n"
+            "Plug in ESP32 to reconnect."
+        )
+
+        def on_dismiss():
+            self._reconnect_active = False
+            if self._reconnect_alarm:
+                try:
+                    self._loop.remove_alarm(self._reconnect_alarm)
+                except Exception:
+                    pass
+            self.dismiss_overlay()
+
+        dialog = InfoDialog(msg, on_dismiss, title="Device Lost")
+        self.show_overlay(dialog, width=40, height=12)
+        # Start polling immediately
+        self._reconnect_alarm = self._loop.set_alarm_in(2, check_device)
 
     def _refresh_ui(self) -> None:
         self._header.refresh()

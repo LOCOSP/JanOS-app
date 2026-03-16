@@ -73,6 +73,59 @@ def list_usb_serial_devices() -> List[Tuple[str, str, bool]]:
     return result
 
 
+def list_wifi_interfaces() -> List[Tuple[str, str, str, str]]:
+    """List all WiFi interfaces with driver and chipset info.
+
+    Returns list of (iface_name, mode, driver, chipset) tuples.
+    Mode is 'managed', 'monitor', 'AP', etc.
+    """
+    import subprocess
+    result_list: List[Tuple[str, str, str, str]] = []
+    try:
+        proc = subprocess.run(
+            ["iw", "dev"], capture_output=True, text=True, timeout=3,
+        )
+    except Exception:
+        return result_list
+
+    current_iface = None
+    current_type = "managed"
+    for line in proc.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Interface "):
+            if current_iface:
+                driver, chipset = _get_iface_info(current_iface)
+                result_list.append((current_iface, current_type, driver, chipset))
+            current_iface = stripped.split()[1]
+            current_type = "managed"
+        elif stripped.startswith("type "):
+            current_type = stripped.split()[1]
+    if current_iface:
+        driver, chipset = _get_iface_info(current_iface)
+        result_list.append((current_iface, current_type, driver, chipset))
+
+    return result_list
+
+
+def _get_iface_info(iface: str) -> Tuple[str, str]:
+    """Get driver name and chipset for a network interface."""
+    driver = ""
+    chipset = ""
+    driver_path = f"/sys/class/net/{iface}/device/driver"
+    try:
+        driver = os.path.basename(os.readlink(driver_path))
+    except Exception:
+        pass
+    product_path = f"/sys/class/net/{iface}/device/../product"
+    try:
+        real = os.path.realpath(product_path)
+        with open(real) as f:
+            chipset = f.read().strip()
+    except Exception:
+        pass
+    return driver, chipset
+
+
 class SerialLineBuffer:
     """Accumulate raw bytes and yield complete newline-terminated lines.
 

@@ -933,13 +933,13 @@ class MITMScreen(urwid.WidgetWrap):
     def _display_pcap_table(self, rows, total, capped):
         """Show parsed pcap data in DataTable (main thread)."""
         table = DataTable([
-            ("fixed", 5,  "##"),
-            ("fixed", 10, "Time"),
-            ("fixed", 16, "Source"),
-            ("fixed", 16, "Dest"),
-            ("fixed", 6,  "Proto"),
-            ("fixed", 6,  "Len"),
-            ("weight", 1, "Info"),
+            ("fixed", 5,  urwid.Text("##")),
+            ("fixed", 10, urwid.Text("Time")),
+            ("fixed", 16, urwid.Text("Source")),
+            ("fixed", 16, urwid.Text("Dest")),
+            ("fixed", 6,  urwid.Text("Proto")),
+            ("fixed", 6,  urwid.Text("Len")),
+            ("weight", 1, urwid.Text("Info")),
         ])
         table.set_rows(rows)
         self._body.original_widget = table

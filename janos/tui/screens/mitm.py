@@ -467,10 +467,11 @@ class MITMScreen(urwid.WidgetWrap):
                 )
 
         msg = (
-            "Connect a network adapter with IP.\n\n"
-            "Plug in your WiFi adapter (e.g. Alfa)\n"
-            "and connect to the target network.\n\n"
-            "Waiting for interface..."
+            "No network interface with IP found.\n\n"
+            "Plug in your WiFi adapter\n"
+            "(e.g. Alfa) and connect to\n"
+            "the target network.\n\n"
+            "Auto-detecting interfaces..."
         )
 
         def on_dismiss():

@@ -36,6 +36,7 @@ class AppState:
     device: str = ""
     device_description: str = ""  # USB device chip name (e.g. "CP2102N")
     connected: bool = False
+    wifi_interfaces: List = field(default_factory=list)  # [(iface, mode, driver, chipset)]
 
     # Scan
     networks: List[Network] = field(default_factory=list)

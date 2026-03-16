@@ -54,8 +54,8 @@ class DragonDrainScreen(urwid.WidgetWrap):
                         "  Sends spoofed SAE Authentication frames to\n"
                         "  overwhelm the target AP's ECC computation.\n\n"
                         "  Requirements:\n"
-                        "  - External WiFi adapter in monitor mode\n"
-                        "  - Run: sudo airmon-ng start wlan1\n\n"
+                        "  - External WiFi adapter (e.g. Alfa)\n"
+                        "  - Monitor mode (auto-enabled)\n\n"
                         "  Press [s] to start")),
         ]))
         self._body = urwid.WidgetPlaceholder(self._idle_view)
@@ -209,33 +209,155 @@ class DragonDrainScreen(urwid.WidgetWrap):
         # Monitor found — proceed to BSSID input
         self._ask_bssid()
 
+    @staticmethod
+    def _detect_managed_ifaces() -> list[tuple[str, str]]:
+        """Return list of (iface_name, driver) in managed mode."""
+        try:
+            from ...serial_manager import list_wifi_interfaces
+            return [(name, drv) for name, mode, drv, chip
+                    in list_wifi_interfaces() if mode != "monitor"]
+        except Exception:
+            return []
+
     def _wait_for_monitor(self) -> None:
-        """Show waiting dialog that polls for monitor mode interface."""
+        """Check for managed WiFi adapters and offer to enable monitor mode."""
+        managed = self._detect_managed_ifaces()
+        if managed:
+            # Offer to auto-enable monitor mode
+            self._offer_airmon(managed)
+        else:
+            # No WiFi at all — show waiting dialog
+            self._wait_for_adapter()
+
+    def _offer_airmon(self, managed: list[tuple[str, str]]) -> None:
+        """Ask user which adapter to put into monitor mode."""
+        from ..widgets.confirm_dialog import ConfirmDialog
+
+        if len(managed) == 1:
+            iface, driver = managed[0]
+            label = f"{iface} ({driver})" if driver else iface
+
+            def on_confirm(yes: bool) -> None:
+                self._app.dismiss_overlay()
+                if yes:
+                    self._run_airmon(iface)
+                # else: user cancelled
+
+            dialog = ConfirmDialog(
+                f"Enable monitor mode on {label}?\n\n"
+                f"Will run: sudo airmon-ng start {iface}",
+                on_confirm,
+            )
+            self._app.show_overlay(dialog, 52, 9)
+        else:
+            # Multiple managed interfaces — let user pick
+            from ..widgets.file_picker import FilePicker
+            labels = []
+            for iface, driver in managed:
+                label = f"{iface} ({driver})" if driver else iface
+                labels.append(label)
+
+            def on_pick(idx, name):
+                self._app.dismiss_overlay()
+                if idx < 0:
+                    return
+                self._run_airmon(managed[idx][0])
+
+            picker = FilePicker(labels, on_pick,
+                                title="Select adapter for monitor mode:")
+            self._app.show_overlay(picker, 52, min(len(labels) + 6, 12))
+
+    def _run_airmon(self, iface: str) -> None:
+        """Run airmon-ng start <iface> in background, then proceed."""
+        import subprocess
+
+        self._log.append(f">>> Running: sudo airmon-ng start {iface}", "warning")
+        self._body.original_widget = self._log
+
+        def do_airmon():
+            try:
+                result = subprocess.run(
+                    ["sudo", "airmon-ng", "start", iface],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if result.returncode == 0:
+                    self._log.append(
+                        f"  Monitor mode enabled on {iface}", "success"
+                    )
+                    # Small delay for interface to come up
+                    time.sleep(1)
+                    # Check what monitor interface was created
+                    mon_ifaces = self._detect_monitor_ifaces()
+                    if mon_ifaces:
+                        self._log.append(
+                            f"  Monitor interface: {mon_ifaces[0]}", "success"
+                        )
+                        self._ask_bssid()
+                    else:
+                        self._log.append(
+                            "  Warning: no monitor interface found after airmon-ng",
+                            "error",
+                        )
+                        self._wait_for_adapter()
+                else:
+                    self._log.append(
+                        f"  airmon-ng failed: {result.stderr.strip()}", "error"
+                    )
+                    self._wait_for_adapter()
+            except FileNotFoundError:
+                self._log.append(
+                    "  airmon-ng not found — install aircrack-ng", "error"
+                )
+                self._wait_for_adapter()
+            except Exception as e:
+                self._log.append(f"  Error: {e}", "error")
+                self._wait_for_adapter()
+
+        threading.Thread(target=do_airmon, daemon=True).start()
+
+    def _wait_for_adapter(self) -> None:
+        """Poll for WiFi adapter — auto-enable monitor mode when found."""
         from ..widgets.info_dialog import InfoDialog
 
         self._monitor_check_alarm = None
         self._monitor_waiting = True
 
-        def check_monitor(loop=None, _data=None):
+        def check_adapter(loop=None, _data=None):
             if not self._monitor_waiting:
                 return
-            ifaces = self._detect_monitor_ifaces()
-            if ifaces:
+            # Check for monitor mode first
+            mon = self._detect_monitor_ifaces()
+            if mon:
                 self._monitor_waiting = False
                 self._app.dismiss_overlay()
                 self._ask_bssid()
                 return
+            # Check for managed adapter → auto-enable monitor
+            managed = self._detect_managed_ifaces()
+            if managed:
+                self._monitor_waiting = False
+                self._app.dismiss_overlay()
+                # Auto-pick first adapter and run airmon-ng
+                iface, driver = managed[0]
+                label = f"{iface} ({driver})" if driver else iface
+                self._log.append(
+                    f">>> WiFi adapter detected: {label}", "success"
+                )
+                self._run_airmon(iface)
+                return
             # Re-check every 2 seconds
             if hasattr(self._app, '_loop') and self._app._loop:
                 self._monitor_check_alarm = self._app._loop.set_alarm_in(
-                    2, check_monitor
+                    2, check_adapter
                 )
 
         msg = (
-            "Connect WiFi adapter in monitor mode.\n\n"
-            "1. Plug in your WiFi adapter (e.g. Alfa)\n"
-            "2. Run: sudo airmon-ng start wlan1\n\n"
-            "Waiting for monitor interface..."
+            "No WiFi adapter detected.\n\n"
+            "Plug in your WiFi adapter\n"
+            "(e.g. Alfa RTL8812AU)\n\n"
+            "Monitor mode will be enabled\n"
+            "automatically.\n\n"
+            "Waiting for adapter..."
         )
 
         def on_dismiss():
@@ -248,12 +370,12 @@ class DragonDrainScreen(urwid.WidgetWrap):
             self._app.dismiss_overlay()
 
         dialog = InfoDialog(msg, on_dismiss, title="Dragon Drain")
-        self._app.show_overlay(dialog, 52, 12)
+        self._app.show_overlay(dialog, 48, 14)
 
         # Start polling
         if hasattr(self._app, '_loop') and self._app._loop:
             self._monitor_check_alarm = self._app._loop.set_alarm_in(
-                2, check_monitor
+                2, check_adapter
             )
 
     def _ask_bssid(self) -> None:

@@ -45,6 +45,7 @@ class SidebarPanel(urwid.WidgetWrap):
         self._logo = urwid.Text(("banner", LOGO))
         self._version = urwid.Text(("dim", f"  v{__version__}"))
         self._device = urwid.Text("")
+        self._wifi_line = urwid.Text("")
         self._fw_version = urwid.Text("")
         self._aio_line = urwid.Text("")
         self._lora_line = urwid.Text("")
@@ -73,6 +74,7 @@ class SidebarPanel(urwid.WidgetWrap):
             self._logo,
             self._version,
             self._device,
+            self._wifi_line,
             self._fw_version,
             sep,
             self._runtime,
@@ -237,21 +239,38 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._lora_line.set_text("")
 
-        # Device
-        desc = f" ({self.state.device_description})" if self.state.device_description else ""
+        # Device — ESP32
+        desc = self.state.device_description
         if self.state.connected:
-            self._device.set_text(
-                ("success", f"  {self.state.device}  Connected{desc}")
-            )
+            label = f"  ESP32 {self.state.device}"
+            if desc:
+                label += f" ({desc})"
+            self._device.set_text(("success", label))
+        elif self.state.device:
+            label = f"  ESP32 {self.state.device}"
+            if desc:
+                label += f" ({desc})"
+            self._device.set_text(("error", f"{label}  DISCONNECTED"))
         else:
-            if self.state.device:
-                self._device.set_text(
-                    ("error", f"  {self.state.device}  DISCONNECTED{desc}")
-                )
-            else:
-                self._device.set_text(
-                    ("dim", "  No ESP32 (Advanced attacks only)")
-                )
+            self._device.set_text(("dim", "  No ESP32 (Advanced only)"))
+
+        # WiFi adapters
+        wifi = self.state.wifi_interfaces
+        if wifi:
+            markup = []
+            for i, (iface, mode, driver, chipset) in enumerate(wifi):
+                label = f"  WiFi {iface}"
+                if driver:
+                    label += f" ({driver})"
+                if mode == "monitor":
+                    label += " [mon]"
+                attr = "success" if mode == "monitor" else "dim"
+                if i > 0:
+                    markup.append(("dim", "\n"))
+                markup.append((attr, label))
+            self._wifi_line.set_text(markup)
+        else:
+            self._wifi_line.set_text("")
 
         # Firmware version (detected from ESP32 boot banner)
         if self.state.firmware_version:

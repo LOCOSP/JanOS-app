@@ -965,7 +965,7 @@ class MITMScreen(urwid.WidgetWrap):
             else:
                 self._body.original_widget = self._idle_view
             return None
-        if key == "l" and not self.state.mitm_running:
+        if key == "l":
             self._view_loot()
             return None
         if key == "s" and not self.state.mitm_running:

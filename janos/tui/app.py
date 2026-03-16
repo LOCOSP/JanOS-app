@@ -588,6 +588,9 @@ class JanOSTUI:
 
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()
+        # Poll GPS every tick as fallback (watch_file may not fire for USB GPS)
+        if self.state.gps_available:
+            self._on_gps_data()
         # AIO + WiFi status refresh every 10 seconds (non-blocking thread)
         self._aio_tick += 1
         if self._aio_tick >= 10:

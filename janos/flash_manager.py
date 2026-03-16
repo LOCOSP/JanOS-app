@@ -100,6 +100,10 @@ class FlashManager:
             self._emit("Flash complete! ESP32-C5 is rebooting.", "success")
             self.success = True
 
+            # XIAO: reset USB hub so device re-enumerates after flash
+            if self._board == "xiao":
+                self._reset_usb_hub(port)
+
             # Save flashed firmware version for startup check
             if self._release_tag:
                 try:
@@ -115,6 +119,76 @@ class FlashManager:
         finally:
             self.done = True
             self.running = False
+
+    # ------------------------------------------------------------------
+    # USB hub reset (XIAO post-flash)
+    # ------------------------------------------------------------------
+
+    def _reset_usb_hub(self, port: str) -> None:
+        """Reset the parent USB hub so XIAO re-enumerates after flash.
+
+        Native USB-Serial/JTAG devices don't auto-reconnect through
+        some USB hubs (e.g. QinHeng CH9102) after a flash cycle.
+        Toggling the hub's 'authorized' sysfs attribute forces
+        re-enumeration without a full system reboot.
+        """
+        import glob
+        import time as _time
+
+        self._emit("Resetting USB hub for re-enumeration...", "dim")
+
+        # Find the sysfs parent hub for the port (e.g. /dev/ttyACM1)
+        # Walk /sys/bus/usb/devices/*/tty/* to find matching ttyACMx
+        tty_name = os.path.basename(port)  # e.g. "ttyACM1"
+        hub_path = None
+
+        for tty_path in glob.glob("/sys/bus/usb/devices/*/tty/" + tty_name):
+            # tty_path like /sys/bus/usb/devices/1-1.2:1.0/tty/ttyACM1
+            # Parent USB device: 1-1.2, parent hub: 1-1
+            usb_intf = tty_path.split("/sys/bus/usb/devices/")[1].split("/tty/")[0]
+            usb_dev = usb_intf.split(":")[0]  # "1-1.2"
+            # Parent hub = strip last .N segment
+            if "." in usb_dev:
+                parent_hub = usb_dev.rsplit(".", 1)[0]  # "1-1"
+                candidate = f"/sys/bus/usb/devices/{parent_hub}/authorized"
+                if os.path.exists(candidate):
+                    hub_path = candidate
+            break
+
+        if not hub_path:
+            # Fallback: try common path
+            fallback = "/sys/bus/usb/devices/1-1/authorized"
+            if os.path.exists(fallback):
+                hub_path = fallback
+
+        if not hub_path:
+            self._emit("USB hub reset skipped (sysfs path not found).", "dim")
+            return
+
+        try:
+            # Deauthorize → wait → reauthorize
+            with open(hub_path, "w") as f:
+                f.write("0")
+            _time.sleep(2)
+            with open(hub_path, "w") as f:
+                f.write("1")
+            _time.sleep(3)
+            self._emit("USB hub reset complete.", "success")
+        except PermissionError:
+            # Try with subprocess (sudo)
+            try:
+                subprocess.run(
+                    ["sudo", "sh", "-c",
+                     f"echo 0 > {hub_path} && sleep 2 && echo 1 > {hub_path}"],
+                    timeout=10,
+                )
+                _time.sleep(3)
+                self._emit("USB hub reset complete.", "success")
+            except Exception as exc:
+                self._emit(f"USB hub reset failed: {exc}", "warning")
+                self._emit("You may need to reboot for device to reconnect.", "warning")
+        except Exception as exc:
+            self._emit(f"USB hub reset failed: {exc}", "warning")
 
     # ------------------------------------------------------------------
     # Firmware download

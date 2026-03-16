@@ -25,7 +25,15 @@ if $IS_PI5; then
     [ -L "$VENV_SP/RPi" ] && rm -f "$VENV_SP/RPi"
 fi
 
-echo "[*] Installing dependencies..."
+echo "[*] Installing system dependencies..."
+for pkg in tcpdump aircrack-ng; do
+    if ! command -v "$pkg" &>/dev/null; then
+        echo "    Installing $pkg..."
+        sudo apt-get install -y -qq "$pkg" 2>/dev/null || echo "    [!] Failed to install $pkg"
+    fi
+done
+
+echo "[*] Installing Python dependencies..."
 .venv/bin/pip install -q -r requirements.txt
 
 # Raspberry Pi 5 (BCM2712): RPi.GPIO from PyPI doesn't work.

@@ -180,7 +180,7 @@ GPS provides:
 |-----|--------|
 | `1`-`7` | WiFi attacks (deauth, blackout, SAE overflow, handshake, portal, evil twin) |
 | `d` | Dragon Drain — WPA3 SAE Commit flood DoS (auto-enables monitor mode, scans for WPA3 APs) |
-| `m` | MITM — ARP spoofing man-in-the-middle (requires network adapter) |
+| `m` | MITM — ARP spoofing man-in-the-middle (requires network adapter). `[l]` browse pcaps, `[x]` stop |
 | `b` | BLE Scan — discover Bluetooth LE devices |
 | `t` | BT Tracker — track specific BLE device by MAC |
 | `a` | AirTag Scanner — detect Apple AirTags + Samsung SmartTags |
@@ -229,7 +229,7 @@ GPS provides:
   - **[3] Packet Sniffer** — live packet counter, AP/client results, probe requests
 - **Attacks** — deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin, BLE scan, BT tracker, AirTag scanner — all in one tab
 - **Dragon Drain** — WPA3 SAE Commit flood DoS (CVE-2019-9494), sends spoofed authentication frames with random ECC payloads to overwhelm AP computation. Auto-detects WiFi adapter, enables monitor mode, scans for WPA3 APs (10s beacon sniff), lets you pick target from list
-- **MITM** — ARP spoofing man-in-the-middle with live DNS/HTTP/credential capture and pcap logging. Supports single target, subnet scan, or all-devices mode. Auto-restores ARP tables on stop
+- **MITM** — ARP spoofing man-in-the-middle with live DNS/HTTP/credential capture and pcap logging. Supports single target, subnet scan, or all-devices mode. Auto-restores ARP tables on stop. Built-in pcap viewer `[l]` browses captures from all sessions with packet summary table
 - **Bluetooth** — BLE Scan (device discovery), BT Tracker (follow specific MAC), AirTag Scanner (Apple AirTags + Samsung SmartTags) — with GPS geo-tagged loot
 - **Handshake Serial PCAP** — capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
 - **WiGLE upload** — wardriving data (WiFi + BT) in WiGLE-compatible CSV, upload with `[w]` key. WiGLE user stats shown in sidebar (discovered networks, rank)
@@ -237,7 +237,7 @@ GPS provides:
 - **Map tab** — vector world map rendered with Unicode braille characters, plots all GPS-tagged loot (handshakes=red, WiFi=green, BT=cyan, MeshCore=yellow), pan/zoom navigation, auto-hides sidebar for full width
 - **Custom Captive Portals** — load custom HTML portal pages from `portals/` folder, send to ESP32 via chunked base64 serial transfer
 - **Add-ons** — Flash ESP32 firmware, AIO v2 GPIO control (GPS/LORA/SDR/USB), LoRa tools (sniffer, scanner, balloon tracker, MeshCore, Meshtastic)
-- **Startup checks** — verifies ESP32, WiFi adapters (driver/chipset/monitor mode), scapy, GPS, AIO v2 availability
+- **Startup checks** — verifies ESP32, WiFi adapters (driver/chipset/monitor mode), scapy, tcpdump, aircrack-ng (auto-installs missing system packages), GPS, AIO v2 availability
 - **Auto-update** — checks GitHub for app + firmware updates on startup
 - **Crash detection** — automatic firmware crash alert overlay with state reset
 - **Device reconnect** — auto-detects ESP32 disconnect, shows reconnect dialog, polls for USB device every 2s
@@ -441,7 +441,9 @@ The **Map** tab (key `5`) renders a vector world map using Unicode braille chara
 - `requests` — HTTP client for WiGLE/WPA-sec uploads (optional, for cloud upload features)
 - `scapy >= 2.5.0` — packet crafting/sniffing (optional, for Dragon Drain and MITM)
 - `esptool >= 4.0` — ESP32 firmware flashing (optional, for Add-ons flash)
+- **System packages** (auto-installed at startup if missing): `tcpdump` (MITM pcap capture), `aircrack-ng` (Dragon Drain monitor mode)
 - Works on serial terminals, SSH, and ClockworkPi uConsole
+- **Root required** for: scapy (MITM, Dragon Drain), airmon-ng, tcpdump, IP forwarding — `run.sh` uses sudo by default
 
 ## Desktop Shortcut (Fullscreen Launcher)
 
@@ -451,7 +453,7 @@ You can set up a desktop shortcut on ClockworkPi uConsole that launches JanOS in
 ```bash
 #!/bin/bash
 cd "$(dirname "$0")"
-exec lxterminal --title=JanOS --no-remote -e bash -c '.venv/bin/python3 -m janos; read -p "Press Enter..."'
+exec lxterminal --title=JanOS --no-remote -e bash -c 'sudo .venv/bin/python3 -m janos; read -p "Press Enter..."'
 ```
 ```bash
 chmod +x janos-launch.sh

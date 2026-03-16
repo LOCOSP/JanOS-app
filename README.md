@@ -496,3 +496,9 @@ Then restart PCManFM: `killall pcmanfm` (it auto-respawns).
 ## Hardware
 
 Designed for **ClockworkPi uConsole** with ESP32-C5-WROOM-1 connected via USB serial. The D-pad and keyboard map directly to TUI navigation.
+
+---
+
+## Disclaimer
+
+This project is intended for educational and authorized security research purposes only. Unauthorized access to computer networks is illegal. Always obtain proper authorization before testing on any network you do not own. The author assumes no liability for misuse of this software.

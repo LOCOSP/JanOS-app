@@ -10,7 +10,12 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
-    device = args[0] if args else ""
+    if args:
+        device = args[0]
+    else:
+        # Auto-detect ESP32 serial port
+        from .serial_manager import detect_esp32_port
+        device = detect_esp32_port() or ""
 
     # Logging setup
     if "--debug" in flags:

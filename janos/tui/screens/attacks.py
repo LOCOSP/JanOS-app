@@ -624,13 +624,18 @@ class AttacksScreen(urwid.WidgetWrap):
         def check_esp32(loop=None, _data=None):
             if not self._esp32_waiting:
                 return
-            # Try to connect serial if not already
+            # Try to detect and connect serial if not already
             if not self.state.connected:
-                try:
-                    self.serial.setup()
-                    self.state.connected = True
-                except Exception:
-                    pass
+                from ...serial_manager import detect_esp32_port
+                detected = detect_esp32_port()
+                if detected:
+                    self.serial.device = detected
+                    self.state.device = detected
+                    try:
+                        self.serial.setup()
+                        self.state.connected = True
+                    except Exception:
+                        pass
             if self.state.connected:
                 self._esp32_waiting = False
                 self._app.dismiss_overlay()
@@ -646,8 +651,8 @@ class AttacksScreen(urwid.WidgetWrap):
 
         msg = (
             "Connect ESP32 via USB.\n\n"
-            "Plug in ESP32-C5 to /dev/ttyUSB0\n"
-            "(or your configured serial port).\n\n"
+            "Plug in ESP32-C5 to any USB port.\n"
+            "Auto-detecting ttyUSB0-3 / ttyACM0-3\n\n"
             "Waiting for ESP32..."
         )
 

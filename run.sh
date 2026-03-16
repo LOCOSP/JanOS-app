@@ -7,9 +7,5 @@ if [ ! -d ".venv" ]; then
     ./setup.sh || exit 1
 fi
 
-# Default to /dev/ttyUSB0 if no device specified
-if [ $# -eq 0 ] && [ -e /dev/ttyUSB0 ]; then
-    exec .venv/bin/python3 -m janos /dev/ttyUSB0
-else
-    exec .venv/bin/python3 -m janos "$@"
-fi
+# Python auto-detects ESP32 port (ttyUSB0-3, ttyACM0-3) if not specified
+exec .venv/bin/python3 -m janos "$@"

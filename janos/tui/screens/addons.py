@@ -255,11 +255,24 @@ class AddOnsScreen(urwid.WidgetWrap):
         if board is None:
             return
 
+        # XIAO: release serial BEFORE showing confirm dialog
+        # (user must press BOOT+RESET which disconnects the port)
+        if board == "xiao":
+            self.state.flashing = True  # suppress reconnect polling
+            if self.state.connected:
+                try:
+                    self._app._loop.remove_watch_file(self.serial.fd)
+                except Exception:
+                    pass
+                self.serial.close()
+                self.state.connected = False
+                self._app._serial_watched = False
+
         # Step 2: confirm flash
         profile = FLASH_BOARDS[board]
-        hint = ""
         if board == "xiao":
-            hint = "\nXIAO: Hold BOOT + press RESET first!"
+            hint = ("\nHold BOOT + press RESET, then release BOOT.\n"
+                    "Press Yes when device is in bootloader mode.")
         else:
             hint = "\nesptool will auto-reset into bootloader."
 
@@ -267,13 +280,17 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._app.dismiss_overlay()
             if yes:
                 self._begin_flash(board=board)
+            elif board == "xiao":
+                # Cancelled — clear flashing flag and try to reconnect
+                self.state.flashing = False
+                self._reconnect_serial()
 
         dialog = ConfirmDialog(
             f"Flash {profile['label']}?\n"
             f"Serial will disconnect during flash.{hint}",
             on_confirm,
         )
-        self._app.show_overlay(dialog, 52, 11)
+        self._app.show_overlay(dialog, 56, 13)
 
     def _begin_flash(self, board: str = "wroom",
                      erase: bool = False) -> None:

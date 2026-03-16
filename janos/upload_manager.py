@@ -10,6 +10,7 @@ from .config import (
     WIGLE_API_NAME,
     WIGLE_API_TOKEN,
     WPASEC_URL,
+    WPASEC_DL_URL,
     WPASEC_KEY,
 )
 
@@ -153,6 +154,42 @@ def fetch_wigle_user_stats() -> Optional[dict]:
     except Exception as exc:
         log.error("WiGLE stats error: %s", exc)
         return None
+
+
+def download_wpasec_passwords(loot_dir: Path) -> tuple[bool, int, str]:
+    """Download cracked passwords from WPA-sec.
+
+    Returns (success, count, message).
+    Saves to loot_dir/passwords/wpasec_cracked.potfile
+    Format per line: BSSID:ESSID:password
+    """
+    key = _env("JANOS_WPASEC_KEY", WPASEC_KEY)
+    if not key:
+        return False, 0, "WPA-sec key not configured"
+    try:
+        import requests
+    except ImportError:
+        return False, 0, "requests library not installed"
+    try:
+        resp = requests.get(
+            WPASEC_DL_URL,
+            cookies={"key": key},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return False, 0, f"HTTP {resp.status_code}: {resp.text[:200]}"
+        body = resp.text.strip()
+        if not body:
+            return True, 0, "No cracked passwords yet"
+        lines = [ln for ln in body.splitlines() if ln.strip()]
+        pwd_dir = loot_dir / "passwords"
+        pwd_dir.mkdir(parents=True, exist_ok=True)
+        out = pwd_dir / "wpasec_cracked.potfile"
+        out.write_text(body + "\n", encoding="utf-8")
+        return True, len(lines), f"{len(lines)} passwords saved"
+    except Exception as exc:
+        log.error("WPA-sec download error: %s", exc)
+        return False, 0, str(exc)
 
 
 def find_wardriving_csvs(loot_dir: Path) -> list[Path]:

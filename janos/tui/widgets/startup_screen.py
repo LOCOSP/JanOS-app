@@ -85,11 +85,40 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
             except Exception:
                 checks.append(("fail", f"{pkg} — pip install {pkg}"))
 
-    # ESP32 check
+    # ESP32 check — info level when no device given (not fail)
     if connected:
         checks.append(("ok", f"ESP32 {device}"))
-    else:
+    elif device:
         checks.append(("fail", f"ESP32 {device} — not connected"))
+    else:
+        checks.append(("info", "ESP32 — no device (Advanced attacks only)"))
+
+    # scapy check (needed for Dragon Drain / MITM)
+    try:
+        import scapy.all  # noqa: F401
+        checks.append(("ok", "scapy (Dragon Drain / MITM)"))
+    except ImportError:
+        checks.append(("info", "scapy not installed — pip install scapy"))
+
+    # Monitor mode interfaces (for Dragon Drain)
+    try:
+        result = subprocess.run(
+            ["iw", "dev"], capture_output=True, text=True, timeout=3,
+        )
+        mon_ifaces = []
+        current_iface = None
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("Interface "):
+                current_iface = line.split()[1]
+            elif "type monitor" in line and current_iface:
+                mon_ifaces.append(current_iface)
+        if mon_ifaces:
+            checks.append(("ok", f"Monitor: {', '.join(mon_ifaces)}"))
+        else:
+            checks.append(("info", "No monitor iface (airmon-ng start wlanX)"))
+    except Exception:
+        checks.append(("info", "Monitor mode — iw not available"))
 
     # GPS check (optional — never a failure)
     if gps_available:

@@ -28,6 +28,8 @@ from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
 from .screens.addons import AddOnsScreen
 from .screens.map_screen import MapScreen
+from .screens.dragon_drain import DragonDrainScreen
+from .screens.mitm import MITMScreen
 from .widgets.confirm_dialog import ConfirmDialog
 from .widgets.info_dialog import InfoDialog
 from .widgets.startup_screen import StartupScreen, run_startup_checks
@@ -113,12 +115,17 @@ class JanOSTUI:
         self._portal = PortalScreen(self.state, self.serial, self, self.loot)
         self._evil_twin = EvilTwinScreen(self.state, self.serial, self.net_mgr, self, self.loot)
 
+        # Advanced attack sub-screens (Python-native, no ESP32)
+        self._dragon_drain = DragonDrainScreen(self.state, self, self.loot)
+        self._mitm = MITMScreen(self.state, self, self.loot)
+
         # Main screens
         self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot)
         self._sniffer = SniffersScreen(self.state, self.serial, self.net_mgr, self.loot, self)
         self._attacks = AttacksScreen(
             self.state, self.serial, self, self.loot,
             portal=self._portal, evil_twin=self._evil_twin,
+            dragon_drain=self._dragon_drain, mitm=self._mitm,
         )
 
         # Add-ons screen
@@ -457,8 +464,14 @@ class JanOSTUI:
         try:
             lines = self.serial.read_available()
         except Exception as exc:
-            log.error("Serial read error: %s", exc)
+            log.error("Serial read error (device disconnected?): %s", exc)
             self.state.connected = False
+            # Remove the FD watcher — device is gone
+            try:
+                self._loop.remove_watch_file(self.serial.fd)
+            except Exception:
+                pass
+            self.serial.close()
             self._refresh_ui()
             return
 
@@ -603,7 +616,13 @@ class JanOSTUI:
             return True
         # Stop all
         if key == "9":
-            self.serial.send_command("stop")
+            if self.state.connected:
+                self.serial.send_command("stop")
+            # Stop Python-native attacks
+            if hasattr(self, '_dragon_drain'):
+                self._dragon_drain._stop()
+            if hasattr(self, '_mitm'):
+                self._mitm._stop()
             self.state.stop_all()
             self._refresh_ui()
             return True

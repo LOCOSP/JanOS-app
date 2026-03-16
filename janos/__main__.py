@@ -10,12 +10,7 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
-    if not args:
-        print("Usage: python3 -m janos <device> [--debug] [--legacy]")
-        print("Example: python3 -m janos /dev/ttyUSB0")
-        sys.exit(1)
-
-    device = args[0]
+    device = args[0] if args else ""
 
     # Logging setup
     if "--debug" in flags:

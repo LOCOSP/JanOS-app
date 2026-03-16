@@ -1,5 +1,7 @@
 """Constants and configuration for JanOS."""
 
+import os
+
 BAUD_RATE = 115200
 SCAN_TIMEOUT = 15
 READ_TIMEOUT = 2
@@ -105,9 +107,10 @@ FLASH_BOARDS = {
 FLASH_BAUD = FLASH_BOARDS["wroom"]["baud"]
 FLASH_OFFSETS = FLASH_BOARDS["wroom"]["offsets"]
 
-# GPS module (UART on uConsole)
-GPS_DEVICE = "/dev/ttyAMA0"
-GPS_BAUD_RATE = 9600
+# GPS module — default: AIO UART on uConsole
+# Override with env vars: JANOS_GPS_DEVICE, JANOS_GPS_BAUD
+GPS_DEVICE = os.environ.get("JANOS_GPS_DEVICE", "/dev/ttyAMA0")
+GPS_BAUD_RATE = int(os.environ.get("JANOS_GPS_BAUD", "9600"))
 GPS_PRIVACY_NOISE_DEG = 0.01  # ±0.01° ≈ ±1.1km randomization in private mode
 
 # WiGLE API (wardriving upload)

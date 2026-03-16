@@ -1,5 +1,6 @@
-"""GPS receiver — NMEA parser for UART GPS module (/dev/ttyAMA0)."""
+"""GPS receiver — NMEA parser for UART/USB GPS modules."""
 
+import glob
 import logging
 import os
 from dataclasses import dataclass
@@ -50,8 +51,10 @@ class _LineBuffer:
 class GpsManager:
     """Manage a UART GPS receiver via pyserial + urwid watch_file."""
 
-    def __init__(self, device: str = GPS_DEVICE) -> None:
+    def __init__(self, device: str = GPS_DEVICE,
+                 baud: int = GPS_BAUD_RATE) -> None:
         self.device = device
+        self._baud = baud
         self._conn: Optional[serial.Serial] = None
         self._buf = _LineBuffer()
         self.fix = GpsFix()
@@ -68,27 +71,57 @@ class GpsManager:
 
     def setup(self) -> bool:
         """Try to open GPS serial port. Returns True on success.
+        If configured device doesn't exist, auto-detect USB GPS.
         Never raises — GPS is optional."""
-        if not os.path.exists(self.device):
-            log.info("GPS device %s not found — GPS disabled", self.device)
-            return False
-        if not os.access(self.device, os.R_OK):
-            log.warning("No read access to %s", self.device)
+        device = self.device
+        if not os.path.exists(device):
+            detected = self._auto_detect()
+            if detected:
+                device = detected
+                self.device = device
+            else:
+                log.info("GPS device %s not found — GPS disabled", self.device)
+                return False
+        if not os.access(device, os.R_OK):
+            log.warning("No read access to %s", device)
             return False
         try:
             self._conn = serial.Serial(
-                port=self.device,
-                baudrate=GPS_BAUD_RATE,
+                port=device,
+                baudrate=self._baud,
                 timeout=0,
             )
             self._conn.reset_input_buffer()
             self._available = True
-            log.info("GPS opened: %s @ %d baud", self.device, GPS_BAUD_RATE)
+            log.info("GPS opened: %s @ %d baud", device, self._baud)
             return True
         except Exception as exc:
             log.warning("GPS setup failed: %s", exc)
             self._available = False
             return False
+
+    @staticmethod
+    def _auto_detect() -> Optional[str]:
+        """Scan common serial paths for a GPS device."""
+        candidates = sorted(
+            glob.glob("/dev/ttyUSB*")
+            + glob.glob("/dev/ttyACM*")
+            + glob.glob("/dev/ttyAMA*")
+            + glob.glob("/dev/ttyS*")
+        )
+        for path in candidates:
+            if not os.access(path, os.R_OK):
+                continue
+            try:
+                conn = serial.Serial(port=path, baudrate=9600, timeout=2)
+                data = conn.read(512)
+                conn.close()
+                if b"$GP" in data or b"$GN" in data:
+                    log.info("GPS auto-detected on %s", path)
+                    return path
+            except Exception:
+                continue
+        return None
 
     def close(self) -> None:
         if self._conn:

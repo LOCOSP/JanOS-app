@@ -59,14 +59,22 @@ JanOS-app requires a compatible firmware on the ESP32-C5. The app communicates w
 1. Go to the [latest release](https://github.com/LOCOSP/projectZero/releases/latest)
 2. Download **`projectZerobyLOCOSP-X.Y.Z.zip`** (~4 MB) — contains `bootloader.bin`, `projectZerobyLOCOSP.bin`, `partition-table.bin`
 
+**Supported boards:**
+| Board | Firmware | Baud | Auto-reset |
+|-------|----------|------|------------|
+| ESP32-C5 WROOM-1 (Dev Kit) | `projectZerobyLOCOSP.bin` | 460800 | Yes (RTS/DTR) |
+| XIAO ESP32-C5 (Seeed Studio) | `projectZerobyLOCOSP-xiao.bin` | 115200 | No (manual BOOT+RESET) |
+
 **Flash the ESP32-C5:**
 ```bash
 pip install --upgrade esptool pyserial
-# Use JanOS built-in flasher (Add-ons tab, key 1) or manually:
+# WROOM Dev Kit (auto-reset):
 esptool.py --chip esp32c5 --baud 460800 write_flash 0x2000 bootloader.bin 0x8000 partition-table.bin 0x20000 projectZerobyLOCOSP.bin
+# XIAO Seeed (manual boot mode — hold BOOT + press RESET first):
+esptool.py --chip esp32c5 --baud 115200 --before no_reset write_flash 0x2000 bootloader.bin 0x8000 partition-table.bin 0x20000 projectZerobyLOCOSP-xiao.bin
 ```
 
-**In-app flash** (recommended): press `4` for Add-ons, then `1` for Flash Firmware. Downloads the latest release from GitHub and flashes automatically via esptool.
+**In-app flash** (recommended): press `4` for Add-ons, then `1` for Flash Firmware. Select your board (WROOM or XIAO), confirm, and JanOS downloads the correct firmware from GitHub and flashes automatically via esptool.
 
 > **Note:** The upstream [C5Lab/projectZero](https://github.com/C5Lab/projectZero) releases and web flasher at [c5lab.github.io/projectZero](https://c5lab.github.io/projectZero/) provide the mainline firmware which does **not** include handshake serial capture, custom portal upload (`set_html`), or other features required by this app. Always use the firmware from [LOCOSP/projectZero releases](https://github.com/LOCOSP/projectZero/releases).
 
@@ -104,7 +112,7 @@ export JANOS_WPASEC_KEY="your-wpasec-key-here"
 ```
 
 When configured:
-- **Attacks tab**: press `[u]` to upload all .pcap files from loot to WPA-sec
+- **Sniffers tab**: press `[u]` to upload all .pcap files to WPA-sec, `[p]` to download cracked passwords
 
 #### GPS
 
@@ -157,6 +165,9 @@ GPS provides:
 | `1` | Wardriving WiFi (menu) |
 | `2` | Wardriving BT (menu) |
 | `3` | Packet Sniffer (menu) |
+| `w` | Upload to WiGLE (menu, requires config) |
+| `u` | Upload handshakes to WPA-sec (menu, requires config) |
+| `p` | Download cracked passwords from WPA-sec (menu, requires config) |
 | `esc` | Back to sniffers menu |
 
 **Wardriving WiFi / BT:**
@@ -371,7 +382,11 @@ The **Add-ons** tab (key `4`) provides a built-in firmware flasher for the ESP32
 4. Live progress is shown in the log (download %, esptool output, flash status)
 5. After flashing, esptool auto-resets the ESP32 via RTS/DTR and JanOS reconnects serial
 
-**Requirements:** `esptool` must be installed (`pip install esptool`). The ESP32-C5 must be connected via a USB-UART bridge (e.g., CP2102N) that supports RTS/DTR auto-reset — no BOOT button or replug needed.
+**Requirements:** `esptool` must be installed (`pip install esptool`).
+
+**Board support:** The flasher supports two ESP32-C5 boards:
+- **WROOM-1 (Dev Kit)** — USB-UART bridge (CP2102N) with RTS/DTR auto-reset, no BOOT button needed
+- **XIAO ESP32-C5 (Seeed Studio)** — native USB-Serial/JTAG, requires manual boot mode (hold BOOT + press RESET before flashing), flashes at 115200 baud
 
 ### Add-ons: AIO v2 Control
 

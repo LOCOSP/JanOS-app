@@ -110,6 +110,15 @@ class JanOSTUI:
             log.info("Serial: %s", exc)
             self.state.connected = False
 
+        # Detect WiFi interfaces (driver, chipset, mode)
+        try:
+            from ..serial_manager import list_wifi_interfaces
+            self.state.wifi_interfaces = list_wifi_interfaces()
+            for iface, mode, drv, chip in self.state.wifi_interfaces:
+                log.info("WiFi: %s mode=%s driver=%s chipset=%s", iface, mode, drv, chip)
+        except Exception:
+            pass
+
         # Load saved firmware version (from last flash) so sidebar shows it
         # immediately even if boot banner was already sent before we connected
         try:
@@ -574,11 +583,13 @@ class JanOSTUI:
 
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()
-        # AIO status refresh every 10 seconds (non-blocking thread)
+        # AIO + WiFi status refresh every 10 seconds (non-blocking thread)
         self._aio_tick += 1
-        if self._aio_tick >= 10 and self.state.aio_available:
+        if self._aio_tick >= 10:
             self._aio_tick = 0
-            threading.Thread(target=self._refresh_aio, daemon=True).start()
+            if self.state.aio_available:
+                threading.Thread(target=self._refresh_aio, daemon=True).start()
+            threading.Thread(target=self._refresh_wifi, daemon=True).start()
         self._loop.set_alarm_in(1, self._tick)
 
     def _refresh_aio(self) -> None:
@@ -589,6 +600,14 @@ class JanOSTUI:
             self.state.aio_lora = status.get("lora", False)
             self.state.aio_sdr = status.get("sdr", False)
             self.state.aio_usb = status.get("usb", False)
+
+    def _refresh_wifi(self) -> None:
+        """Refresh WiFi interface list in background thread."""
+        try:
+            from ..serial_manager import list_wifi_interfaces
+            self.state.wifi_interfaces = list_wifi_interfaces()
+        except Exception:
+            pass
 
     def _register_serial_watcher(self) -> None:
         """Register serial FD watcher after reconnection."""

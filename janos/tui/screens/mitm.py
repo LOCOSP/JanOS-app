@@ -762,49 +762,48 @@ class MITMScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def _view_loot(self) -> None:
-        """Browse and inspect captured pcap files."""
+        """Browse and inspect captured pcap files from all sessions."""
         if not self._loot:
             return
-        mitm_dir = os.path.join(self._loot.session_path, "mitm")
-        if not os.path.isdir(mitm_dir):
-            dialog = InfoDialog(
-                "No MITM captures yet.\n\nStart an attack first.",
-                lambda: self._app.dismiss_overlay(),
-                title="MITM Loot",
-            )
-            self._app.show_overlay(dialog, 40, 7)
-            return
+        # Scan all loot sessions for mitm pcaps
+        loot_root = os.path.dirname(self._loot.session_path)
+        all_pcaps = []  # list of (display_label, full_path)
+        try:
+            sessions = sorted(os.listdir(loot_root), reverse=True)
+        except OSError:
+            sessions = []
+        for session_name in sessions:
+            mitm_dir = os.path.join(loot_root, session_name, "mitm")
+            if not os.path.isdir(mitm_dir):
+                continue
+            for fname in sorted(os.listdir(mitm_dir), reverse=True):
+                if not fname.endswith(".pcap"):
+                    continue
+                fpath = os.path.join(mitm_dir, fname)
+                try:
+                    size = os.path.getsize(fpath)
+                    if size >= 1024 * 1024:
+                        sz = f"{size / 1024 / 1024:.1f} MB"
+                    elif size >= 1024:
+                        sz = f"{size / 1024:.1f} KB"
+                    else:
+                        sz = f"{size} B"
+                except OSError:
+                    sz = "?"
+                all_pcaps.append((f"[{session_name}] {fname}  ({sz})", fpath))
 
-        pcaps = sorted(
-            [f for f in os.listdir(mitm_dir) if f.endswith(".pcap")],
-            reverse=True,
-        )
-        if not pcaps:
+        if not all_pcaps:
             dialog = InfoDialog(
-                "No MITM captures yet.\n\nStart an attack first.",
+                "No MITM captures found.",
                 lambda: self._app.dismiss_overlay(),
                 title="MITM Loot",
             )
-            self._app.show_overlay(dialog, 40, 7)
+            self._app.show_overlay(dialog, 40, 6)
             return
 
         from ..widgets.file_picker import FilePicker
-        labels = []
-        paths = []
-        for fname in pcaps:
-            fpath = os.path.join(mitm_dir, fname)
-            try:
-                size = os.path.getsize(fpath)
-                if size >= 1024 * 1024:
-                    sz = f"{size / 1024 / 1024:.1f} MB"
-                elif size >= 1024:
-                    sz = f"{size / 1024:.1f} KB"
-                else:
-                    sz = f"{size} B"
-            except OSError:
-                sz = "?"
-            labels.append(f"{fname}  ({sz})")
-            paths.append(fpath)
+        labels = [lbl for lbl, _ in all_pcaps]
+        paths = [p for _, p in all_pcaps]
 
         def on_pick(idx, name):
             self._app.dismiss_overlay()
@@ -813,7 +812,7 @@ class MITMScreen(urwid.WidgetWrap):
             self._show_pcap_summary(paths[idx])
 
         picker = FilePicker(labels, on_pick, title="MITM Captures:")
-        self._app.show_overlay(picker, 55, min(len(labels) + 6, 16))
+        self._app.show_overlay(picker, 65, min(len(labels) + 6, 18))
 
     def _show_pcap_summary(self, pcap_path: str) -> None:
         """Parse pcap with scapy and display packet summary in DataTable."""

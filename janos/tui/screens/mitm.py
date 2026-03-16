@@ -20,6 +20,7 @@ from ...app_state import AppState
 from ...loot_manager import LootManager
 from ...privacy import mask_line, mask_ip, mask_mac
 from ..widgets.log_viewer import LogViewer
+from ..widgets.data_table import DataTable
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.info_dialog import InfoDialog
 from ..widgets.text_input_dialog import TextInputDialog
@@ -40,6 +41,7 @@ class MITMScreen(urwid.WidgetWrap):
         self._loot = loot
 
         self._running = False
+        self._viewing_pcap = False
         self._spoof_thread: threading.Thread | None = None
         self._sniff_thread: threading.Thread | None = None
         self._tcpdump_proc: subprocess.Popen | None = None
@@ -52,7 +54,7 @@ class MITMScreen(urwid.WidgetWrap):
         self._orig_ip_forward = "0"
 
         self._log = LogViewer(max_lines=300)
-        self._status = urwid.Text(("dim", "  [s]Start  [esc]Back"))
+        self._status = urwid.Text(("dim", "  [s]Start  [l]Loot  [esc]Back"))
         self._info = urwid.Text(("warning", "  MITM — idle"))
 
         self._idle_view = urwid.ListBox(urwid.SimpleFocusListWalker([
@@ -92,7 +94,8 @@ class MITMScreen(urwid.WidgetWrap):
             self._status.set_text(("dim", "  [x]Stop"))
         else:
             self._info.set_text(("warning", "  MITM — idle"))
-            self._status.set_text(("dim", "  [s]Start  [esc]Back"))
+            if not self._viewing_pcap:
+                self._status.set_text(("dim", "  [s]Start  [l]Loot  [esc]Back"))
 
     # ------------------------------------------------------------------
     # Network helpers
@@ -755,10 +758,217 @@ class MITMScreen(urwid.WidgetWrap):
             )
 
     # ------------------------------------------------------------------
+    # Pcap viewer
+    # ------------------------------------------------------------------
+
+    def _view_loot(self) -> None:
+        """Browse and inspect captured pcap files."""
+        if not self._loot:
+            return
+        mitm_dir = os.path.join(self._loot.session_dir, "mitm")
+        if not os.path.isdir(mitm_dir):
+            dialog = InfoDialog(
+                "No MITM captures yet.\n\nStart an attack first.",
+                lambda: self._app.dismiss_overlay(),
+                title="MITM Loot",
+            )
+            self._app.show_overlay(dialog, 40, 7)
+            return
+
+        pcaps = sorted(
+            [f for f in os.listdir(mitm_dir) if f.endswith(".pcap")],
+            reverse=True,
+        )
+        if not pcaps:
+            dialog = InfoDialog(
+                "No MITM captures yet.\n\nStart an attack first.",
+                lambda: self._app.dismiss_overlay(),
+                title="MITM Loot",
+            )
+            self._app.show_overlay(dialog, 40, 7)
+            return
+
+        from ..widgets.file_picker import FilePicker
+        labels = []
+        paths = []
+        for fname in pcaps:
+            fpath = os.path.join(mitm_dir, fname)
+            try:
+                size = os.path.getsize(fpath)
+                if size >= 1024 * 1024:
+                    sz = f"{size / 1024 / 1024:.1f} MB"
+                elif size >= 1024:
+                    sz = f"{size / 1024:.1f} KB"
+                else:
+                    sz = f"{size} B"
+            except OSError:
+                sz = "?"
+            labels.append(f"{fname}  ({sz})")
+            paths.append(fpath)
+
+        def on_pick(idx, name):
+            self._app.dismiss_overlay()
+            if idx < 0:
+                return
+            self._show_pcap_summary(paths[idx])
+
+        picker = FilePicker(labels, on_pick, title="MITM Captures:")
+        self._app.show_overlay(picker, 55, min(len(labels) + 6, 16))
+
+    def _show_pcap_summary(self, pcap_path: str) -> None:
+        """Parse pcap with scapy and display packet summary in DataTable."""
+        self._body.original_widget = urwid.ListBox(
+            urwid.SimpleFocusListWalker([
+                urwid.Text(("dim", "  Loading pcap..."))
+            ])
+        )
+        self._viewing_pcap = True
+        self._status.set_text(("dim", "  Loading..."))
+
+        def parse():
+            try:
+                from scapy.all import rdpcap, IP, TCP, UDP, ICMP, DNS, DNSQR, ARP, Raw
+            except ImportError:
+                if hasattr(self._app, '_loop') and self._app._loop:
+                    self._app._loop.set_alarm_in(0, lambda *_: self._pcap_error(
+                        "scapy not installed"))
+                return
+
+            try:
+                packets = rdpcap(pcap_path, count=500)
+            except Exception as e:
+                if hasattr(self._app, '_loop') and self._app._loop:
+                    self._app._loop.set_alarm_in(0, lambda *_: self._pcap_error(
+                        f"Read error: {e}"))
+                return
+
+            rows = []
+            base_time = float(packets[0].time) if packets else 0.0
+
+            for i, pkt in enumerate(packets):
+                rel_time = float(pkt.time) - base_time
+                time_str = f"{rel_time:.3f}"
+                length = str(len(pkt))
+
+                src = dst = proto = info = ""
+
+                if pkt.haslayer(IP):
+                    src = mask_ip(pkt[IP].src)
+                    dst = mask_ip(pkt[IP].dst)
+
+                    if pkt.haslayer(DNS) and pkt.haslayer(DNSQR):
+                        proto = "DNS"
+                        qname = pkt[DNSQR].qname.decode(errors="ignore").rstrip(".")
+                        info = f"Query: {qname}"
+                    elif pkt.haslayer(TCP):
+                        sport = pkt[TCP].sport
+                        dport = pkt[TCP].dport
+                        flags = str(pkt[TCP].flags)
+                        if dport == 80 and pkt.haslayer(Raw):
+                            proto = "HTTP"
+                            try:
+                                text = pkt[Raw].load.decode(errors="ignore")
+                                first = text.split("\r\n")[0]
+                                if first.startswith(("GET ", "POST ", "PUT ", "HEAD ")):
+                                    info = first.split(" HTTP")[0]
+                                else:
+                                    info = f"{sport} → {dport} [{flags}]"
+                            except Exception:
+                                info = f"{sport} → {dport} [{flags}]"
+                        else:
+                            proto = "TCP"
+                            info = f"{sport} → {dport} [{flags}]"
+                    elif pkt.haslayer(UDP):
+                        proto = "UDP"
+                        info = f"{pkt[UDP].sport} → {pkt[UDP].dport}"
+                    elif pkt.haslayer(ICMP):
+                        proto = "ICMP"
+                        icmp_type = pkt[ICMP].type
+                        if icmp_type == 8:
+                            info = "Echo request"
+                        elif icmp_type == 0:
+                            info = "Echo reply"
+                        else:
+                            info = f"Type {icmp_type}"
+                    else:
+                        proto = "IP"
+                        info = f"proto={pkt[IP].proto}"
+
+                elif pkt.haslayer(ARP):
+                    proto = "ARP"
+                    if pkt[ARP].op == 1:
+                        src = mask_ip(pkt[ARP].psrc)
+                        dst = mask_ip(pkt[ARP].pdst)
+                        info = f"Who has {dst}?"
+                    else:
+                        src = mask_ip(pkt[ARP].psrc)
+                        dst = mask_ip(pkt[ARP].pdst)
+                        info = f"{src} is at {mask_mac(pkt[ARP].hwsrc)}"
+                else:
+                    proto = "?"
+                    src = "?"
+                    dst = "?"
+                    info = pkt.summary()[:40] if hasattr(pkt, 'summary') else ""
+
+                row = [
+                    ("fixed", 5,  urwid.Text(("dim", str(i + 1)))),
+                    ("fixed", 10, urwid.Text(("dim", time_str[:10]))),
+                    ("fixed", 16, urwid.Text(("default", src[:16]))),
+                    ("fixed", 16, urwid.Text(("default", dst[:16]))),
+                    ("fixed", 6,  urwid.Text(("success", proto[:6]))),
+                    ("fixed", 6,  urwid.Text(("dim", length[:6]))),
+                    ("weight", 1, urwid.Text(("default", info[:60]))),
+                ]
+                rows.append(row)
+
+            total = len(packets)
+            capped = " (first 500)" if total >= 500 else ""
+
+            if hasattr(self._app, '_loop') and self._app._loop:
+                self._app._loop.set_alarm_in(
+                    0, lambda *_: self._display_pcap_table(rows, total, capped)
+                )
+
+        threading.Thread(target=parse, daemon=True).start()
+
+    def _display_pcap_table(self, rows, total, capped):
+        """Show parsed pcap data in DataTable (main thread)."""
+        table = DataTable([
+            ("fixed", 5,  "##"),
+            ("fixed", 10, "Time"),
+            ("fixed", 16, "Source"),
+            ("fixed", 16, "Dest"),
+            ("fixed", 6,  "Proto"),
+            ("fixed", 6,  "Len"),
+            ("weight", 1, "Info"),
+        ])
+        table.set_rows(rows)
+        self._body.original_widget = table
+        self._status.set_text(
+            ("dim", f"  [esc]Back  Packets: {total}{capped}")
+        )
+
+    def _pcap_error(self, msg):
+        """Show error and return to idle view."""
+        self._viewing_pcap = False
+        self._body.original_widget = self._idle_view
+        self._status.set_text(("error", f"  {msg}"))
+
+    # ------------------------------------------------------------------
     # Keypress
     # ------------------------------------------------------------------
 
     def keypress(self, size, key):
+        if key == "esc" and self._viewing_pcap:
+            self._viewing_pcap = False
+            if self.state.mitm_running:
+                self._body.original_widget = self._log
+            else:
+                self._body.original_widget = self._idle_view
+            return None
+        if key == "l" and not self.state.mitm_running:
+            self._view_loot()
+            return None
         if key == "s" and not self.state.mitm_running:
             self._start()
             return None

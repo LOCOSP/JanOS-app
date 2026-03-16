@@ -13,6 +13,8 @@ from ...lora_manager import LoRaManager
 from ...config import FLASH_BOARDS
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
+from ..widgets.info_dialog import InfoDialog
+from ..widgets.text_input_dialog import TextInputDialog
 
 
 class _AddonItem(urwid.WidgetWrap):
@@ -56,6 +58,37 @@ class _BoardPickerDialog(urwid.WidgetWrap):
         return True
 
 
+class _BaudPickerDialog(urwid.WidgetWrap):
+    """Pick baud rate for GPS. Calls callback(baud) or callback(None)."""
+
+    def __init__(self, rates: list, callback) -> None:
+        self._callback = callback
+        self._rates = rates
+        lines = [("dialog_title", "\n  Select baud rate:\n\n")]
+        for i, rate in enumerate(rates, 1):
+            default = " (default)" if rate == 9600 else ""
+            lines.append(("default", f"  [{i}] {rate}{default}\n"))
+        lines.append(("dim", "\n  [Esc] Cancel\n"))
+        text = urwid.Text(lines, align="left")
+        fill = urwid.Filler(text, valign="middle")
+        box = urwid.LineBox(fill, title="Baud Rate")
+        widget = urwid.AttrMap(box, "dialog")
+        super().__init__(widget)
+
+    def keypress(self, size, key):
+        if key == "esc":
+            self._callback(None)
+            return None
+        for i, rate in enumerate(self._rates, 1):
+            if key == str(i):
+                self._callback(rate)
+                return None
+        return key
+
+    def selectable(self) -> bool:
+        return True
+
+
 class AddOnsScreen(urwid.WidgetWrap):
     """Add-ons menu with firmware flashing, AIO control, LoRa, and live log."""
 
@@ -69,6 +102,7 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._lora._on_message = self._on_mc_message
         self._flashing = False
         self._installing_aio = False
+        self._gps_pending_device = ""
         self._reconnect_pending = False
         self._reconnect_at: float = 0.0
         self._last_menu_key = ""  # track menu state for rebuild
@@ -97,6 +131,7 @@ class AddOnsScreen(urwid.WidgetWrap):
         """Key representing current menu state — rebuild only when changed."""
         lora_mode = self._lora.mode if self._lora.running else ""
         return (
+            f"{self.state.gps_available},"
             f"{self.state.aio_available},"
             f"{self.state.aio_gps},{self.state.aio_lora},"
             f"{self.state.aio_sdr},{self.state.aio_usb},"
@@ -106,6 +141,13 @@ class AddOnsScreen(urwid.WidgetWrap):
     def _rebuild_menu(self) -> None:
         self._walker.clear()
         self._walker.append(_AddonItem("1", "Flash ESP32-C5 Firmware"))
+
+        # External GPS (when no GPS detected at startup)
+        if self.state.gps_available:
+            gps_dev = self._app.gps.device
+            self._walker.append(_AddonItem("g", f"GPS ({gps_dev})", True))
+        else:
+            self._walker.append(_AddonItem("g", "External GPS"))
 
         if self.state.aio_available:
             self._walker.append(
@@ -169,14 +211,14 @@ class AddOnsScreen(urwid.WidgetWrap):
             if self.state.aio_lora:
                 self._status.set_text(
                     ("dim",
-                     "  [1]Flash  [2-5]AIO  [6]Sniff  [7]Scan  "
+                     "  [1]Flash  [g]GPS  [2-5]AIO  [6]Sniff  [7]Scan  "
                      "[8]Track  [9]Mesh  [0]Meshtastic  [x]Clear"))
             else:
                 self._status.set_text(
-                    ("dim", "  [1]Flash  [2-5]AIO toggle  [x]Clear"))
+                    ("dim", "  [1]Flash  [g]GPS  [2-5]AIO toggle  [x]Clear"))
         else:
             self._status.set_text(
-                ("dim", "  [1]Flash  [2]Install AIO  [x]Clear"))
+                ("dim", "  [1]Flash  [g]GPS  [2]Install AIO  [x]Clear"))
 
     # ------------------------------------------------------------------
     # Refresh (called every 1s by app._tick)
@@ -454,10 +496,95 @@ class AddOnsScreen(urwid.WidgetWrap):
         self.state.mc_messages += 1
 
     # ------------------------------------------------------------------
+    # External GPS
+    # ------------------------------------------------------------------
+
+    _BAUD_RATES = [4800, 9600, 19200, 38400, 57600, 115200]
+
+    def _start_gps_setup(self) -> None:
+        """Show dialog to configure external GPS device."""
+        if self.state.gps_available:
+            # GPS already connected — offer disconnect
+            def on_confirm(yes: bool) -> None:
+                self._app.dismiss_overlay()
+                if yes:
+                    self._disconnect_gps()
+            dialog = ConfirmDialog(
+                f"GPS connected on {self._app.gps.device}.\n"
+                "Disconnect GPS?",
+                on_confirm,
+            )
+            self._app.show_overlay(dialog, 50, 8)
+            return
+
+        dialog = TextInputDialog(
+            "GPS device path",
+            self._on_gps_device_entered,
+            initial="/dev/ttyUSB0",
+        )
+        self._app.show_overlay(dialog, 50, 8)
+
+    def _on_gps_device_entered(self, device: str | None) -> None:
+        self._app.dismiss_overlay()
+        if not device:
+            return
+        self._gps_pending_device = device
+        # Show baud rate picker
+        dialog = _BaudPickerDialog(self._BAUD_RATES, self._on_baud_picked)
+        self._app.show_overlay(dialog, 40, len(self._BAUD_RATES) + 6)
+
+    def _on_baud_picked(self, baud: int | None) -> None:
+        self._app.dismiss_overlay()
+        if baud is None:
+            return
+        device = self._gps_pending_device
+        self._connect_gps(device, baud)
+
+    def _connect_gps(self, device: str, baud: int) -> None:
+        """Try to open GPS on given device/baud and register with event loop."""
+        gps = self._app.gps
+        # Close existing if any
+        if gps.available:
+            self._disconnect_gps()
+
+        gps.device = device
+        gps._baud = baud
+        if gps._try_open(device):
+            self.state.gps_available = True
+            try:
+                self._app._loop.watch_file(gps.fd, self._app._on_gps_data)
+            except Exception:
+                pass
+            self._log.append(f"GPS connected: {device} @ {baud}", "success")
+            self._rebuild_menu()
+        else:
+            dialog = InfoDialog(
+                f"Failed to open GPS on {device}.\n"
+                "Check device path and permissions.",
+                lambda: self._app.dismiss_overlay(),
+            )
+            self._app.show_overlay(dialog, 50, 8)
+
+    def _disconnect_gps(self) -> None:
+        gps = self._app.gps
+        if gps.available:
+            try:
+                self._app._loop.remove_watch_file(gps.fd)
+            except Exception:
+                pass
+            gps.close()
+        self.state.gps_available = False
+        self._log.append("GPS disconnected", "warning")
+        self._rebuild_menu()
+
+    # ------------------------------------------------------------------
     # Keyboard
     # ------------------------------------------------------------------
 
     def keypress(self, size, key):
+        if key == "g":
+            self._start_gps_setup()
+            return None
         if key == "1" and not self._flashing:
             self._start_flash()
             return None

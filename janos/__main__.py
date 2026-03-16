@@ -1,4 +1,4 @@
-"""Entry point: python3 -m janos /dev/ttyUSB0"""
+"""Entry point: python3 -m janos [/dev/ttyUSB0]  (device auto-detected if omitted)"""
 
 import sys
 import logging

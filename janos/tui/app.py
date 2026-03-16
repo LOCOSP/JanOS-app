@@ -208,7 +208,6 @@ class JanOSTUI:
 
         # Serial FD watcher (if connected)
         self._serial_watched = False
-        self._reconnect_active = False
         self._reconnect_alarm = None
         if self.state.connected:
             self._loop.watch_file(self.serial.fd, self._on_serial_data)
@@ -590,6 +589,14 @@ class JanOSTUI:
             if self.state.aio_available:
                 threading.Thread(target=self._refresh_aio, daemon=True).start()
             threading.Thread(target=self._refresh_wifi, daemon=True).start()
+        # Background reconnect: if disconnected and no active polling dialog,
+        # try to reconnect every 5 seconds (fallback for dismissed dialog)
+        if not self.state.connected and self.state.device:
+            self._reconnect_tick = getattr(self, "_reconnect_tick", 0) + 1
+            if self._reconnect_tick >= 5:
+                self._reconnect_tick = 0
+                if self._try_reconnect():
+                    self._refresh_ui()
         self._loop.set_alarm_in(1, self._tick)
 
     def _refresh_aio(self) -> None:
@@ -623,57 +630,50 @@ class JanOSTUI:
     # Device reconnection polling
     # ------------------------------------------------------------------
 
+    def _try_reconnect(self) -> bool:
+        """Attempt to detect and reconnect ESP32. Returns True on success."""
+        from ..serial_manager import detect_esp32_port, list_usb_serial_devices
+        detected = detect_esp32_port()
+        if not detected:
+            return False
+        self.serial.device = detected
+        self.state.device = detected
+        usb_devs = list_usb_serial_devices()
+        for d_path, d_desc, d_esp in usb_devs:
+            if d_path == detected:
+                self.state.device_description = d_desc
+                break
+        try:
+            self.serial.setup()
+            self.state.connected = True
+            self._register_serial_watcher()
+            log.info("Reconnected to %s", detected)
+            return True
+        except Exception:
+            return False
+
     def _start_reconnect_polling(self) -> None:
         """Show reconnect dialog and poll for USB device every 2s."""
         self._reconnect_alarm = None
-        self._reconnect_active = True
 
         def check_device(loop=None, _data=None):
-            if not self._reconnect_active:
-                return
             if self.state.connected:
-                self._reconnect_active = False
                 return
-            from ..serial_manager import detect_esp32_port, list_usb_serial_devices
-            detected = detect_esp32_port()
-            if detected:
-                self.serial.device = detected
-                self.state.device = detected
-                # Update description
-                usb_devs = list_usb_serial_devices()
-                for d_path, d_desc, d_esp in usb_devs:
-                    if d_path == detected:
-                        self.state.device_description = d_desc
-                        break
-                try:
-                    self.serial.setup()
-                    self.state.connected = True
-                    self._register_serial_watcher()
-                    self._reconnect_active = False
-                    self.dismiss_overlay()
-                    self._refresh_ui()
-                    return
-                except Exception:
-                    pass
+            if self._try_reconnect():
+                self.dismiss_overlay()
+                self._refresh_ui()
+                return
             self._reconnect_alarm = self._loop.set_alarm_in(2, check_device)
 
         msg = (
             "Device disconnected!\n\n"
             "Scanning for ESP32 on\n"
             "ttyUSB0-3 / ttyACM0-3...\n\n"
-            "Plug in ESP32 to reconnect."
+            "Plug in ESP32 to reconnect\n"
+            "or press any key to dismiss."
         )
 
-        def on_dismiss():
-            self._reconnect_active = False
-            if self._reconnect_alarm:
-                try:
-                    self._loop.remove_alarm(self._reconnect_alarm)
-                except Exception:
-                    pass
-            self.dismiss_overlay()
-
-        dialog = InfoDialog(msg, on_dismiss, title="Device Lost")
+        dialog = InfoDialog(msg, lambda: self.dismiss_overlay(), title="Device Lost")
         self.show_overlay(dialog, width=40, height=12)
         # Start polling immediately
         self._reconnect_alarm = self._loop.set_alarm_in(2, check_device)

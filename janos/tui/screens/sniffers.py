@@ -1,11 +1,18 @@
 """Sniffers tab — menu wrapper for Wardriving, BT Wardriving, and Packet Sniffer."""
 
+import threading
 import urwid
 
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
+from ...upload_manager import (
+    wigle_configured, wpasec_configured,
+    upload_wigle, upload_wpasec_all,
+    download_wpasec_passwords, find_wardriving_csvs,
+)
+from ..widgets.info_dialog import InfoDialog
 from .sniffer import SnifferScreen
 from .wardriving import WardrivingScreen
 from .bt_wardriving import BTWardrivingScreen
@@ -20,7 +27,9 @@ class SniffersScreen(urwid.WidgetWrap):
         self.state = state
         self.serial = serial
         self._app = app
+        self._loot = loot
         self._sub_screen = None  # active sub-screen or None (menu)
+        self._upload_result: str | None = None
 
         # Sub-screens
         self._wardriving = WardrivingScreen(state, serial, net_mgr, loot, app)
@@ -28,14 +37,19 @@ class SniffersScreen(urwid.WidgetWrap):
         self._sniffer = SnifferScreen(state, serial, net_mgr, loot)
 
         # Menu view
-        self._menu_items = urwid.Pile([
+        menu_widgets = [
             urwid.Text(("bold", "  \u2500\u2500 Sniffers \u2500\u2500")),
             urwid.Divider(),
             urwid.Text(("default", "  [1] Wardriving WiFi")),
             urwid.Text(("default", "  [2] Wardriving BT")),
             urwid.Text(("default", "  [3] Packet Sniffer")),
             urwid.Divider(),
-        ])
+        ]
+        # Cloud upload/download hints (only when configured)
+        self._cloud_hints = urwid.Pile([])
+        menu_widgets.append(self._cloud_hints)
+
+        self._menu_items = urwid.Pile(menu_widgets)
         self._status = urwid.Text(("dim", "  Select mode"))
         self._menu_view = urwid.ListBox(urwid.SimpleFocusListWalker([
             self._menu_items,
@@ -58,6 +72,72 @@ class SniffersScreen(urwid.WidgetWrap):
         self._body.original_widget = self._menu_view
 
     # ------------------------------------------------------------------
+    # Cloud upload/download
+    # ------------------------------------------------------------------
+
+    def _update_cloud_hints(self) -> None:
+        """Rebuild cloud service hints based on configured tokens."""
+        hints = []
+        if wigle_configured():
+            hints.append(urwid.Text(("dim", "  [w] WiGLE Upload")))
+        if wpasec_configured():
+            hints.append(urwid.Text(("dim", "  [u] WPA-sec Upload")))
+            hints.append(urwid.Text(("dim", "  [p] WPA-sec Passwords")))
+        if hints:
+            hints.insert(0, urwid.Text(("bold", "  \u2500\u2500 Cloud \u2500\u2500")))
+        self._cloud_hints.contents = [(w, ("pack", None)) for w in hints]
+
+    def _upload_wigle(self) -> None:
+        """Upload wardriving CSVs to WiGLE."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        csvs = find_wardriving_csvs(loot_dir)
+        if not csvs:
+            self._app.show_overlay(
+                InfoDialog("No wardriving.csv files found.",
+                           lambda: self._app.dismiss_overlay(), title="WiGLE"),
+                45, 7,
+            )
+            return
+        self._status.set_text(("warning", f"  Uploading {len(csvs)} file(s) to WiGLE..."))
+
+        def _do():
+            results = []
+            for csv_path in csvs:
+                ok, msg = upload_wigle(csv_path)
+                results.append(f"{csv_path.parent.name}: {msg}")
+            self._upload_result = "WiGLE: " + "; ".join(results)
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _upload_wpasec(self) -> None:
+        """Upload .pcap handshakes to WPA-sec."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        self._status.set_text(("warning", "  Uploading handshakes to WPA-sec..."))
+
+        def _do():
+            _up, _total, msg = upload_wpasec_all(loot_dir)
+            self._upload_result = f"WPA-sec: {msg}"
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _download_wpasec(self) -> None:
+        """Download cracked passwords from WPA-sec."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        self._status.set_text(("warning", "  Downloading passwords from WPA-sec..."))
+
+        def _do():
+            ok, count, msg = download_wpasec_passwords(loot_dir)
+            self._upload_result = f"WPA-sec: {msg}"
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
 
@@ -66,6 +146,16 @@ class SniffersScreen(urwid.WidgetWrap):
             if hasattr(self._sub_screen, "refresh"):
                 self._sub_screen.refresh()
             return
+        # Poll background upload/download result
+        if self._upload_result is not None:
+            msg = self._upload_result
+            self._upload_result = None
+            self._app.show_overlay(
+                InfoDialog(msg, lambda: self._app.dismiss_overlay(), title="Cloud"),
+                50, 8,
+            )
+        # Rebuild cloud hints (tokens may change)
+        self._update_cloud_hints()
         # Menu view — update status hints
         parts = []
         if self.state.wardriving_running:
@@ -78,7 +168,7 @@ class SniffersScreen(urwid.WidgetWrap):
             parts.append(f"Sniffer RUNNING ({self.state.sniffer_packets} pkts)")
         if parts:
             self._status.set_text(("success", "  " + "  |  ".join(parts)))
-        else:
+        elif self._upload_result is None:
             self._status.set_text(("dim", "  Select mode"))
 
     def handle_serial_line(self, line: str) -> None:
@@ -110,5 +200,37 @@ class SniffersScreen(urwid.WidgetWrap):
             return None
         if key == "3":
             self._enter_sub_screen(self._sniffer)
+            return None
+
+        # Cloud services (menu only)
+        if key == "w":
+            if wigle_configured():
+                self._upload_wigle()
+            else:
+                self._app.show_overlay(
+                    InfoDialog("WiGLE not configured.\nSet JANOS_WIGLE_NAME and\nJANOS_WIGLE_TOKEN env vars.",
+                               lambda: self._app.dismiss_overlay(), title="WiGLE"),
+                    45, 9,
+                )
+            return None
+        if key == "u":
+            if wpasec_configured():
+                self._upload_wpasec()
+            else:
+                self._app.show_overlay(
+                    InfoDialog("WPA-sec not configured.\nSet JANOS_WPASEC_KEY env var.",
+                               lambda: self._app.dismiss_overlay(), title="WPA-sec"),
+                    45, 8,
+                )
+            return None
+        if key == "p":
+            if wpasec_configured():
+                self._download_wpasec()
+            else:
+                self._app.show_overlay(
+                    InfoDialog("WPA-sec not configured.\nSet JANOS_WPASEC_KEY env var.",
+                               lambda: self._app.dismiss_overlay(), title="WPA-sec"),
+                    45, 8,
+                )
             return None
         return super().keypress(size, key)

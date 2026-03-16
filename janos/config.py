@@ -91,8 +91,9 @@ WIGLE_API_URL = "https://api.wigle.net/api/v2/file/upload"
 WIGLE_API_NAME = ""   # set via config or env JANOS_WIGLE_NAME
 WIGLE_API_TOKEN = ""  # set via config or env JANOS_WIGLE_TOKEN
 
-# WPA-sec (handshake upload)
+# WPA-sec (handshake upload + password download)
 WPASEC_URL = "https://wpa-sec.stanev.org/?submit"
+WPASEC_DL_URL = "https://wpa-sec.stanev.org/?api&dl=1"
 WPASEC_KEY = ""  # set via config or env JANOS_WPASEC_KEY
 
 # Firmware crash signatures (only true crash indicators, not normal boot messages)

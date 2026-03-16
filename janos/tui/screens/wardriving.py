@@ -184,8 +184,6 @@ class WardrivingScreen(urwid.WidgetWrap):
         extras = ""
         if wigle_configured():
             extras += "  [w]WiGLE"
-        if wpasec_configured():
-            extras += "  [u]WPA-sec"
         self._status.set_text(
             ("warning", f"  Stopped. {n} unique networks. [s]Start  [x]Clear{extras}")
         )

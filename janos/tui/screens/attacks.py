@@ -8,7 +8,6 @@ import urwid
 from ...app_state import AppState
 from ...serial_manager import SerialManager
 from ...loot_manager import LootManager
-from ...upload_manager import wpasec_configured, upload_wpasec_all
 from ...privacy import mask_line, mask_mac
 from ...config import (
     CMD_START_DEAUTH,
@@ -87,8 +86,6 @@ class AttacksScreen(urwid.WidgetWrap):
         self._hs_restarting: bool = False    # waiting for restart delay
         self._hs_restart_at: float = 0.0    # when to send start again
 
-        self._upload_result: str | None = None  # pending WPA-sec upload result
-
         # BT device parser regex: "  1. AA:BB:CC:DD:EE:FF  RSSI: -42 dBm  Name: Foo"
         self._bt_device_re = re.compile(
             r'^\s*\d+\.\s+([0-9A-Fa-f:]{17})\s+RSSI:\s*(-?\d+)\s*dBm'
@@ -117,15 +114,6 @@ class AttacksScreen(urwid.WidgetWrap):
         self._rebuild()
 
     def refresh(self) -> None:
-        # Check for pending upload result
-        if self._upload_result is not None:
-            msg = self._upload_result
-            self._upload_result = None
-            self._app.show_overlay(
-                InfoDialog(msg, lambda: self._app.dismiss_overlay(), title="WPA-sec"),
-                50, 8,
-            )
-
         # If sub-screen is active, delegate refresh
         if self._sub_screen is not None:
             if hasattr(self._sub_screen, "refresh"):
@@ -194,11 +182,9 @@ class AttacksScreen(urwid.WidgetWrap):
                 ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear")
             )
         elif sel:
-            wpasec = "  [u]WPA-sec" if wpasec_configured() else ""
-            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear{wpasec}"))
+            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear"))
         else:
-            wpasec = "  [u]WPA-sec" if wpasec_configured() else ""
-            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear{wpasec}"))
+            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear"))
 
     def handle_serial_line(self, line: str) -> None:
         """Route serial data to appropriate handler."""
@@ -555,12 +541,15 @@ class AttacksScreen(urwid.WidgetWrap):
             if self._loot:
                 self._loot.log_attack_event(f"STARTED: BLE Tracker ({mac})")  # loot = full data
 
-        def on_cancel() -> None:
-            self._app.dismiss_overlay()
+        def on_dialog(text) -> None:
+            if text is None:
+                self._app.dismiss_overlay()
+                return
+            on_input(text)
 
         dialog = TextInputDialog(
             "BLE MAC address (XX:XX:XX:XX:XX:XX):",
-            on_input, on_cancel
+            on_dialog,
         )
         self._app.show_overlay(dialog, 50, 7)
 
@@ -594,23 +583,6 @@ class AttacksScreen(urwid.WidgetWrap):
             on_confirm
         )
         self._app.show_overlay(dialog, 50, 9)
-
-    # ------------------------------------------------------------------
-    # WPA-sec upload
-    # ------------------------------------------------------------------
-
-    def _upload_wpasec(self) -> None:
-        """Upload .pcap handshakes to WPA-sec in a background thread."""
-        if not self._loot:
-            return
-        loot_dir = self._loot.loot_root
-        self._log.append(">>> Uploading handshakes to WPA-sec...", "warning")
-
-        def _do():
-            _up, _total, msg = upload_wpasec_all(loot_dir)
-            self._upload_result = f"WPA-sec: {msg}"
-
-        threading.Thread(target=_do, daemon=True).start()
 
     # ------------------------------------------------------------------
     # ESP32 connection waiting dialog
@@ -726,18 +698,6 @@ class AttacksScreen(urwid.WidgetWrap):
             return None
         if key == "m" and self._mitm:
             self._enter_sub_screen(self._mitm)
-            return None
-
-        # WPA-sec upload
-        if key == "u":
-            if wpasec_configured():
-                self._upload_wpasec()
-            else:
-                self._app.show_overlay(
-                    InfoDialog("WPA-sec not configured.\nSet JANOS_WPASEC_KEY env var.",
-                               lambda: self._app.dismiss_overlay(), title="WPA-sec"),
-                    45, 8,
-                )
             return None
 
         if key == "9":

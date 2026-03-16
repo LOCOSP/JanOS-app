@@ -7,11 +7,14 @@ import shutil
 import subprocess
 import sys
 import threading
+import re
 import zipfile
 from queue import Queue
 from typing import Optional
 from urllib.request import urlopen, Request
 from urllib.error import URLError
+
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 
 from .config import (
     FLASH_CHIP, FLASH_MODE, FLASH_FREQ,
@@ -89,7 +92,7 @@ class FlashManager:
 
             # Step 3: flash
             self._emit("", "default")
-            self._emit("Flashing firmware...", "attack_active")
+            self._emit("Flashing firmware...", "success")
             if not self._run_esptool(self._flash_cmd(port, fw_dir)):
                 return
 
@@ -229,21 +232,21 @@ class FlashManager:
             *self._esptool_prefix(),
             "-p", port, "-b", str(profile["baud"]),
             "--before", profile["before"],
-            "--after", "no_reset",
+            "--after", "no-reset",
             "--chip", FLASH_CHIP,
-            "erase_flash",
+            "erase-flash",
         ]
 
     def _flash_cmd(self, port: str, fw_dir: str) -> list:
         profile = self._profile
-        after = "no_reset" if self._board == "xiao" else "hard_reset"
+        after = "no-reset" if self._board == "xiao" else "hard-reset"
         cmd = [
             *self._esptool_prefix(),
             "-p", port, "-b", str(profile["baud"]),
             "--before", profile["before"],
             "--after", after,
             "--chip", FLASH_CHIP,
-            "write_flash",
+            "write-flash",
             "--flash-mode", FLASH_MODE,
             "--flash-freq", FLASH_FREQ,
             "--flash-size", "detect",
@@ -265,14 +268,14 @@ class FlashManager:
                 bufsize=1,
             )
             for line in proc.stdout:
-                line = line.rstrip()
+                line = _ANSI_RE.sub('', line).rstrip()
                 if not line:
                     continue
                 ll = line.lower()
                 if "error" in ll or "fail" in ll:
                     attr = "error"
                 elif "writing" in ll or "%" in line:
-                    attr = "attack_active"
+                    attr = "success"
                 elif "done" in ll or "success" in ll or "hash" in ll or "leaving" in ll:
                     attr = "success"
                 else:

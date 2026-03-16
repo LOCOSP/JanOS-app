@@ -503,7 +503,10 @@ class JanOSTUI:
                     pass
             self.serial.close()
             self._refresh_ui()
-            self._start_reconnect_polling()
+            # Don't start reconnect polling during flash — serial is
+            # intentionally released and esptool will take over the port.
+            if not self.state.flashing:
+                self._start_reconnect_polling()
             return
 
         crash_lines = []
@@ -591,7 +594,9 @@ class JanOSTUI:
             threading.Thread(target=self._refresh_wifi, daemon=True).start()
         # Background reconnect: if disconnected and no active polling dialog,
         # try to reconnect every 5 seconds (fallback for dismissed dialog)
-        if not self.state.connected and self.state.device:
+        # Skip during flash — serial is intentionally released for esptool.
+        if not self.state.connected and self.state.device \
+                and not self.state.flashing:
             self._reconnect_tick = getattr(self, "_reconnect_tick", 0) + 1
             if self._reconnect_tick >= 5:
                 self._reconnect_tick = 0

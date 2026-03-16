@@ -80,7 +80,7 @@ FLASH_BOARDS = {
     "wroom": {
         "label": "ESP32-C5 WROOM-1 (Dev Kit)",
         "baud": 460800,
-        "before": "default_reset",
+        "before": "default-reset",
         "bin_name": "projectZerobyLOCOSP.bin",
         "offsets": {
             "bootloader.bin": "0x2000",
@@ -91,7 +91,7 @@ FLASH_BOARDS = {
     "xiao": {
         "label": "XIAO ESP32-C5 (Seeed Studio)",
         "baud": 115200,
-        "before": "no_reset",
+        "before": "no-reset",
         "bin_name": "projectZerobyLOCOSP-xiao.bin",
         "offsets": {
             "bootloader.bin": "0x2000",

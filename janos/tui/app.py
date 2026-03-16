@@ -94,12 +94,15 @@ class JanOSTUI:
 
         # Connect serial — auto-detect port if not specified
         if not device:
-            from ..serial_manager import detect_esp32_port
-            detected = detect_esp32_port()
-            if detected:
-                log.info("Auto-detected ESP32 on %s", detected)
+            from ..serial_manager import list_usb_serial_devices
+            usb_devices = list_usb_serial_devices()
+            esp_devices = [d for d in usb_devices if d[2]]
+            if esp_devices:
+                detected, desc, _ = esp_devices[0]
+                log.info("Auto-detected ESP32 on %s (%s)", detected, desc)
                 self.serial.device = detected
                 self.state.device = detected
+                self.state.device_description = desc
         try:
             self.serial.setup()
             self.state.connected = True

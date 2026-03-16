@@ -238,14 +238,20 @@ class SidebarPanel(urwid.WidgetWrap):
             self._lora_line.set_text("")
 
         # Device
+        desc = f" ({self.state.device_description})" if self.state.device_description else ""
         if self.state.connected:
             self._device.set_text(
-                ("success", f"  {self.state.device}  Connected")
+                ("success", f"  {self.state.device}  Connected{desc}")
             )
         else:
-            self._device.set_text(
-                ("error", f"  {self.state.device}  DISCONNECTED")
-            )
+            if self.state.device:
+                self._device.set_text(
+                    ("error", f"  {self.state.device}  DISCONNECTED{desc}")
+                )
+            else:
+                self._device.set_text(
+                    ("dim", "  No ESP32 (Advanced attacks only)")
+                )
 
         # Firmware version (detected from ESP32 boot banner)
         if self.state.firmware_version:

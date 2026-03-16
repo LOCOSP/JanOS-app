@@ -85,13 +85,27 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
             except Exception:
                 checks.append(("fail", f"{pkg} — pip install {pkg}"))
 
-    # ESP32 check — info level when no device given (not fail)
-    if connected:
-        checks.append(("ok", f"ESP32 {device}"))
-    elif device:
-        checks.append(("fail", f"ESP32 {device} — not connected"))
-    else:
-        checks.append(("info", "ESP32 — no device (Advanced attacks only)"))
+    # USB serial devices — list all detected ports with chip type
+    try:
+        from ..serial_manager import list_usb_serial_devices
+        usb_devs = list_usb_serial_devices()
+        for dev_path, desc, is_esp in usb_devs:
+            if is_esp and dev_path == device and connected:
+                checks.append(("ok", f"ESP32 {dev_path} ({desc})"))
+            elif is_esp:
+                checks.append(("info", f"ESP32 {dev_path} ({desc}) — not connected"))
+            else:
+                checks.append(("info", f"USB  {dev_path} ({desc})"))
+        if not usb_devs and not device:
+            checks.append(("info", "No USB serial devices detected"))
+    except Exception:
+        # Fallback to simple check
+        if connected:
+            checks.append(("ok", f"ESP32 {device}"))
+        elif device:
+            checks.append(("fail", f"ESP32 {device} — not connected"))
+        else:
+            checks.append(("info", "ESP32 — no device (Advanced attacks only)"))
 
     # scapy check (needed for Dragon Drain / MITM)
     try:

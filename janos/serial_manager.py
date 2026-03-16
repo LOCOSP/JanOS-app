@@ -31,36 +31,46 @@ def detect_esp32_port() -> Optional[str]:
     Checks /dev/ttyUSB0-3 and /dev/ttyACM0-3 for known ESP32 USB-UART
     bridge chips. Returns the first matching port, or None.
     """
+    candidates = list_usb_serial_devices()
+    esp = [c for c in candidates if c[2]]  # is_esp32 == True
+    if esp:
+        return esp[0][0]
+    # Fallback: check if any ttyUSB/ttyACM devices exist
+    for pattern in ["/dev/ttyUSB", "/dev/ttyACM"]:
+        for i in range(4):
+            dev = f"{pattern}{i}"
+            if os.path.exists(dev):
+                log.info("ESP32 fallback candidate: %s (no VID/PID)", dev)
+                return dev
+    return None
+
+
+def list_usb_serial_devices() -> List[Tuple[str, str, bool]]:
+    """List all USB serial devices with descriptions.
+
+    Returns list of (device_path, description, is_esp32) tuples.
+    Description includes chip name (e.g. 'CP2102N') and VID:PID.
+    """
     try:
         ports = serial.tools.list_ports.comports()
     except Exception:
-        return None
+        return []
 
-    # Filter ports by known ESP32 USB-UART VIDs/PIDs
-    candidates = []
+    result = []
     for port in ports:
-        if port.vid is not None and port.pid is not None:
-            if (port.vid, port.pid) in _ESP32_VID_PIDS:
-                candidates.append(port)
-                log.info(
-                    "ESP32 candidate: %s [%04X:%04X] %s",
-                    port.device, port.vid, port.pid,
-                    port.description or "",
-                )
+        if port.vid is None or port.pid is None:
+            continue
+        is_esp32 = (port.vid, port.pid) in _ESP32_VID_PIDS
+        desc = port.description or f"{port.vid:04X}:{port.pid:04X}"
+        log.info(
+            "USB serial: %s [%04X:%04X] %s %s",
+            port.device, port.vid, port.pid, desc,
+            "(ESP32)" if is_esp32 else "",
+        )
+        result.append((port.device, desc, is_esp32))
 
-    if not candidates:
-        # Fallback: check if any ttyUSB/ttyACM devices exist
-        for pattern in ["/dev/ttyUSB", "/dev/ttyACM"]:
-            for i in range(4):
-                dev = f"{pattern}{i}"
-                if os.path.exists(dev):
-                    log.info("ESP32 fallback candidate: %s (no VID/PID)", dev)
-                    return dev
-        return None
-
-    # Prefer ttyUSB over ttyACM, lower number first
-    candidates.sort(key=lambda p: p.device)
-    return candidates[0].device
+    result.sort(key=lambda x: x[0])
+    return result
 
 
 class SerialLineBuffer:

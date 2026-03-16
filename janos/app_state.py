@@ -34,6 +34,7 @@ class ProbeEntry:
 class AppState:
     # Device
     device: str = ""
+    device_description: str = ""  # USB device chip name (e.g. "CP2102N")
     connected: bool = False
 
     # Scan

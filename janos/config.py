@@ -70,16 +70,40 @@ APP_UPDATE_URL = "https://raw.githubusercontent.com/LOCOSP/JanOS-app/main/janos/
 
 # Firmware flash settings (ESP32-C5)
 FIRMWARE_RELEASE_URL = "https://api.github.com/repos/LOCOSP/projectZero/releases/latest"
-FLASH_BAUD = 460800
 FLASH_CHIP = "esp32c5"
 FLASH_MODE = "dio"
 FLASH_FREQ = "80m"
-FLASH_OFFSETS = {
-    "bootloader.bin": "0x2000",
-    "partition-table.bin": "0x8000",
-    "projectZerobyLOCOSP.bin": "0x20000",
-}
 FIRMWARE_DIR = "/tmp/janos-firmware"
+
+# Board-specific flash profiles
+FLASH_BOARDS = {
+    "wroom": {
+        "label": "ESP32-C5 WROOM-1 (Dev Kit)",
+        "baud": 460800,
+        "before": "default_reset",
+        "bin_name": "projectZerobyLOCOSP.bin",
+        "offsets": {
+            "bootloader.bin": "0x2000",
+            "partition-table.bin": "0x8000",
+            "projectZerobyLOCOSP.bin": "0x20000",
+        },
+    },
+    "xiao": {
+        "label": "XIAO ESP32-C5 (Seeed Studio)",
+        "baud": 115200,
+        "before": "no_reset",
+        "bin_name": "projectZerobyLOCOSP-xiao.bin",
+        "offsets": {
+            "bootloader.bin": "0x2000",
+            "partition-table.bin": "0x8000",
+            "projectZerobyLOCOSP-xiao.bin": "0x20000",
+        },
+    },
+}
+
+# Legacy aliases (backward compat)
+FLASH_BAUD = FLASH_BOARDS["wroom"]["baud"]
+FLASH_OFFSETS = FLASH_BOARDS["wroom"]["offsets"]
 
 # GPS module (UART on uConsole)
 GPS_DEVICE = "/dev/ttyAMA0"

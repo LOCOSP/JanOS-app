@@ -14,13 +14,11 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError
 
 from .config import (
-    FLASH_BAUD, FLASH_CHIP, FLASH_MODE, FLASH_FREQ,
-    FLASH_OFFSETS, FIRMWARE_RELEASE_URL, FIRMWARE_DIR,
+    FLASH_CHIP, FLASH_MODE, FLASH_FREQ,
+    FLASH_BOARDS, FIRMWARE_RELEASE_URL, FIRMWARE_DIR,
 )
 
 log = logging.getLogger(__name__)
-
-REQUIRED_BINS = list(FLASH_OFFSETS.keys())
 
 
 class FlashManager:
@@ -33,20 +31,27 @@ class FlashManager:
         self.done = False
         self.success = False
         self._release_tag: str = ""
+        self._board: str = "wroom"
 
     def _emit(self, line: str, attr: str = "default") -> None:
         self.queue.put((line, attr))
 
-    def start(self, port: str, erase: bool = False) -> None:
+    def start(self, port: str, erase: bool = False,
+              board: str = "wroom") -> None:
         if self._thread and self._thread.is_alive():
             return
         self.done = False
         self.success = False
         self.running = True
+        self._board = board
         self._thread = threading.Thread(
             target=self._run, args=(port, erase), daemon=True,
         )
         self._thread.start()
+
+    @property
+    def _profile(self) -> dict:
+        return FLASH_BOARDS.get(self._board, FLASH_BOARDS["wroom"])
 
     # ------------------------------------------------------------------
     # Main flash pipeline (runs in background thread)
@@ -54,7 +59,20 @@ class FlashManager:
 
     def _run(self, port: str, erase: bool) -> None:
         try:
+            profile = self._profile
+            self._emit(f"Board: {profile['label']}", "dim")
             self._emit(f"Target port: {port}", "dim")
+
+            if self._board == "xiao":
+                self._emit("", "default")
+                self._emit(
+                    "XIAO: Hold BOOT + press RESET, then release BOOT.",
+                    "warning",
+                )
+                self._emit(
+                    "Device must be in bootloader mode (no auto-reset).",
+                    "warning",
+                )
 
             # Step 1: download firmware
             self._emit("Fetching latest firmware release...", "dim")
@@ -101,6 +119,7 @@ class FlashManager:
 
     def _download_firmware(self) -> Optional[str]:
         os.makedirs(FIRMWARE_DIR, exist_ok=True)
+        profile = self._profile
         try:
             # Fetch latest release metadata
             req = Request(FIRMWARE_RELEASE_URL)
@@ -112,11 +131,14 @@ class FlashManager:
             self._release_tag = tag
             self._emit(f"Latest release: {tag}", "success")
 
-            # Find firmware ZIP asset (projectZerobyLOCOSP-X.Y.Z.zip)
+            # Determine which ZIP to download based on board
+            zip_suffix = "-xiao" if self._board == "xiao" else ""
             zip_url = None
+            target_prefix = f"projectzerobylocosp{zip_suffix}"
+
             for asset in data.get("assets", []):
                 name = asset["name"].lower()
-                if name.startswith("projectzerobylocosp") \
+                if name.startswith(target_prefix) \
                         and name.endswith(".zip") \
                         and "fap" not in name and "with" not in name:
                     zip_url = asset["browser_download_url"]
@@ -127,7 +149,7 @@ class FlashManager:
                 ver = tag.lstrip("v")
                 zip_url = (
                     f"https://github.com/LOCOSP/projectZero/releases"
-                    f"/download/{tag}/projectZerobyLOCOSP-{ver}.zip"
+                    f"/download/{tag}/projectZerobyLOCOSP{zip_suffix}-{ver}.zip"
                 )
 
             self._emit(f"Downloading {os.path.basename(zip_url)}...", "dim")
@@ -163,8 +185,9 @@ class FlashManager:
                 zf.extractall(FIRMWARE_DIR)
 
             # Verify required files
+            required = list(profile["offsets"].keys())
             missing = [
-                f for f in REQUIRED_BINS
+                f for f in required
                 if not os.path.exists(os.path.join(FIRMWARE_DIR, f))
             ]
             if missing:
@@ -201,28 +224,31 @@ class FlashManager:
         return [sys.executable, "-m", "esptool"]
 
     def _erase_cmd(self, port: str) -> list:
+        profile = self._profile
         return [
             *self._esptool_prefix(),
-            "-p", port, "-b", str(FLASH_BAUD),
-            "--before", "default-reset",
+            "-p", port, "-b", str(profile["baud"]),
+            "--before", profile["before"],
             "--after", "no_reset",
             "--chip", FLASH_CHIP,
             "erase_flash",
         ]
 
     def _flash_cmd(self, port: str, fw_dir: str) -> list:
+        profile = self._profile
+        after = "no_reset" if self._board == "xiao" else "hard_reset"
         cmd = [
             *self._esptool_prefix(),
-            "-p", port, "-b", str(FLASH_BAUD),
-            "--before", "default-reset",
-            "--after", "hard_reset",
+            "-p", port, "-b", str(profile["baud"]),
+            "--before", profile["before"],
+            "--after", after,
             "--chip", FLASH_CHIP,
             "write_flash",
             "--flash-mode", FLASH_MODE,
             "--flash-freq", FLASH_FREQ,
             "--flash-size", "detect",
         ]
-        for filename, offset in FLASH_OFFSETS.items():
+        for filename, offset in profile["offsets"].items():
             cmd.extend([offset, os.path.join(fw_dir, filename)])
         return cmd
 

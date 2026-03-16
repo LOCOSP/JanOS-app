@@ -143,7 +143,7 @@ GPS provides:
 | `Shift+M` | Toggle Mobile Mode (hide sidebar for small screens) |
 | `Shift+P` | Toggle Private Mode (mask SSIDs, MACs, GPS, passwords) |
 | `9` | Stop all running operations |
-| `q` | Quit (confirmation prompt, sends stop to ESP32) |
+| `q` | Quit (confirmation prompt, stops ESP32, restores WiFi from monitor mode) |
 
 #### Tab 1: Scan
 | Key | Action |
@@ -179,7 +179,7 @@ GPS provides:
 | Key | Action |
 |-----|--------|
 | `1`-`7` | WiFi attacks (deauth, blackout, SAE overflow, handshake, portal, evil twin) |
-| `d` | Dragon Drain — WPA3 SAE Commit flood DoS (requires monitor mode adapter) |
+| `d` | Dragon Drain — WPA3 SAE Commit flood DoS (auto-enables monitor mode, scans for WPA3 APs) |
 | `m` | MITM — ARP spoofing man-in-the-middle (requires network adapter) |
 | `b` | BLE Scan — discover Bluetooth LE devices |
 | `t` | BT Tracker — track specific BLE device by MAC |
@@ -217,7 +217,7 @@ GPS provides:
 ### Features
 
 - **5-tab interface** — Scan, Sniffers, Attacks, Add-ons, Map
-- **Sidebar panel** — ASCII logo, version, device status, runtime, GPS, loot counters (PCAP, HCCAPX, 22K, PWD, ET), wardriving WiFi/BT split, MeshCore nodes/msgs, BT devices, WiGLE user stats, AIO v2 status, animated creature
+- **Sidebar panel** — ASCII logo, version, ESP32 device status, WiFi adapter(s) with driver/mode, runtime, GPS, loot counters (PCAP, HCCAPX, 22K, PWD, ET), wardriving WiFi/BT split, MeshCore nodes/msgs, BT devices, WiGLE user stats, AIO v2 status, animated creature
 - **Header bar** — CPU temperature, RAM usage, load average, battery status (percent + voltage)
 - **Creature animation** — ASCII art pet that reacts to app state (scanning, sniffing, attacking, BT hunting, LoRa listening, wardriving)
 - **Mobile Mode** — `Shift+M` hides sidebar for small screens (SSH from phone, narrow terminals)
@@ -228,7 +228,7 @@ GPS provides:
   - **[2] Wardriving BT** — continuous BLE scan with GPS geo-tagging, dedup by MAC, saved to same WiGLE CSV with Type=BLE
   - **[3] Packet Sniffer** — live packet counter, AP/client results, probe requests
 - **Attacks** — deauth, blackout, WPA3 SAE overflow, handshake capture, captive portal, evil twin, BLE scan, BT tracker, AirTag scanner — all in one tab
-- **Dragon Drain** — WPA3 SAE Commit flood DoS (CVE-2019-9494), sends spoofed authentication frames with random ECC payloads to overwhelm AP computation. Requires external WiFi adapter in monitor mode
+- **Dragon Drain** — WPA3 SAE Commit flood DoS (CVE-2019-9494), sends spoofed authentication frames with random ECC payloads to overwhelm AP computation. Auto-detects WiFi adapter, enables monitor mode, scans for WPA3 APs (10s beacon sniff), lets you pick target from list
 - **MITM** — ARP spoofing man-in-the-middle with live DNS/HTTP/credential capture and pcap logging. Supports single target, subnet scan, or all-devices mode. Auto-restores ARP tables on stop
 - **Bluetooth** — BLE Scan (device discovery), BT Tracker (follow specific MAC), AirTag Scanner (Apple AirTags + Samsung SmartTags) — with GPS geo-tagged loot
 - **Handshake Serial PCAP** — capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
@@ -237,8 +237,10 @@ GPS provides:
 - **Map tab** — vector world map rendered with Unicode braille characters, plots all GPS-tagged loot (handshakes=red, WiFi=green, BT=cyan, MeshCore=yellow), pan/zoom navigation, auto-hides sidebar for full width
 - **Custom Captive Portals** — load custom HTML portal pages from `portals/` folder, send to ESP32 via chunked base64 serial transfer
 - **Add-ons** — Flash ESP32 firmware, AIO v2 GPIO control (GPS/LORA/SDR/USB), LoRa tools (sniffer, scanner, balloon tracker, MeshCore, Meshtastic)
+- **Startup checks** — verifies ESP32, WiFi adapters (driver/chipset/monitor mode), scapy, GPS, AIO v2 availability
 - **Auto-update** — checks GitHub for app + firmware updates on startup
 - **Crash detection** — automatic firmware crash alert overlay with state reset
+- **Device reconnect** — auto-detects ESP32 disconnect, shows reconnect dialog, polls for USB device every 2s
 - **Serial event loop** — urwid `watch_file()` for non-blocking serial I/O
 - **Loot system** — all captured data auto-saved to disk with GPS geo-tagging
 

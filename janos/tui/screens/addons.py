@@ -10,6 +10,7 @@ from ...serial_manager import SerialManager
 from ...flash_manager import FlashManager
 from ...aio_manager import AioManager
 from ...lora_manager import LoRaManager
+from ...config import FLASH_BOARDS
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 
@@ -21,6 +22,38 @@ class _AddonItem(urwid.WidgetWrap):
         else:
             text = urwid.Text(("default", f"  [{key}] {label}"))
         super().__init__(text)
+
+
+class _BoardPickerDialog(urwid.WidgetWrap):
+    """Pick board variant for flashing. Calls callback(board_key) or callback(None)."""
+
+    def __init__(self, callback) -> None:
+        self._callback = callback
+        lines = [
+            ("dialog_title", "\n  Select target board:\n\n"),
+        ]
+        for i, (key, profile) in enumerate(FLASH_BOARDS.items(), 1):
+            lines.append(("default", f"  [{i}] {profile['label']}\n"))
+        lines.append(("dim", "\n  [Esc] Cancel\n"))
+        text = urwid.Text(lines, align="left")
+        fill = urwid.Filler(text, valign="middle")
+        box = urwid.LineBox(fill, title="Board")
+        widget = urwid.AttrMap(box, "dialog")
+        super().__init__(widget)
+        self._keys = list(FLASH_BOARDS.keys())
+
+    def keypress(self, size, key):
+        if key == "esc":
+            self._callback(None)
+            return None
+        for i, board_key in enumerate(self._keys, 1):
+            if key == str(i):
+                self._callback(board_key)
+                return None
+        return key
+
+    def selectable(self) -> bool:
+        return True
 
 
 class AddOnsScreen(urwid.WidgetWrap):
@@ -213,20 +246,37 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._status.set_text(("warning", "  Flash already in progress"))
             return
 
+        # Step 1: pick board
+        dialog = _BoardPickerDialog(self._on_board_picked)
+        self._app.show_overlay(dialog, 52, 11)
+
+    def _on_board_picked(self, board: str | None) -> None:
+        self._app.dismiss_overlay()
+        if board is None:
+            return
+
+        # Step 2: confirm flash
+        profile = FLASH_BOARDS[board]
+        hint = ""
+        if board == "xiao":
+            hint = "\nXIAO: Hold BOOT + press RESET first!"
+        else:
+            hint = "\nesptool will auto-reset into bootloader."
+
         def on_confirm(yes: bool) -> None:
             self._app.dismiss_overlay()
             if yes:
-                self._begin_flash()
+                self._begin_flash(board=board)
 
         dialog = ConfirmDialog(
-            "Flash ESP32-C5 with latest firmware?\n"
-            "Serial will disconnect during flash.\n"
-            "esptool will auto-reset into bootloader.",
+            f"Flash {profile['label']}?\n"
+            f"Serial will disconnect during flash.{hint}",
             on_confirm,
         )
-        self._app.show_overlay(dialog, 50, 10)
+        self._app.show_overlay(dialog, 52, 11)
 
-    def _begin_flash(self, erase: bool = False) -> None:
+    def _begin_flash(self, board: str = "wroom",
+                     erase: bool = False) -> None:
         self._flashing = True
         self.state.flashing = True
         self._log.clear()
@@ -245,7 +295,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._log.append(f"Serial port {port} released.", "dim")
             self._log.append("", "default")
 
-        self._flash.start(port=port, erase=erase)
+        self._flash.start(port=port, erase=erase, board=board)
 
     # ------------------------------------------------------------------
     # Serial reconnect (after flash)

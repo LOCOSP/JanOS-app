@@ -92,6 +92,9 @@ class JanOSTUI:
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.loot = LootManager(app_dir, gps_manager=self.gps)
 
+        # Reset USB hub at startup (fixes XIAO re-enumeration on uConsole)
+        self._reset_usb_hub_if_needed()
+
         # Connect serial — auto-detect port if not specified
         if not device:
             from ..serial_manager import list_usb_serial_devices
@@ -789,6 +792,29 @@ class JanOSTUI:
                         pass
         except Exception:
             pass
+
+    @staticmethod
+    def _reset_usb_hub_if_needed() -> None:
+        """Reset USB hub to fix device re-enumeration (e.g. XIAO on uConsole).
+
+        Some USB hubs (QinHeng CH9102) fail to re-enumerate devices after
+        a flash cycle or reset.  Toggling the hub's sysfs 'authorized'
+        attribute forces re-enumeration without a full system reboot.
+        Only runs on Linux when the sysfs path exists.
+        """
+        hub_auth = "/sys/bus/usb/devices/1-1/authorized"
+        if not os.path.exists(hub_auth):
+            return
+        try:
+            with open(hub_auth, "w") as f:
+                f.write("0")
+            time.sleep(2)
+            with open(hub_auth, "w") as f:
+                f.write("1")
+            time.sleep(3)
+            log.info("USB hub reset complete")
+        except Exception as exc:
+            log.debug("USB hub reset skipped: %s", exc)
 
     def run(self) -> None:
         self._loop.run()

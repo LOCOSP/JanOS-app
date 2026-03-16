@@ -73,6 +73,14 @@ class AppState:
     evil_twin_client_count: int = 0
     evil_twin_log: List[str] = field(default_factory=list)
 
+    # Dragon Drain
+    dragon_drain_running: bool = False
+    dragon_drain_frames: int = 0
+
+    # MITM
+    mitm_running: bool = False
+    mitm_packets: int = 0
+
     # Bluetooth
     bt_wardriving_running: bool = False
     bt_wardriving_devices: int = 0
@@ -134,6 +142,8 @@ class AppState:
             self.bt_scan_running,
             self.bt_tracking_running,
             self.bt_airtag_running,
+            self.dragon_drain_running,
+            self.mitm_running,
         ])
 
     def stop_all(self) -> None:
@@ -152,6 +162,8 @@ class AppState:
         self.bt_tracking_running = False
         self.bt_tracking_mac = ""
         self.bt_airtag_running = False
+        self.dragon_drain_running = False
+        self.mitm_running = False
 
     def reset_sniffer(self) -> None:
         self.sniffer_running = False

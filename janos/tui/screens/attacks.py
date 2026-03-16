@@ -43,8 +43,13 @@ BT_ATTACKS = [
     ("a", "AirTag Scanner",          CMD_SCAN_AIRTAG,             "bt_airtag_running"),
 ]
 
+ADVANCED_ATTACKS = [
+    ("d", "Dragon Drain (WPA3 DoS)", None,                        "dragon_drain_running"),
+    ("m", "MITM (ARP Spoofing)",     None,                        "mitm_running"),
+]
+
 # Combined for flag iteration
-ALL_ATTACKS = WIFI_ATTACKS + BT_ATTACKS
+ALL_ATTACKS = WIFI_ATTACKS + BT_ATTACKS + ADVANCED_ATTACKS
 
 
 class AttackItem(urwid.WidgetWrap):
@@ -64,14 +69,17 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def __init__(self, state: AppState, serial: SerialManager, app,
                  loot: LootManager | None = None,
-                 portal=None, evil_twin=None) -> None:
+                 portal=None, evil_twin=None,
+                 dragon_drain=None, mitm=None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
         self._loot = loot
         self._portal = portal
         self._evil_twin = evil_twin
-        self._sub_screen = None  # active sub-screen (Portal/EvilTwin) or None
+        self._dragon_drain = dragon_drain
+        self._mitm = mitm
+        self._sub_screen = None  # active sub-screen or None
 
         # Handshake auto-rescan state (cycle when no network selected)
         self._hs_cmd_running: str = ""      # which HS command is active
@@ -90,7 +98,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [9]Stop all  [x]Clear"))
+        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         log_label = urwid.AttrMap(
@@ -98,7 +106,7 @@ class AttacksScreen(urwid.WidgetWrap):
         )
 
         self._menu_view = urwid.Pile([
-            ("fixed", 13, self._listbox),
+            ("fixed", 16, self._listbox),
             ("pack", log_label),
             self._log,
             ("pack", urwid.Divider("─")),
@@ -153,6 +161,11 @@ class AttacksScreen(urwid.WidgetWrap):
         for key, label, cmd, flag in BT_ATTACKS:
             active = getattr(self.state, flag, False)
             self._walker.append(AttackItem(key, label, active))
+        # Advanced section (Python-native, no ESP32)
+        self._walker.append(urwid.Text(("dim", "  ── Advanced ──")))
+        for key, label, cmd, flag in ADVANCED_ATTACKS:
+            active = getattr(self.state, flag, False)
+            self._walker.append(AttackItem(key, label, active))
 
     def _update_status(self) -> None:
         sel = self.state.selected_networks
@@ -182,10 +195,10 @@ class AttacksScreen(urwid.WidgetWrap):
             )
         elif sel:
             wpasec = "  [u]WPA-sec" if wpasec_configured() else ""
-            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [9]Stop  [x]Clear{wpasec}"))
+            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear{wpasec}"))
         else:
             wpasec = "  [u]WPA-sec" if wpasec_configured() else ""
-            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [9]Stop all  [x]Clear{wpasec}"))
+            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear{wpasec}"))
 
     def handle_serial_line(self, line: str) -> None:
         """Route serial data to appropriate handler."""
@@ -418,6 +431,11 @@ class AttacksScreen(urwid.WidgetWrap):
             self._enter_sub_screen(self._evil_twin)
             return
 
+        # ESP32 attacks require serial connection
+        if not self.state.connected:
+            self._status.set_text(("error", "  ESP32 not connected — use [d/m] Advanced attacks"))
+            return
+
         # Handshake modes can work without selection (auto-rescan)
         is_handshake = cmd in (CMD_START_HANDSHAKE, CMD_START_HANDSHAKE_SERIAL)
         serial_mode = (cmd == CMD_START_HANDSHAKE_SERIAL)
@@ -497,6 +515,9 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _start_bt_scan(self) -> None:
         """Start one-time BLE scan (10s). No confirmation needed."""
+        if not self.state.connected:
+            self._status.set_text(("error", "  ESP32 not connected"))
+            return
         if self.state.bt_scan_running:
             return
         # Stop any running operation first
@@ -513,6 +534,9 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _start_bt_tracker(self) -> None:
         """Show MAC input dialog, then start BLE tracking."""
+        if not self.state.connected:
+            self._status.set_text(("error", "  ESP32 not connected"))
+            return
         def on_input(mac: str) -> None:
             self._app.dismiss_overlay()
             mac = mac.strip().upper()
@@ -542,6 +566,9 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _start_bt_airtag(self) -> None:
         """Start continuous AirTag/SmartTag scanner."""
+        if not self.state.connected:
+            self._status.set_text(("error", "  ESP32 not connected"))
+            return
         if self.state.bt_airtag_running:
             return
 
@@ -590,7 +617,13 @@ class AttacksScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def _stop_all(self) -> None:
-        self.serial.send_command(CMD_STOP)
+        if self.serial:
+            self.serial.send_command(CMD_STOP)
+        # Stop Python-native attacks
+        if self._dragon_drain and hasattr(self._dragon_drain, '_stop'):
+            self._dragon_drain._stop()
+        if self._mitm and hasattr(self._mitm, '_stop'):
+            self._mitm._stop()
         self.state.stop_all()
         self._reset_hs_rescan()
         self._log.append(">>> All attacks STOPPED", "warning")
@@ -624,6 +657,14 @@ class AttacksScreen(urwid.WidgetWrap):
             return None
         if key == "a":
             self._start_bt_airtag()
+            return None
+
+        # Advanced attacks (Python-native, no ESP32)
+        if key == "d" and self._dragon_drain:
+            self._enter_sub_screen(self._dragon_drain)
+            return None
+        if key == "m" and self._mitm:
+            self._enter_sub_screen(self._mitm)
             return None
 
         # WPA-sec upload

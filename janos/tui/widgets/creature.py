@@ -386,6 +386,56 @@ _FRAMES = {
         ),
     ],
 
+    # ── Dragon Drain: fire/flood ─────────────────────────────────────
+    "dragon_drain": [
+        (
+            "  ┌─────┐\n"
+            "  │ >_< │≋⚡≋\n"
+            "  └┤/|\\├┘\n"
+            "   ┘   └",
+            "error",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ x_x │ ≋⚡\n"
+            "  └┤\\|/├┘\n"
+            "   ┘   └",
+            "error",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ >_> │⚡≋⚡\n"
+            "  └┤/|\\├┘\n"
+            "   ┘   └",
+            "error",
+        ),
+    ],
+
+    # ── MITM: intercepting traffic ───────────────────────────────────
+    "mitm": [
+        (
+            "  ┌─────┐\n"
+            "  │ •_• │←·→\n"
+            "  └┤/Y\\├┘\n"
+            "   ┘   └",
+            "attack_active",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ •.• │·←→·\n"
+            "  └┤/Y\\├┘\n"
+            "   ┘   └",
+            "attack_active",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ •_• │←··→\n"
+            "  └┤/Y\\├┘\n"
+            "   ┘   └",
+            "attack_active",
+        ),
+    ],
+
     # ── LoRa: radio waves ──────────────────────────────────────────────
     "lora": [
         (
@@ -431,6 +481,10 @@ def get_creature_state(state) -> str:
         return "blackout"
     if state.sae_overflow_running:
         return "sae_overflow"
+    if state.dragon_drain_running:
+        return "dragon_drain"
+    if state.mitm_running:
+        return "mitm"
     if state.attack_running:
         return "deauth"
     if state.flashing:

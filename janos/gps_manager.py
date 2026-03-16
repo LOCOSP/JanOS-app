@@ -51,6 +51,9 @@ class _LineBuffer:
 class GpsManager:
     """Manage a UART GPS receiver via pyserial + urwid watch_file."""
 
+    # True when user explicitly set JANOS_GPS_DEVICE env var
+    _user_configured = bool(os.environ.get("JANOS_GPS_DEVICE"))
+
     def __init__(self, device: str = GPS_DEVICE,
                  baud: int = GPS_BAUD_RATE) -> None:
         self.device = device
@@ -71,17 +74,48 @@ class GpsManager:
 
     def setup(self) -> bool:
         """Try to open GPS serial port. Returns True on success.
-        If configured device doesn't exist, auto-detect USB GPS.
+        If user set JANOS_GPS_DEVICE, use that directly.
+        Otherwise probe default path for NMEA, then auto-detect USB GPS.
         Never raises — GPS is optional."""
         device = self.device
+
+        if self._user_configured:
+            # User explicitly set env var — trust it
+            if self._try_open(device):
+                return True
+            log.info("GPS device %s (from env) not available — GPS disabled",
+                     device)
+            return False
+
+        # No env var — probe default path, then auto-detect
+        if os.path.exists(device) and self._probe_nmea(device, self._baud):
+            if self._try_open(device):
+                return True
+
+        log.info("GPS not on %s, scanning for USB GPS...", device)
+        detected = self._auto_detect(exclude={device})
+        if detected:
+            self.device = detected
+            if self._try_open(detected):
+                return True
+        log.info("No GPS found — GPS disabled")
+        return False
+
+    @staticmethod
+    def _probe_nmea(device: str, baud: int) -> bool:
+        """Quick check if a serial port outputs NMEA sentences."""
+        try:
+            conn = serial.Serial(port=device, baudrate=baud, timeout=2)
+            data = conn.read(512)
+            conn.close()
+            return b"$GP" in data or b"$GN" in data
+        except Exception:
+            return False
+
+    def _try_open(self, device: str) -> bool:
+        """Try to open a serial port as GPS. Returns True on success."""
         if not os.path.exists(device):
-            detected = self._auto_detect()
-            if detected:
-                device = detected
-                self.device = device
-            else:
-                log.info("GPS device %s not found — GPS disabled", self.device)
-                return False
+            return False
         if not os.access(device, os.R_OK):
             log.warning("No read access to %s", device)
             return False
@@ -96,20 +130,21 @@ class GpsManager:
             log.info("GPS opened: %s @ %d baud", device, self._baud)
             return True
         except Exception as exc:
-            log.warning("GPS setup failed: %s", exc)
-            self._available = False
+            log.debug("GPS open failed on %s: %s", device, exc)
             return False
 
     @staticmethod
-    def _auto_detect() -> Optional[str]:
-        """Scan common serial paths for a GPS device."""
+    def _auto_detect(exclude: Optional[set] = None) -> Optional[str]:
+        """Scan common serial paths for a GPS device (NMEA probe)."""
+        skip = exclude or set()
         candidates = sorted(
             glob.glob("/dev/ttyUSB*")
             + glob.glob("/dev/ttyACM*")
             + glob.glob("/dev/ttyAMA*")
-            + glob.glob("/dev/ttyS*")
         )
         for path in candidates:
+            if path in skip:
+                continue
             if not os.access(path, os.R_OK):
                 continue
             try:
@@ -119,6 +154,7 @@ class GpsManager:
                 if b"$GP" in data or b"$GN" in data:
                     log.info("GPS auto-detected on %s", path)
                     return path
+                log.debug("GPS probe %s — no NMEA data", path)
             except Exception:
                 continue
         return None

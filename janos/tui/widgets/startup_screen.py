@@ -1,9 +1,27 @@
 """Startup check dialog — shows dependency and device status on launch."""
 
+import shutil
 import subprocess
 import sys
 
 import urwid
+
+
+def _which(tool: str) -> bool:
+    """Check if a system tool is available on PATH."""
+    return shutil.which(tool) is not None
+
+
+def _apt_install(package: str) -> bool:
+    """Try to install a system package via apt-get. Returns True on success."""
+    try:
+        subprocess.check_call(
+            ["apt-get", "install", "-y", "-qq", package],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        return False
 
 
 class StartupScreen(urwid.WidgetWrap):
@@ -113,6 +131,20 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
         checks.append(("ok", "scapy (Dragon Drain / MITM)"))
     except ImportError:
         checks.append(("info", "scapy not installed — pip install scapy"))
+
+    # System tool checks — auto-install if missing
+    for tool, apt_pkg, purpose in [
+        ("tcpdump", "tcpdump", "MITM pcap capture"),
+        ("airmon-ng", "aircrack-ng", "Dragon Drain monitor mode"),
+    ]:
+        if _which(tool):
+            checks.append(("ok", f"{tool} ({purpose})"))
+        else:
+            installed = _apt_install(apt_pkg)
+            if installed:
+                checks.append(("ok", f"{tool} (just installed)"))
+            else:
+                checks.append(("info", f"{tool} not found — apt install {apt_pkg}"))
 
     # WiFi interfaces — show all with driver/chipset (like wifite)
     try:

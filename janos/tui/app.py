@@ -92,12 +92,19 @@ class JanOSTUI:
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.loot = LootManager(app_dir, gps_manager=self.gps)
 
-        # Connect serial
+        # Connect serial — auto-detect port if not specified
+        if not device:
+            from ..serial_manager import detect_esp32_port
+            detected = detect_esp32_port()
+            if detected:
+                log.info("Auto-detected ESP32 on %s", detected)
+                self.serial.device = detected
+                self.state.device = detected
         try:
             self.serial.setup()
             self.state.connected = True
         except Exception as exc:
-            log.error("Serial setup failed: %s", exc)
+            log.info("Serial: %s", exc)
             self.state.connected = False
 
         # Load saved firmware version (from last flash) so sidebar shows it

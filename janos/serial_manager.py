@@ -4,13 +4,63 @@ import os
 import sys
 import time
 import logging
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Tuple
 
 import serial
+import serial.tools.list_ports
 
 from .config import BAUD_RATE, READ_TIMEOUT, SCAN_TIMEOUT, CRASH_KEYWORDS
 
 log = logging.getLogger(__name__)
+
+# Known USB VID:PID pairs for ESP32 USB-UART bridges
+_ESP32_VID_PIDS: List[Tuple[int, int]] = [
+    (0x10C4, 0xEA60),  # CP210x (Silicon Labs) — CP2102N on ESP32 devkits
+    (0x1A86, 0x7523),  # CH340/CH341 (WCH) — common cheap ESP32 boards
+    (0x1A86, 0x55D4),  # CH9102 (WCH) — newer variant
+    (0x0403, 0x6001),  # FTDI FT232R
+    (0x0403, 0x6015),  # FTDI FT231X
+    (0x303A, 0x1001),  # Espressif native USB-JTAG (ESP32-S3/C3/C6/C5)
+    (0x303A, 0x4001),  # Espressif native USB-CDC (ESP32-S2)
+]
+
+
+def detect_esp32_port() -> Optional[str]:
+    """Auto-detect ESP32 serial port by scanning USB VID/PID.
+
+    Checks /dev/ttyUSB0-3 and /dev/ttyACM0-3 for known ESP32 USB-UART
+    bridge chips. Returns the first matching port, or None.
+    """
+    try:
+        ports = serial.tools.list_ports.comports()
+    except Exception:
+        return None
+
+    # Filter ports by known ESP32 USB-UART VIDs/PIDs
+    candidates = []
+    for port in ports:
+        if port.vid is not None and port.pid is not None:
+            if (port.vid, port.pid) in _ESP32_VID_PIDS:
+                candidates.append(port)
+                log.info(
+                    "ESP32 candidate: %s [%04X:%04X] %s",
+                    port.device, port.vid, port.pid,
+                    port.description or "",
+                )
+
+    if not candidates:
+        # Fallback: check if any ttyUSB/ttyACM devices exist
+        for pattern in ["/dev/ttyUSB", "/dev/ttyACM"]:
+            for i in range(4):
+                dev = f"{pattern}{i}"
+                if os.path.exists(dev):
+                    log.info("ESP32 fallback candidate: %s (no VID/PID)", dev)
+                    return dev
+        return None
+
+    # Prefer ttyUSB over ttyACM, lower number first
+    candidates.sort(key=lambda p: p.device)
+    return candidates[0].device
 
 
 class SerialLineBuffer:

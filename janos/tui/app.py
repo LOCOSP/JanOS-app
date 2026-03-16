@@ -761,10 +761,29 @@ class JanOSTUI:
             time.sleep(0.1)
         except Exception:
             pass
+        # Restore WiFi adapters from monitor mode
+        self._restore_wifi_monitor()
         self.loot.close()
         self.gps.close()
         self.serial.close()
         raise urwid.ExitMainLoop()
+
+    def _restore_wifi_monitor(self) -> None:
+        """Run airmon-ng stop on any monitor mode interfaces."""
+        import subprocess
+        try:
+            from ..serial_manager import list_wifi_interfaces
+            for iface, mode, _drv, _chip in list_wifi_interfaces():
+                if mode == "monitor":
+                    try:
+                        subprocess.run(
+                            ["sudo", "airmon-ng", "stop", iface],
+                            capture_output=True, timeout=10,
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def run(self) -> None:
         self._loop.run()

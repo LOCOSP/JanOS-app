@@ -56,7 +56,7 @@ class DragonDrainScreen(urwid.WidgetWrap):
                         "  Requirements:\n"
                         "  - External WiFi adapter (e.g. Alfa)\n"
                         "  - Monitor mode (auto-enabled)\n\n"
-                        "  Press [s] to start")),
+                        "  Press [s] to scan for WPA3 APs & start")),
         ]))
         self._body = urwid.WidgetPlaceholder(self._idle_view)
 
@@ -378,8 +378,148 @@ class DragonDrainScreen(urwid.WidgetWrap):
                 2, check_adapter
             )
 
+    # ------------------------------------------------------------------
+    # AP Scanning
+    # ------------------------------------------------------------------
+
     def _ask_bssid(self) -> None:
-        """Ask for target BSSID."""
+        """Scan for WPA3 APs, then let user pick or enter manually."""
+        # First detect which monitor interface to use for scanning
+        ifaces = self._detect_monitor_ifaces()
+        if not ifaces:
+            self._manual_bssid_input()
+            return
+        scan_iface = ifaces[0]
+        self._log.clear()
+        self._body.original_widget = self._log
+        self._log.append(
+            f">>> Scanning for WPA3 APs on {scan_iface} (10s)...", "warning"
+        )
+
+        self._scan_results: dict[str, tuple[str, int, int]] = {}  # bssid -> (ssid, channel, rssi)
+        self._scan_stop = False
+
+        def scan_thread():
+            try:
+                from scapy.all import sniff, Dot11, Dot11Beacon, Dot11Elt, RadioTap
+            except ImportError:
+                self._log.append("ERROR: scapy not installed", "error")
+                return
+
+            def process_pkt(pkt):
+                if self._scan_stop:
+                    return
+                if not pkt.haslayer(Dot11Beacon):
+                    return
+                bssid = pkt[Dot11].addr3
+                if not bssid:
+                    return
+                bssid = bssid.upper()
+
+                # Extract SSID
+                ssid = ""
+                elt = pkt.getlayer(Dot11Elt)
+                while elt:
+                    if elt.ID == 0 and elt.info:  # SSID
+                        try:
+                            ssid = elt.info.decode("utf-8", errors="replace")
+                        except Exception:
+                            ssid = elt.info.hex()
+                    elt = elt.payload.getlayer(Dot11Elt) if elt.payload else None
+
+                # Check for SAE/WPA3 in RSN IE (ID=48)
+                is_wpa3 = False
+                elt = pkt.getlayer(Dot11Elt)
+                while elt:
+                    if elt.ID == 48 and elt.info:  # RSN Information Element
+                        raw = bytes(elt.info)
+                        # AKM suite type 8 = SAE, type 24 = SAE-EXT
+                        # AKM suites start after pairwise cipher suites
+                        # Quick check: look for 00-0F-AC-08 anywhere in RSN IE
+                        if (b'\x00\x0f\xac\x08' in raw or
+                                b'\x00\x0f\xac\x18' in raw):
+                            is_wpa3 = True
+                    elt = elt.payload.getlayer(Dot11Elt) if elt.payload else None
+
+                # Get RSSI from RadioTap
+                rssi = -100
+                if pkt.haslayer(RadioTap):
+                    try:
+                        rssi = int(pkt[RadioTap].dBm_AntSignal)
+                    except Exception:
+                        pass
+
+                # Get channel from DS Parameter Set (ID=3)
+                channel = 0
+                elt = pkt.getlayer(Dot11Elt)
+                while elt:
+                    if elt.ID == 3 and elt.info:
+                        channel = elt.info[0]
+                    elt = elt.payload.getlayer(Dot11Elt) if elt.payload else None
+
+                if is_wpa3:
+                    if bssid not in self._scan_results or rssi > self._scan_results[bssid][2]:
+                        self._scan_results[bssid] = (ssid, channel, rssi)
+
+            try:
+                sniff(
+                    iface=scan_iface,
+                    prn=process_pkt,
+                    timeout=10,
+                    store=0,
+                )
+            except Exception as e:
+                self._log.append(f"  Scan error: {e}", "error")
+
+            # Show results on main thread
+            if hasattr(self._app, '_loop') and self._app._loop:
+                self._app._loop.set_alarm_in(0, lambda *_: self._show_scan_results())
+
+        threading.Thread(target=scan_thread, daemon=True).start()
+
+    def _show_scan_results(self) -> None:
+        """Display scan results and let user pick an AP."""
+        results = self._scan_results
+        if not results:
+            self._log.append("  No WPA3 APs found", "warning")
+            self._log.append("  You can enter BSSID manually", "dim")
+            self._manual_bssid_input()
+            return
+
+        self._log.append(f"  Found {len(results)} WPA3 AP(s):", "success")
+        # Sort by RSSI (strongest first)
+        sorted_aps = sorted(results.items(), key=lambda x: x[1][2], reverse=True)
+        for bssid, (ssid, ch, rssi) in sorted_aps:
+            display_ssid = ssid if ssid else "<hidden>"
+            self._log.append(
+                f"    {bssid}  {display_ssid}  CH:{ch}  {rssi}dBm", "dim"
+            )
+
+        from ..widgets.file_picker import FilePicker
+        labels = []
+        bssids = []
+        for bssid, (ssid, ch, rssi) in sorted_aps:
+            display_ssid = ssid if ssid else "<hidden>"
+            labels.append(f"{display_ssid}  {bssid}  CH:{ch}  {rssi}dBm")
+            bssids.append(bssid)
+        labels.append("── Enter BSSID manually ──")
+
+        def on_pick(idx, name):
+            self._app.dismiss_overlay()
+            if idx < 0:
+                return
+            if idx == len(bssids):
+                # Manual entry
+                self._manual_bssid_input()
+                return
+            self._target_bssid = bssids[idx]
+            self._pick_interface()
+
+        picker = FilePicker(labels, on_pick, title="Select WPA3 target:")
+        self._app.show_overlay(picker, 62, min(len(labels) + 6, 16))
+
+    def _manual_bssid_input(self) -> None:
+        """Fallback: manually enter BSSID."""
         def on_input(bssid) -> None:
             self._app.dismiss_overlay()
             if bssid is None:

@@ -3,3 +3,5 @@ pyserial>=3.5
 LoRaRF>=1.4.0
 esptool>=4.0
 scapy>=2.5.0
+cryptography
+requests

@@ -8,8 +8,12 @@ Hardware: SX1262 on /dev/spidev1.0
   DIO2 as RF switch, DIO3 TCXO voltage
 """
 
+import hashlib
+import hmac
 import logging
+import os
 import re
+import struct
 import threading
 import time
 from queue import Queue
@@ -102,6 +106,8 @@ class LoRaManager:
         self._seen_packets: dict[bytes, float] = {}  # hash→timestamp
         self._on_node = None   # callback(node_id, type, name, lat, lon, rssi, snr)
         self._on_message = None  # callback(channel, message, rssi)
+        self._tx_queue: Queue = Queue()  # MeshCore TX packets
+        self._mc_keypair = None  # cached Ed25519 keypair
 
     def _emit(self, line: str, attr: str = "default") -> None:
         self.queue.put((line, attr))
@@ -252,6 +258,9 @@ class LoRaManager:
                                 handler(lora, tag)
                         elif irq & (lora.IRQ_CRC_ERR | lora.IRQ_HEADER_ERR):
                             lora.clearIrqStatus(0x03FF)
+                        # Check TX queue between RX polls
+                        if not self._tx_queue.empty():
+                            self._do_tx(lora)
                         errors = 0
                         continue
                     else:
@@ -839,6 +848,157 @@ class LoRaManager:
             )
         except Exception as exc:
             self._emit(f"  [{ch_label}] decrypt err: {exc}", "warning")
+
+    # ------------------------------------------------------------------
+    # MeshCore TX — send group text and advertisements
+    # ------------------------------------------------------------------
+
+    def send_meshcore_message(self, text: str, node_name: str) -> None:
+        """Queue a MeshCore public group text for transmission."""
+        if not self.running or self.mode != "meshcore":
+            self._emit("  MeshCore not running — start sniffer first", "warning")
+            return
+        packet = self._build_mc_group_text(text, node_name)
+        self._tx_queue.put(packet)
+
+    def send_meshcore_advert(self, node_name: str,
+                             lat: float = 0.0, lon: float = 0.0) -> None:
+        """Queue a MeshCore advertisement for transmission."""
+        if not self.running or self.mode != "meshcore":
+            self._emit("  MeshCore not running — start sniffer first", "warning")
+            return
+        packet = self._build_mc_advert(node_name, lat, lon)
+        self._tx_queue.put(packet)
+
+    def _build_mc_group_text(self, text: str, node_name: str) -> bytes:
+        """Build MeshCore Group Text packet (type 0x05, TFlood)."""
+        from cryptography.hazmat.primitives.ciphers import (
+            Cipher, algorithms, modes,
+        )
+
+        # Plaintext: timestamp(4B LE) + flags(1B) + "name: msg\x00"
+        timestamp = int(time.time())
+        flags = 0x00  # text type=0, attempt=0
+        msg = f"{node_name}: {text}\x00".encode("utf-8")
+        plaintext = struct.pack("<I", timestamp) + bytes([flags]) + msg
+
+        # Pad to 16-byte boundary
+        pad_len = (16 - len(plaintext) % 16) % 16
+        plaintext_padded = plaintext + b"\x00" * pad_len
+
+        # AES-128-ECB encrypt
+        cipher = Cipher(algorithms.AES(MESHCORE_PUBLIC_PSK), modes.ECB())
+        enc = cipher.encryptor()
+        ciphertext = enc.update(plaintext_padded) + enc.finalize()
+
+        # MAC: HMAC-SHA256(PSK, ciphertext) truncated to 2 bytes
+        mac = hmac.new(
+            MESHCORE_PUBLIC_PSK, ciphertext, hashlib.sha256,
+        ).digest()[:2]
+
+        # Payload: channel_hash + mac + ciphertext
+        payload = bytes([MESHCORE_PUBLIC_HASH]) + mac + ciphertext
+
+        # Packet: header + transport_codes(4B) + path_byte + payload
+        header = 0x14  # (0<<6)|(0x05<<2)|0x00 = TFlood GrpTxt
+        return bytes([header]) + b"\x00\x00\x00\x00" + b"\x00" + payload
+
+    def _build_mc_advert(self, node_name: str,
+                         lat: float = 0.0, lon: float = 0.0) -> bytes:
+        """Build MeshCore Advertisement packet (type 0x04, Flood)."""
+        privkey, pubkey_bytes = self._get_ed25519_keypair()
+
+        timestamp = int(time.time())
+        ts_bytes = struct.pack("<I", timestamp)
+
+        # Appdata: flags + optional GPS + name
+        flags = 0x01  # Chat node type
+        flags |= 0x80  # has name
+        has_gps = lat != 0.0 or lon != 0.0
+        if has_gps:
+            flags |= 0x08  # has GPS (bit 3, matches our RX decoder)
+        appdata = bytes([flags])
+        if has_gps:
+            appdata += struct.pack("<ii",
+                                   int(lat * 1_000_000),
+                                   int(lon * 1_000_000))
+        appdata += node_name.encode("utf-8") + b"\x00"
+
+        # Sign: timestamp + appdata
+        sign_data = ts_bytes + appdata
+        signature = privkey.sign(sign_data)
+
+        # Payload: pubkey(32) + timestamp(4) + signature(64) + appdata
+        payload = pubkey_bytes + ts_bytes + signature + appdata
+
+        # Packet: header + path_byte + payload
+        header = 0x11  # (0<<6)|(0x04<<2)|0x01 = Flood Advert
+        return bytes([header]) + b"\x00" + payload
+
+    def _get_ed25519_keypair(self):
+        """Load or generate Ed25519 keypair from ~/.janos_meshcore_key."""
+        if self._mc_keypair:
+            return self._mc_keypair
+
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+        from cryptography.hazmat.primitives import serialization
+
+        # Resolve real user home under sudo
+        home = os.path.expanduser("~")
+        sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user:
+            try:
+                import pwd
+                home = pwd.getpwnam(sudo_user).pw_dir
+            except KeyError:
+                pass
+        key_path = os.path.join(home, ".janos_meshcore_key")
+
+        if os.path.isfile(key_path):
+            with open(key_path, "rb") as f:
+                raw = f.read()
+            privkey = Ed25519PrivateKey.from_private_bytes(raw)
+        else:
+            privkey = Ed25519PrivateKey.generate()
+            raw = privkey.private_bytes(
+                serialization.Encoding.Raw,
+                serialization.PrivateFormat.Raw,
+                serialization.NoEncryption(),
+            )
+            with open(key_path, "wb") as f:
+                f.write(raw)
+            os.chmod(key_path, 0o600)
+
+        pubkey_bytes = privkey.public_key().public_bytes(
+            serialization.Encoding.Raw,
+            serialization.PublicFormat.Raw,
+        )
+        self._mc_keypair = (privkey, pubkey_bytes)
+        return self._mc_keypair
+
+    def _do_tx(self, lora) -> None:
+        """Transmit queued packets, then resume RX_CONTINUOUS."""
+        while not self._tx_queue.empty():
+            try:
+                packet = self._tx_queue.get_nowait()
+            except Exception:
+                break
+            try:
+                lora.beginPacket()
+                lora.write(packet, len(packet))
+                lora.endPacket(5000)
+                self._emit(f"  TX: {len(packet)}B sent", "success")
+            except Exception as exc:
+                self._emit(f"  TX error: {exc}", "error")
+        # Resume RX
+        lora.request(lora.RX_CONTINUOUS)
+        try:
+            import RPi.GPIO as _gpio
+            _gpio.remove_event_detect(lora._irq)
+        except Exception:
+            pass
 
     def _cleanup_radio(self, lora) -> None:
         """Release SPI without GPIO.cleanup() (preserves pin mode for reuse).

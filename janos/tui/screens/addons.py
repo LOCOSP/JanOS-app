@@ -1,8 +1,10 @@
 """Add-ons screen — firmware flash + AIO v2 interface control + LoRa + Cloud."""
 
+import os
 import queue
 import threading
 import time
+from pathlib import Path
 
 import urwid
 
@@ -112,6 +114,7 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._reconnect_pending = False
         self._reconnect_at: float = 0.0
         self._last_menu_key = ""  # track menu state for rebuild
+        self._mc_node_name: str = self._load_mc_name()
 
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
@@ -216,10 +219,17 @@ class AddOnsScreen(urwid.WidgetWrap):
             return
         if self._lora.running:
             mode = self._lora.mode.capitalize()
-            self._status.set_text(
-                ("attack_active",
-                 f"  LoRa {mode} RUNNING "
-                 f"({self._lora.packets_received} pkts)  [s]Stop  [x]Clear"))
+            if self._lora.mode == "meshcore":
+                self._status.set_text(
+                    ("attack_active",
+                     f"  MeshCore RUNNING "
+                     f"({self._lora.packets_received} pkts)  "
+                     f"[c]Chat [a]Advert [n]Name [s]Stop [x]Clear"))
+            else:
+                self._status.set_text(
+                    ("attack_active",
+                     f"  LoRa {mode} RUNNING "
+                     f"({self._lora.packets_received} pkts)  [s]Stop  [x]Clear"))
             return
         if self.state.aio_available:
             if self.state.aio_lora:
@@ -505,7 +515,6 @@ class AddOnsScreen(urwid.WidgetWrap):
     def _on_mc_node(self, node_id, ntype, name, lat, lon, rssi, snr):
         self._app.loot.save_meshcore_node(node_id, ntype, name, lat, lon, rssi, snr)
         # Recount from disk (dedup-safe)
-        from pathlib import Path
         csv_path = Path(self._app.loot.session_path) / "meshcore_nodes.csv"
         if csv_path.is_file():
             try:
@@ -517,6 +526,88 @@ class AddOnsScreen(urwid.WidgetWrap):
     def _on_mc_message(self, channel, message, rssi):
         self._app.loot.save_meshcore_message(channel, message, rssi)
         self.state.mc_messages += 1
+
+    # ------------------------------------------------------------------
+    # MeshCore TX — chat + advertise
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _mc_name_path() -> Path:
+        """Path to persistent node name file (~/.janos_meshcore_name)."""
+        user = os.environ.get("SUDO_USER")
+        if user:
+            home = Path(f"/home/{user}")
+        else:
+            home = Path.home()
+        return home / ".janos_meshcore_name"
+
+    def _load_mc_name(self) -> str:
+        try:
+            return self._mc_name_path().read_text().strip()
+        except OSError:
+            return ""
+
+    def _save_mc_name(self, name: str) -> None:
+        try:
+            self._mc_name_path().write_text(name)
+        except OSError:
+            pass
+
+    def _mc_ensure_name(self, callback) -> None:
+        """If node name is set, call callback immediately. Otherwise ask."""
+        if self._mc_node_name:
+            callback()
+            return
+        dialog = TextInputDialog(
+            "Set MeshCore node name first",
+            lambda name: self._on_mc_name_set(name, callback),
+            initial="JanOS",
+        )
+        self._app.show_overlay(dialog, 50, 8)
+
+    def _on_mc_name_set(self, name: str | None, callback=None) -> None:
+        self._app.dismiss_overlay()
+        if not name:
+            return
+        self._mc_node_name = name
+        self._save_mc_name(name)
+        self._log.append(f"Node name: {name}", "success")
+        if callback:
+            callback()
+
+    def _mc_send_chat(self) -> None:
+        """Show chat input dialog."""
+        dialog = TextInputDialog(
+            "MeshCore message",
+            self._on_mc_chat_entered,
+        )
+        self._app.show_overlay(dialog, 60, 8)
+
+    def _on_mc_chat_entered(self, text: str | None) -> None:
+        self._app.dismiss_overlay()
+        if not text:
+            return
+        self._lora.send_meshcore_message(text, self._mc_node_name)
+        # Show locally in log
+        self._log.append(f"TX> {self._mc_node_name}: {text}", "success")
+
+    def _mc_send_advert(self) -> None:
+        """Send MeshCore advertisement."""
+        lat = self.state.gps_lat or 0.0
+        lon = self.state.gps_lon or 0.0
+        self._lora.send_meshcore_advert(self._mc_node_name, lat, lon)
+        gps_str = f" ({lat:.5f},{lon:.5f})" if lat and lon else ""
+        self._log.append(
+            f"TX> Advert: {self._mc_node_name}{gps_str}", "success")
+
+    def _mc_set_name(self) -> None:
+        """Show dialog to set/change node name."""
+        dialog = TextInputDialog(
+            "MeshCore node name",
+            lambda name: self._on_mc_name_set(name),
+            initial=self._mc_node_name or "JanOS",
+        )
+        self._app.show_overlay(dialog, 50, 8)
 
     # ------------------------------------------------------------------
     # External GPS
@@ -659,6 +750,17 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self.state.aio_lora and key in ("6", "7", "8", "9", "0"):
             self._start_lora(key)
             return None
+        # MeshCore TX keys (only when MeshCore running)
+        if self._lora.running and self._lora.mode == "meshcore":
+            if key == "c":
+                self._mc_ensure_name(self._mc_send_chat)
+                return None
+            if key == "a":
+                self._mc_ensure_name(self._mc_send_advert)
+                return None
+            if key == "n":
+                self._mc_set_name()
+                return None
         # Stop running LoRa operation
         if key == "s" and self._lora.running:
             self._lora.stop()

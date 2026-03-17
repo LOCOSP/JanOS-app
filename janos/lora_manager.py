@@ -987,7 +987,7 @@ class LoRaManager:
                 break
             try:
                 lora.beginPacket()
-                lora.write(packet, len(packet))
+                lora.write(list(packet), len(packet))
                 lora.endPacket(5000)
                 self._emit(f"  TX: {len(packet)}B sent", "success")
             except Exception as exc:

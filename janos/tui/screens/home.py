@@ -249,11 +249,14 @@ class SidebarPanel(urwid.WidgetWrap):
 
         # Device — ESP32
         desc = self.state.device_description
-        if self.state.connected:
+        if self.state.connected and self.state.esp32_ready:
             label = f"  ESP32 {self.state.device}"
             if desc:
                 label += f" ({desc})"
             self._device.set_text(("success", label))
+        elif self.state.connected and not self.state.esp32_ready:
+            label = f"  ESP32 {self.state.device} (booting...)"
+            self._device.set_text(("warning", label))
         elif self.state.device:
             label = f"  ESP32 {self.state.device}"
             if desc:

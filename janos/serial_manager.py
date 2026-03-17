@@ -184,6 +184,20 @@ class SerialManager:
         self.serial_conn.reset_output_buffer()
         log.info("Serial port %s opened at %d baud", self.device, self.baud_rate)
 
+    def probe(self) -> bool:
+        """Send CR and check if firmware responds.  Non-blocking, ~0.5s."""
+        if not self.serial_conn:
+            return False
+        try:
+            self.serial_conn.reset_input_buffer()
+            self.serial_conn.write(b"\r\n")
+            self.serial_conn.flush()
+            time.sleep(0.5)
+            n = self.serial_conn.in_waiting
+            return n > 0
+        except Exception:
+            return False
+
     def close(self) -> None:
         if self.serial_conn:
             self.serial_conn.close()

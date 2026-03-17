@@ -489,6 +489,8 @@ class SidebarPanel(urwid.WidgetWrap):
                 tp.append(f"ET:{totals['et_captures']}")
             if totals.get("mitm_pcaps"):
                 tp.append(f"MITM:{totals['mitm_pcaps']}")
+            if totals.get("cracked"):
+                tp.append(f"CRK:{totals['cracked']}")
             self._loot_total.set_text(
                 ("bold", f"  WiFi  {' │ '.join(tp)}")
             )

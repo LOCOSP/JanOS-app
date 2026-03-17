@@ -10,6 +10,7 @@ from ...network_manager import NetworkManager
 from ...loot_manager import LootManager
 from ...upload_manager import (
     wigle_configured, upload_wigle, find_wardriving_csvs,
+    load_wpasec_passwords,
 )
 from ...privacy import mask_ssid, mask_mac, mask_coords_str, is_private
 from ...config import CMD_SCAN_NETWORKS, CMD_STOP
@@ -49,6 +50,13 @@ class WardrivingScreen(urwid.WidgetWrap):
         self._seen: dict[str, Network] = {}
         # Current cycle networks (parsed from serial)
         self._cycle_nets: list[Network] = []
+        # Cracked password lookup (SSID -> entries)
+        self._cracked_ssids: dict = {}
+        self._notified_ssids: set[str] = set()
+        self._pending_match: tuple[str, str] | None = None  # (ssid, password)
+        if loot:
+            pwd_data = load_wpasec_passwords(loot.loot_root)
+            self._cracked_ssids = pwd_data.get("by_ssid", {})
 
         # UI
         self._table = DataTable([
@@ -77,6 +85,17 @@ class WardrivingScreen(urwid.WidgetWrap):
 
     def refresh(self) -> None:
         """Called every UI tick (~0.5s)."""
+        # Check for pending cracked SSID match
+        if self._pending_match is not None:
+            ssid, password = self._pending_match
+            self._pending_match = None
+            dialog = InfoDialog(
+                f"Known password!\n\nSSID: {ssid}\nPassword: {password}",
+                lambda: self._app.dismiss_overlay(),
+                title="WPA-sec Match",
+            )
+            self._app.show_overlay(dialog, 45, 9, beep=True)
+
         # Check for pending upload result
         if self._upload_result is not None:
             msg = self._upload_result
@@ -231,6 +250,17 @@ class WardrivingScreen(urwid.WidgetWrap):
                     self._seen[bssid] = net
             else:
                 self._seen[bssid] = net
+
+        # Check for cracked SSID matches
+        if self._cracked_ssids:
+            for net in self._cycle_nets:
+                ssid = net.ssid
+                if ssid and ssid in self._cracked_ssids and ssid not in self._notified_ssids:
+                    self._notified_ssids.add(ssid)
+                    entries = self._cracked_ssids[ssid]
+                    password = entries[0]["password"] if entries else "?"
+                    self._pending_match = (ssid, password)
+                    break  # one notification per cycle
 
         self.state.wardriving_networks = len(self._seen)
         self._update_table()

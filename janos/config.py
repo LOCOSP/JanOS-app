@@ -123,6 +123,9 @@ WPASEC_URL = "https://wpa-sec.stanev.org/?submit"
 WPASEC_DL_URL = "https://wpa-sec.stanev.org/?api&dl=1"
 WPASEC_KEY = ""  # set via config or env JANOS_WPASEC_KEY
 
+# Sound notifications (terminal bell)
+SOUND_ENABLED = os.environ.get("JANOS_SOUND", "1") != "0"
+
 # Firmware crash signatures (only true crash indicators, not normal boot messages)
 CRASH_KEYWORDS = (
     "Guru Meditation",

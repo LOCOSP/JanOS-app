@@ -628,6 +628,8 @@ class AddOnsScreen(urwid.WidgetWrap):
 
         def _do():
             ok, count, msg = download_wpasec_passwords(loot_dir)
+            if ok and self._loot:
+                self._loot.invalidate_cracked_cache()
             self._upload_result = f"WPA-sec: {msg}"
 
         threading.Thread(target=_do, daemon=True).start()

@@ -285,8 +285,34 @@ class LootManager:
 
     @property
     def loot_totals(self) -> dict:
-        """Aggregate totals across all sessions."""
-        return self._db.get("totals", {})
+        """Aggregate totals across all sessions, including cracked passwords."""
+        totals = self._db.get("totals", {})
+        if "cracked" not in totals:
+            totals["cracked"] = self.cracked_count
+        return totals
+
+    @property
+    def cracked_count(self) -> int:
+        """Count of cracked passwords from WPA-sec potfile JSON."""
+        if not hasattr(self, "_cracked_cache"):
+            self._cracked_cache: int | None = None
+        if self._cracked_cache is not None:
+            return self._cracked_cache
+        json_path = self._base / "passwords" / "wpasec_cracked.json"
+        if json_path.is_file():
+            try:
+                with open(json_path, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                self._cracked_cache = data.get("count", 0)
+                return self._cracked_cache
+            except (json.JSONDecodeError, OSError):
+                pass
+        self._cracked_cache = 0
+        return 0
+
+    def invalidate_cracked_cache(self) -> None:
+        """Force reload of cracked count on next access."""
+        self._cracked_cache = None
 
     # ------------------------------------------------------------------
     # Full serial log

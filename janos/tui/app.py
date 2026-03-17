@@ -15,7 +15,7 @@ from ..loot_manager import LootManager
 from ..gps_manager import GpsManager
 from ..aio_manager import AioManager
 from .. import privacy
-from ..config import CRASH_KEYWORDS
+from ..config import CRASH_KEYWORDS, SOUND_ENABLED
 from .palette import PALETTE
 from .header import HeaderWidget
 from .footer import StatusBar
@@ -388,7 +388,13 @@ class JanOSTUI:
     # Overlay support (for dialogs)
     # ------------------------------------------------------------------
 
-    def show_overlay(self, widget: urwid.Widget, width: int, height: int) -> None:
+    def beep(self) -> None:
+        """Play terminal bell sound if enabled."""
+        if SOUND_ENABLED:
+            print("\a", end="", flush=True)
+
+    def show_overlay(self, widget: urwid.Widget, width: int, height: int,
+                     beep: bool = False) -> None:
         overlay = urwid.Overlay(
             widget,
             self._frame,
@@ -399,6 +405,8 @@ class JanOSTUI:
         )
         self._main_widget.original_widget = overlay
         self._overlay_active = True
+        if beep:
+            self.beep()
 
     def dismiss_overlay(self) -> None:
         self._main_widget.original_widget = self._frame

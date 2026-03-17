@@ -7,9 +7,15 @@ echo "=== JanOS Setup ==="
 
 if [ ! -d ".venv" ]; then
     echo "[*] Creating virtual environment..."
-    python3 -m venv .venv
+    python3 -m venv --system-site-packages .venv
 else
     echo "[*] Virtual environment already exists."
+fi
+
+# Ensure system site-packages are accessible (needed for pybluez, dbus-python)
+if grep -q 'include-system-site-packages = false' .venv/pyvenv.cfg 2>/dev/null; then
+    sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' .venv/pyvenv.cfg
+    echo "[*] Enabled system site-packages in venv"
 fi
 
 IS_PI5=false

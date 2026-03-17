@@ -20,11 +20,12 @@ class ScanScreen(urwid.WidgetWrap):
     """
 
     def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager,
-                 loot: LootManager | None = None) -> None:
+                 loot: LootManager | None = None, app=None) -> None:
         self.state = state
         self.serial = serial
         self.net_mgr = net_mgr
         self._loot = loot
+        self._app = app
 
         self._scanning = False
         self._last_net_count = 0
@@ -63,6 +64,9 @@ class ScanScreen(urwid.WidgetWrap):
 
     def _start_scan(self) -> None:
         if self._scanning:
+            return
+        if not self.state.connected and self._app:
+            self._app.wait_for_esp32(self._start_scan)
             return
         self._scanning = True
         self.state.scanning = True

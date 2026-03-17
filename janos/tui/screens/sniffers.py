@@ -34,7 +34,7 @@ class SniffersScreen(urwid.WidgetWrap):
         # Sub-screens
         self._wardriving = WardrivingScreen(state, serial, net_mgr, loot, app)
         self._bt_wardriving = BTWardrivingScreen(state, serial, loot, app)
-        self._sniffer = SnifferScreen(state, serial, net_mgr, loot)
+        self._sniffer = SnifferScreen(state, serial, net_mgr, loot, app)
 
         # Menu view
         menu_widgets = [

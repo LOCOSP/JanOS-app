@@ -142,7 +142,7 @@ class JanOSTUI:
         self._mitm = MITMScreen(self.state, self, self.loot)
 
         # Main screens
-        self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot)
+        self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot, self)
         self._sniffer = SniffersScreen(self.state, self.serial, self.net_mgr, self.loot, self)
         self._attacks = AttacksScreen(
             self.state, self.serial, self, self.loot,
@@ -636,6 +636,57 @@ class JanOSTUI:
             self._serial_watched = True
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # ESP32 wait / reconnect
+    # ------------------------------------------------------------------
+
+    def wait_for_esp32(self, on_connected) -> None:
+        """Show a polling dialog until ESP32 is detected, then call *on_connected*.
+
+        Use from any screen that needs a serial connection before proceeding.
+        If already connected, *on_connected* is called immediately.
+        """
+        if self.state.connected:
+            on_connected()
+            return
+
+        _alarm = [None]
+        _waiting = [True]
+
+        def check(loop=None, _data=None):
+            if not _waiting[0]:
+                return
+            if not self.state.connected:
+                if self._try_reconnect():
+                    pass  # state.connected set inside _try_reconnect
+                else:
+                    _alarm[0] = self._loop.set_alarm_in(2, check)
+                    return
+            _waiting[0] = False
+            self.dismiss_overlay()
+            on_connected()
+
+        msg = (
+            "Connect ESP32 via USB.\n\n"
+            "Plug in ESP32-C5 to any USB port.\n"
+            "Auto-detecting ttyUSB0-3 / ttyACM0-3\n\n"
+            "Waiting for ESP32..."
+        )
+
+        def on_dismiss():
+            _waiting[0] = False
+            if _alarm[0]:
+                try:
+                    self._loop.remove_alarm(_alarm[0])
+                except Exception:
+                    pass
+            self.dismiss_overlay()
+
+        from .widgets.info_dialog import InfoDialog
+        dialog = InfoDialog(msg, on_dismiss, title="ESP32 Required")
+        self.show_overlay(dialog, 48, 11)
+        _alarm[0] = self._loop.set_alarm_in(2, check)
 
     # ------------------------------------------------------------------
     # Device reconnection polling

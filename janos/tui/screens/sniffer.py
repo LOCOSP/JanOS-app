@@ -32,11 +32,12 @@ class SnifferScreen(urwid.WidgetWrap):
     VIEW_PROBES = 2
 
     def __init__(self, state: AppState, serial: SerialManager, net_mgr: NetworkManager,
-                 loot: LootManager | None = None) -> None:
+                 loot: LootManager | None = None, app=None) -> None:
         self.state = state
         self.serial = serial
         self.net_mgr = net_mgr
         self._loot = loot
+        self._app = app
         self._view = self.VIEW_LIVE
         self._fetching_results = False
         self._fetching_probes = False
@@ -117,6 +118,9 @@ class SnifferScreen(urwid.WidgetWrap):
             return
 
     def _start_sniffer(self) -> None:
+        if not self.state.connected and self._app:
+            self._app.wait_for_esp32(self._start_sniffer)
+            return
         # Ensure ESP32 is idle — stop + wait for cleanup (pcap base64 dump ~1s)
         self.serial.send_command(CMD_STOP)
         self.state.stop_all()

@@ -1019,10 +1019,14 @@ class LoRaManager:
                         f"  TX: {len(packet)}B timeout!", "error")
             except Exception as exc:
                 self._emit(f"  TX error: {exc}", "error")
-        # Resume RX — bypass lora.request() which has a getMode() guard
-        # that can skip setup if radio state is stale. Do it manually:
+        # Resume RX — full radio reset after TX.
+        # beginPacket() corrupts buffer base address, endPacket() changes
+        # packet params and IRQ mask. Restore everything manually:
         lora.setStandby(lora.STANDBY_RC)
         lora.clearIrqStatus(0x03FF)
+        # Reset buffer base (beginPacket shifted it by _bufferIndex)
+        lora._bufferIndex = 0
+        lora.setBufferBaseAddress(0x00, 0x00)
         # Restore packet params (endPacket set payloadLength to TX size)
         lora.setPacketParamsLoRa(
             lora._preambleLength, lora._headerType,

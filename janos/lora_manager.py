@@ -108,6 +108,7 @@ class LoRaManager:
         self._on_message = None  # callback(channel, message, rssi)
         self._tx_queue: Queue = Queue()  # MeshCore TX packets
         self._mc_keypair = None  # cached Ed25519 keypair
+        self._radio_cfg = None   # (freq, sf, cr, bw, sync_word, preamble)
 
     def _emit(self, line: str, attr: str = "default") -> None:
         self.queue.put((line, attr))
@@ -205,6 +206,8 @@ class LoRaManager:
         sync_word: int = 0, preamble: int = 0,
     ) -> None:
         """Apply frequency, modulation, and optional sync/preamble."""
+        # Cache params so _do_tx() can fully reconfigure after TX
+        self._radio_cfg = (freq, sf, cr, bw, sync_word, preamble)
         lora.setFrequency(freq)
         lora.setLoRaModulation(sf, bw, cr, False)
         if sync_word:
@@ -988,7 +991,13 @@ class LoRaManager:
         return self._mc_keypair
 
     def _do_tx(self, lora) -> None:
-        """Transmit queued packets, then resume RX_CONTINUOUS."""
+        """Transmit queued packets, then resume RX_CONTINUOUS.
+
+        Nuclear approach: after TX, do FULL radio reconfiguration
+        (frequency, modulation, sync word, packet params) because
+        beginPacket()/endPacket() corrupt multiple internal states
+        in LoRaRF that surgical fixes cannot fully restore.
+        """
         while not self._tx_queue.empty():
             try:
                 packet = self._tx_queue.get_nowait()
@@ -1019,19 +1028,44 @@ class LoRaManager:
                         f"  TX: {len(packet)}B timeout!", "error")
             except Exception as exc:
                 self._emit(f"  TX error: {exc}", "error")
-        # Resume RX — full radio reset after TX.
-        # beginPacket() corrupts buffer base address, endPacket() changes
-        # packet params and IRQ mask. Restore everything manually:
+
+        # ── Nuclear RX resume: full radio reconfiguration ──
+        # beginPacket() corrupts: _bufferIndex, buffer base address,
+        #   _fixLoRaBw500() may alter BW registers, _statusWait
+        # endPacket() corrupts: payloadLength, IRQ mask, adds GPIO callback
+        # Surgical fixes failed — reconfigure everything from scratch.
         lora.setStandby(lora.STANDBY_RC)
+        time.sleep(0.01)  # let chip settle in standby
         lora.clearIrqStatus(0x03FF)
-        # Reset buffer base (beginPacket shifted it by _bufferIndex)
+
+        # Reset internal LoRaRF state that beginPacket/endPacket corrupted
         lora._bufferIndex = 0
+        lora._payloadTxRx = 0
+        lora._statusWait = 0  # clear TX_DONE wait state
         lora.setBufferBaseAddress(0x00, 0x00)
-        # Restore packet params (endPacket set payloadLength to TX size)
-        lora.setPacketParamsLoRa(
-            lora._preambleLength, lora._headerType,
-            255, lora._crcType, False,
-        )
+
+        # Full reconfigure: freq, modulation, sync word, packet params
+        if self._radio_cfg:
+            freq, sf, cr, bw, sync_word, preamble = self._radio_cfg
+            lora.setFrequency(freq)
+            lora.setLoRaModulation(sf, bw, cr, False)
+            if sync_word:
+                lora.setSyncWord(sync_word)
+            if preamble:
+                lora.setLoRaPacket(0x00, preamble, 255, True)
+            else:
+                lora.setPacketParamsLoRa(
+                    lora._preambleLength, lora._headerType,
+                    255, lora._crcType, False,
+                )
+        else:
+            # Fallback: at least restore packet params
+            lora.setPacketParamsLoRa(
+                lora._preambleLength, lora._headerType,
+                255, lora._crcType, False,
+            )
+
+        # Re-arm RX with proper IRQ mask
         lora._irqSetup(
             lora.IRQ_RX_DONE | lora.IRQ_TIMEOUT
             | lora.IRQ_HEADER_ERR | lora.IRQ_CRC_ERR,

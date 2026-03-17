@@ -925,10 +925,18 @@ class JanOSTUI:
         except Exception as exc:
             log.debug("USB hub reset skipped: %s", exc)
 
+    _STARTUP_WAV = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                               "assets", "startup.wav")
+
     def run(self) -> None:
-        # Startup beep — 3 beeps to confirm sound is working
-        if SOUND_ENABLED:
-            for _ in range(3):
-                self.beep()
-                time.sleep(0.25)
+        # Startup sound
+        if SOUND_ENABLED and os.path.isfile(self._STARTUP_WAV):
+            try:
+                subprocess.Popen(
+                    ["aplay", "-q", self._STARTUP_WAV],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except FileNotFoundError:
+                pass
         self._loop.run()

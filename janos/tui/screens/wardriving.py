@@ -278,10 +278,12 @@ class WardrivingScreen(urwid.WidgetWrap):
             # GPS coords for display
             lat = self.state.gps_latitude
             lon = self.state.gps_longitude
-            if is_private():
+            if lat is None or lon is None or (not lat and not lon):
+                gps_str = "—"
+            elif is_private():
                 gps_str = mask_coords_str(lat, lon)
             else:
-                gps_str = f"{lat:.5f},{lon:.5f}" if (lat is not None and lon is not None and (lat or lon)) else "—"
+                gps_str = f"{lat:.5f},{lon:.5f}"
             rssi_attr = NetworkManager.rssi_level(net.rssi)
             rows.append([
                 ("weight", 2, urwid.Text(mask_ssid(net.ssid))),

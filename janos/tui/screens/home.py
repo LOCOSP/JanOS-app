@@ -314,8 +314,9 @@ class SidebarPanel(urwid.WidgetWrap):
             )
             self._gps_line2.set_text(("dim", f"    {coords}"))
         elif self.state.gps_available:
-            # AIO v2 present but GPS GPIO is OFF → show OFF status
-            if self.state.aio_available and not self.state.aio_gps:
+            # AIO GPS GPIO OFF and no external GPS connected → show OFF
+            if (self.state.aio_available and not self.state.aio_gps
+                    and not self.state.gps_external):
                 self._gps_line1.set_text(("dim", "  GPS  OFF"))
                 self._gps_line2.set_text("")
             else:

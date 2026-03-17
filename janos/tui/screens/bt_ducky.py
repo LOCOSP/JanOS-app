@@ -577,14 +577,17 @@ class BlueDuckyScreen(urwid.WidgetWrap):
         ]))
         self._body = urwid.WidgetPlaceholder(self._idle_view)
 
-        pile = urwid.Pile([
+        self._pile = urwid.Pile([
             ("pack", self._info),
             ("pack", urwid.Divider("─")),
             self._body,
             ("pack", urwid.Divider("─")),
             ("pack", self._status),
         ])
-        super().__init__(pile)
+        super().__init__(self._pile)
+
+    def selectable(self):
+        return True
 
     # ------------------------------------------------------------------
     # refresh
@@ -706,14 +709,22 @@ class BlueDuckyScreen(urwid.WidgetWrap):
     # Keypress handling
     # ------------------------------------------------------------------
 
+    _PASSTHROUGH = object()
+
     def keypress(self, size, key):
+        result = self._handle_key(key)
+        if result is self._PASSTHROUGH:
+            return self._pile.keypress(size, key)
+        return result  # None = consumed, or key string = bubble up
+
+    def _handle_key(self, key):
         if key == "s":
             if not self._running:
+                self._body.original_widget = self._log
                 self._do_scan()
-            return None
+            return None  # consumed
 
         if key == "c":
-            # Manual MAC input
             def on_mac(text):
                 if text is None:
                     self._app.dismiss_overlay()
@@ -738,7 +749,6 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                 return None
 
         if key == "r":
-            # Rick Roll — if not connected, ask for target first
             if self._client.connected:
                 self._do_payload(RICKROLL_PAYLOAD, "Rick Roll")
             else:
@@ -746,15 +756,12 @@ class BlueDuckyScreen(urwid.WidgetWrap):
             return None
 
         if key == "p":
-            # Payload picker
             if not self._client.connected:
                 self._log.append("  Connect first", "warning")
                 return None
 
-            # List built-in + files from payloads/ dir
             choices = list(BUILTIN_PAYLOADS.keys())
 
-            # Check for custom payloads on SD/local
             payload_dirs = [
                 Path("/media/locosp/") / "payloads",
                 Path.home() / "payloads",
@@ -775,7 +782,6 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                     name = list(BUILTIN_PAYLOADS.keys())[idx]
                     self._do_payload(BUILTIN_PAYLOADS[name], name)
                 else:
-                    # Custom file
                     file_idx = idx - len(BUILTIN_PAYLOADS)
                     if file_idx < len(custom_files):
                         fp = custom_files[file_idx]
@@ -797,4 +803,4 @@ class BlueDuckyScreen(urwid.WidgetWrap):
             self._stop()
             return key  # bubble up to exit sub-screen
 
-        return super().keypress(size, key)
+        return self._PASSTHROUGH

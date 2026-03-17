@@ -129,26 +129,30 @@ class SidebarPanel(urwid.WidgetWrap):
         pw_file = session / "portal_passwords.log"
         if pw_file.is_file() and pw_file.stat().st_size > 0:
             try:
-                counts["passwords"] = sum(1 for _ in open(pw_file, encoding="utf-8"))
+                with open(pw_file, encoding="utf-8") as fh:
+                    counts["passwords"] = sum(1 for _ in fh)
             except OSError:
                 pass
         et_file = session / "evil_twin_capture.log"
         if et_file.is_file() and et_file.stat().st_size > 0:
             try:
-                counts["et_captures"] = sum(1 for _ in open(et_file, encoding="utf-8"))
+                with open(et_file, encoding="utf-8") as fh:
+                    counts["et_captures"] = sum(1 for _ in fh)
             except OSError:
                 pass
         mc_nodes_file = session / "meshcore_nodes.csv"
         if mc_nodes_file.is_file():
             try:
-                lines = sum(1 for _ in open(mc_nodes_file, encoding="utf-8"))
+                with open(mc_nodes_file, encoding="utf-8") as fh:
+                    lines = sum(1 for _ in fh)
                 counts["mc_nodes"] = max(0, lines - 1)
             except OSError:
                 pass
         mc_msgs_file = session / "meshcore_messages.log"
         if mc_msgs_file.is_file():
             try:
-                counts["mc_messages"] = sum(1 for _ in open(mc_msgs_file, encoding="utf-8"))
+                with open(mc_msgs_file, encoding="utf-8") as fh:
+                    counts["mc_messages"] = sum(1 for _ in fh)
             except OSError:
                 pass
         bt_file = session / "bt_devices.csv"
@@ -156,19 +160,20 @@ class SidebarPanel(urwid.WidgetWrap):
             try:
                 gps_count = 0
                 total = 0
-                for i, line in enumerate(open(bt_file, encoding="utf-8")):
-                    if i == 0:
-                        continue
-                    total += 1
-                    parts = line.strip().split(",")
-                    if len(parts) >= 8:
-                        try:
-                            lat = float(parts[-2])
-                            lon = float(parts[-1])
-                            if lat != 0.0 or lon != 0.0:
-                                gps_count += 1
-                        except ValueError:
-                            pass
+                with open(bt_file, encoding="utf-8") as fh:
+                    for i, line in enumerate(fh):
+                        if i == 0:
+                            continue
+                        total += 1
+                        parts = line.strip().split(",")
+                        if len(parts) >= 8:
+                            try:
+                                lat = float(parts[-2])
+                                lon = float(parts[-1])
+                                if lat != 0.0 or lon != 0.0:
+                                    gps_count += 1
+                            except ValueError:
+                                pass
                 counts["bt_devices"] = total
                 counts["bt_devices_gps"] = gps_count
             except OSError:
@@ -178,17 +183,18 @@ class SidebarPanel(urwid.WidgetWrap):
             try:
                 max_at = 0
                 max_st = 0
-                for line in open(bt_at_file, encoding="utf-8"):
-                    if "AirTags:" in line:
-                        try:
-                            max_at = max(max_at, int(line.split("AirTags:")[1].split("|")[0].strip()))
-                        except (ValueError, IndexError):
-                            pass
-                    if "SmartTags:" in line:
-                        try:
-                            max_st = max(max_st, int(line.split("SmartTags:")[1].strip()))
-                        except (ValueError, IndexError):
-                            pass
+                with open(bt_at_file, encoding="utf-8") as fh:
+                    for line in fh:
+                        if "AirTags:" in line:
+                            try:
+                                max_at = max(max_at, int(line.split("AirTags:")[1].split("|")[0].strip()))
+                            except (ValueError, IndexError):
+                                pass
+                        if "SmartTags:" in line:
+                            try:
+                                max_st = max(max_st, int(line.split("SmartTags:")[1].strip()))
+                            except (ValueError, IndexError):
+                                pass
                 counts["bt_airtags"] = max_at
                 counts["bt_smarttags"] = max_st
             except OSError:
@@ -197,14 +203,15 @@ class SidebarPanel(urwid.WidgetWrap):
         wd_file = session / "wardriving.csv"
         if wd_file.is_file():
             try:
-                for i, line in enumerate(open(wd_file, encoding="utf-8")):
-                    if i <= 1:
-                        continue  # skip pre-header + header
-                    parts = line.strip().split(",")
-                    if len(parts) >= 11 and parts[10].strip().upper() == "BLE":
-                        counts["wd_bt"] += 1
-                    else:
-                        counts["wd_wifi"] += 1
+                with open(wd_file, encoding="utf-8") as fh:
+                    for i, line in enumerate(fh):
+                        if i <= 1:
+                            continue  # skip pre-header + header
+                        parts = line.strip().split(",")
+                        if len(parts) >= 11 and parts[10].strip().upper() == "BLE":
+                            counts["wd_bt"] += 1
+                        else:
+                            counts["wd_wifi"] += 1
             except OSError:
                 pass
         mitm_dir = session / "mitm"

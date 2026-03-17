@@ -275,10 +275,12 @@ class BTWardrivingScreen(urwid.WidgetWrap):
             # GPS coords for display
             lat = self.state.gps_latitude
             lon = self.state.gps_longitude
-            if is_private():
+            if lat is None or lon is None or (not lat and not lon):
+                gps_str = "\u2014"
+            elif is_private():
                 gps_str = mask_coords_str(lat, lon)
             else:
-                gps_str = f"{lat:.5f},{lon:.5f}" if (lat is not None and lon is not None and (lat or lon)) else "\u2014"
+                gps_str = f"{lat:.5f},{lon:.5f}"
             if rssi > -50:
                 rssi_attr = "success"
             elif rssi > -70:

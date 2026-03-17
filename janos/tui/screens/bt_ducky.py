@@ -13,7 +13,6 @@ Requirements:
 
 import os
 import re
-import struct
 import threading
 import time
 from pathlib import Path
@@ -759,7 +758,7 @@ class BlueDuckyScreen(urwid.WidgetWrap):
 
             # Schedule dialog on main loop
             try:
-                self._app.loop.set_alarm_in(0, lambda *_: self._app.show_overlay(
+                self._app._loop.set_alarm_in(0, lambda *_: self._app.show_overlay(
                     ListPickerDialog("Rick Roll target:", choices, on_pick),
                     55, min(len(choices) + 6, 16),
                 ))

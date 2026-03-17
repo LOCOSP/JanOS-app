@@ -224,7 +224,7 @@ async def _ble_scan(duration: float = 8.0) -> list[dict]:
             "race": is_race,
         })
     # Sort: RACE-positive first, then by RSSI
-    results.sort(key=lambda d: (not d["race"], d["rssi"]))
+    results.sort(key=lambda d: (not d["race"], -d["rssi"]))
     return results
 
 
@@ -828,8 +828,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
 
                 # Start recording
                 ts = time.strftime("%Y%m%d_%H%M%S")
-                if self._loot and hasattr(self._loot, '_session_dir'):
-                    loot_dir = Path(self._loot._session_dir)
+                if self._loot and hasattr(self._loot, '_session'):
+                    loot_dir = Path(self._loot._session)
                 else:
                     loot_dir = Path.home() / "loot"
                 loot_dir.mkdir(parents=True, exist_ok=True)
@@ -926,7 +926,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
             return None
 
         # Quick-select from scan results
-        if key in "123456789" and self._scanned:
+        if key in "12345678" and self._scanned:
             idx = int(key) - 1
             if idx < len(self._scanned):
                 d = self._scanned[idx]

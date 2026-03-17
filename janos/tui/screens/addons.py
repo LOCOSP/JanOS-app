@@ -1,6 +1,7 @@
-"""Add-ons screen — firmware flash + AIO v2 interface control + LoRa."""
+"""Add-ons screen — firmware flash + AIO v2 interface control + LoRa + Cloud."""
 
 import queue
+import threading
 import time
 
 import urwid
@@ -10,6 +11,8 @@ from ...serial_manager import SerialManager
 from ...flash_manager import FlashManager
 from ...aio_manager import AioManager
 from ...lora_manager import LoRaManager
+from ...loot_manager import LootManager
+from ...upload_manager import wpasec_configured, upload_wpasec_all, download_wpasec_passwords
 from ...config import FLASH_BOARDS
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
@@ -92,10 +95,13 @@ class _BaudPickerDialog(urwid.WidgetWrap):
 class AddOnsScreen(urwid.WidgetWrap):
     """Add-ons menu with firmware flashing, AIO control, LoRa, and live log."""
 
-    def __init__(self, state: AppState, serial: SerialManager, app) -> None:
+    def __init__(self, state: AppState, serial: SerialManager, app,
+                 loot: LootManager | None = None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
+        self._loot = loot
+        self._upload_result: str | None = None
         self._flash = FlashManager()
         self._lora = LoRaManager()
         self._lora._on_node = self._on_mc_node
@@ -135,7 +141,8 @@ class AddOnsScreen(urwid.WidgetWrap):
             f"{self.state.aio_available},"
             f"{self.state.aio_gps},{self.state.aio_lora},"
             f"{self.state.aio_sdr},{self.state.aio_usb},"
-            f"{self._lora.running},{lora_mode}"
+            f"{self._lora.running},{lora_mode},"
+            f"{wpasec_configured()}"
         )
 
     def _rebuild_menu(self) -> None:
@@ -185,6 +192,13 @@ class AddOnsScreen(urwid.WidgetWrap):
                 ))
         else:
             self._walker.append(_AddonItem("2", "Install AIO v2 Control"))
+
+        # Cloud: WPA-sec (only when token configured)
+        if wpasec_configured():
+            self._walker.append(urwid.Divider("─"))
+            self._walker.append(urwid.Text(("bold", "  ── Cloud ──")))
+            self._walker.append(_AddonItem("u", "WPA-sec Upload"))
+            self._walker.append(_AddonItem("p", "WPA-sec Passwords"))
 
         # Update menu height in the Pile
         new_height = len(self._walker) + 1
@@ -240,6 +254,15 @@ class AddOnsScreen(urwid.WidgetWrap):
                 self._log.append(line, attr)
             except queue.Empty:
                 break
+
+        # Poll WPA-sec upload/download result
+        if self._upload_result is not None:
+            msg = self._upload_result
+            self._upload_result = None
+            self._app.show_overlay(
+                InfoDialog(msg, lambda: self._app.dismiss_overlay(), title="Cloud"),
+                50, 8,
+            )
 
         # Update LoRa state in shared AppState (for creature animation etc.)
         self.state.lora_running = self._lora.running
@@ -580,6 +603,36 @@ class AddOnsScreen(urwid.WidgetWrap):
         self._rebuild_menu()
 
     # ------------------------------------------------------------------
+    # WPA-sec cloud
+    # ------------------------------------------------------------------
+
+    def _upload_wpasec(self) -> None:
+        """Upload .pcap handshakes to WPA-sec."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        self._status.set_text(("warning", "  Uploading handshakes to WPA-sec..."))
+
+        def _do():
+            _up, _total, msg = upload_wpasec_all(loot_dir)
+            self._upload_result = f"WPA-sec: {msg}"
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _download_wpasec(self) -> None:
+        """Download cracked passwords from WPA-sec."""
+        if not self._loot:
+            return
+        loot_dir = self._loot.loot_root
+        self._status.set_text(("warning", "  Downloading passwords from WPA-sec..."))
+
+        def _do():
+            ok, count, msg = download_wpasec_passwords(loot_dir)
+            self._upload_result = f"WPA-sec: {msg}"
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    # ------------------------------------------------------------------
     # Keyboard
     # ------------------------------------------------------------------
 
@@ -608,6 +661,13 @@ class AddOnsScreen(urwid.WidgetWrap):
         if key == "s" and self._lora.running:
             self._lora.stop()
             self.state.lora_packets = 0
+            return None
+        # WPA-sec cloud (only when token configured)
+        if key == "u" and wpasec_configured():
+            self._upload_wpasec()
+            return None
+        if key == "p" and wpasec_configured():
+            self._download_wpasec()
             return None
         if key == "x":
             if not self._flashing and not self._installing_aio:

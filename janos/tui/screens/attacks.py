@@ -44,6 +44,7 @@ BT_ATTACKS = [
 ADVANCED_ATTACKS = [
     ("d", "Dragon Drain (WPA3 DoS)", None,                        "dragon_drain_running"),
     ("m", "MITM (ARP Spoofing)",     None,                        "mitm_running"),
+    ("k", "BlueDucky (BT HID)",      None,                        "bt_ducky_running"),
 ]
 
 # Combined for flag iteration
@@ -68,7 +69,7 @@ class AttacksScreen(urwid.WidgetWrap):
     def __init__(self, state: AppState, serial: SerialManager, app,
                  loot: LootManager | None = None,
                  portal=None, evil_twin=None,
-                 dragon_drain=None, mitm=None) -> None:
+                 dragon_drain=None, mitm=None, bt_ducky=None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
@@ -77,6 +78,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self._evil_twin = evil_twin
         self._dragon_drain = dragon_drain
         self._mitm = mitm
+        self._bt_ducky = bt_ducky
         self._sub_screen = None  # active sub-screen or None
 
         # Handshake auto-rescan state (cycle when no network selected)
@@ -94,7 +96,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear"))
+        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [d/m/k]Adv  [9]Stop  [x]Clear"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         log_label = urwid.AttrMap(
@@ -595,6 +597,8 @@ class AttacksScreen(urwid.WidgetWrap):
             self._dragon_drain._stop()
         if self._mitm and hasattr(self._mitm, '_stop'):
             self._mitm._stop()
+        if self._bt_ducky and hasattr(self._bt_ducky, '_stop'):
+            self._bt_ducky._stop()
         self.state.stop_all()
         self._reset_hs_rescan()
         self._log.append(">>> All attacks STOPPED", "warning")
@@ -636,6 +640,9 @@ class AttacksScreen(urwid.WidgetWrap):
             return None
         if key == "m" and self._mitm:
             self._enter_sub_screen(self._mitm)
+            return None
+        if key == "k" and self._bt_ducky:
+            self._enter_sub_screen(self._bt_ducky)
             return None
 
         if key == "9":

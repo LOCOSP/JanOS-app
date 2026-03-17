@@ -934,14 +934,7 @@ class JanOSTUI:
                                "assets", "startup.wav")
 
     def run(self) -> None:
-        # Startup sound
-        if SOUND_ENABLED and os.path.isfile(self._STARTUP_WAV):
-            try:
-                subprocess.Popen(
-                    ["aplay", "-q", self._STARTUP_WAV],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except FileNotFoundError:
-                pass
+        # Startup sound (use beep instead of startup.wav — less intrusive)
+        if SOUND_ENABLED:
+            self.beep()
         self._loop.run()

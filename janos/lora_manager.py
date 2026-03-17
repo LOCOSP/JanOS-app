@@ -995,18 +995,36 @@ class LoRaManager:
             except Exception:
                 break
             try:
-                self._emit(
-                    f"  TX hex[:{min(16, len(packet))}]: "
-                    f"{packet[:16].hex()}", "dim")
                 lora.beginPacket()
                 lora.write(list(packet), len(packet))
-                status = lora.endPacket(5000)
-                self._emit(
-                    f"  TX: {len(packet)}B sent (status={status})",
-                    "success")
+                lora.endPacket(5000)  # non-blocking! just initiates TX
+
+                # Wait for actual TX_DONE (endPacket returns immediately)
+                deadline = time.time() + 5.0
+                tx_ok = False
+                while time.time() < deadline:
+                    irq = lora.getIrqStatus()
+                    if irq & lora.IRQ_TX_DONE:
+                        tx_ok = True
+                        break
+                    if irq & lora.IRQ_TIMEOUT:
+                        break
+                    time.sleep(0.01)
+
+                if tx_ok:
+                    self._emit(
+                        f"  TX: {len(packet)}B sent", "success")
+                else:
+                    self._emit(
+                        f"  TX: {len(packet)}B timeout!", "error")
             except Exception as exc:
                 self._emit(f"  TX error: {exc}", "error")
-        # Resume RX — just re-arm continuous mode, don't touch GPIO
+        # Resume RX after all TX done
+        try:
+            import RPi.GPIO as _gpio
+            _gpio.remove_event_detect(lora._irq)
+        except Exception:
+            pass
         lora.request(lora.RX_CONTINUOUS)
 
     def _cleanup_radio(self, lora) -> None:

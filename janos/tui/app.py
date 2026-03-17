@@ -157,7 +157,7 @@ class JanOSTUI:
         )
 
         # Add-ons screen
-        self._addons = AddOnsScreen(self.state, self.serial, self)
+        self._addons = AddOnsScreen(self.state, self.serial, self, loot=self.loot)
 
         # Map screen
         self._map = MapScreen(self.state, self.loot)

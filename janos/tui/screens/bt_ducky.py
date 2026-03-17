@@ -21,6 +21,7 @@ import urwid
 
 from ...app_state import AppState
 from ...loot_manager import LootManager
+from ...privacy import is_private, mask_mac
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.text_input_dialog import TextInputDialog
@@ -623,7 +624,8 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                 return
             self._log.append(f"  Found {len(devices)} device(s):", "success")
             for i, (addr, name) in enumerate(devices):
-                self._log.append(f"  {i+1}. {addr}  {name or '(unknown)'}", "default")
+                da = mask_mac(addr) if is_private() else addr
+                self._log.append(f"  {i+1}. {da}  {name or '(unknown)'}", "default")
             self._log.append("  Press [c] to connect or [1-9] to select", "dim")
 
         self._thread = threading.Thread(target=_scan_thread, daemon=True)
@@ -639,7 +641,8 @@ class BlueDuckyScreen(urwid.WidgetWrap):
         self._target_addr = addr
         self._target_name = name or addr
         self._running = True
-        self._log.append(f">>> Connecting to {addr}...", "attack_active")
+        da = mask_mac(addr) if is_private() else addr
+        self._log.append(f">>> Connecting to {da}...", "attack_active")
         self._log.append("  Setting up adapter (may take ~10s)...", "dim")
 
         def _connect_thread():
@@ -651,9 +654,10 @@ class BlueDuckyScreen(urwid.WidgetWrap):
 
                 _register_hid_profile(log_fn=lambda m: self._log.append(m, "dim"))
 
-                self._log.append(f"  Opening L2CAP to {addr} (timeout 10s)...", "dim")
+                da = mask_mac(addr) if is_private() else addr
+                self._log.append(f"  Opening L2CAP to {da} (timeout 10s)...", "dim")
                 self._client.connect(addr, timeout=10.0)
-                self._log.append(f"  Connected to {addr}!", "success")
+                self._log.append(f"  Connected to {da}!", "success")
                 self.state.bt_ducky_running = True
                 if self._loot:
                     self._loot.log_attack_event(f"BLUEDUCKY: Connected to {addr}")
@@ -738,10 +742,14 @@ class BlueDuckyScreen(urwid.WidgetWrap):
 
             self._log.append(f"  Found {len(devices)} device(s):", "success")
             for i, (addr, name) in enumerate(devices):
-                self._log.append(f"  {i+1}. {addr}  {name or '(unknown)'}", "default")
+                da = mask_mac(addr) if is_private() else addr
+                self._log.append(f"  {i+1}. {da}  {name or '(unknown)'}", "default")
 
             # Show picker dialog on main thread
-            choices = [f"{name or '(unknown)'}  {addr}" for addr, name in devices]
+            choices = [
+                f"{name or '(unknown)'}  {mask_mac(addr) if is_private() else addr}"
+                for addr, name in devices
+            ]
 
             def on_pick(idx):
                 self._app.dismiss_overlay()
@@ -749,7 +757,8 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                     self._log.append("  Cancelled", "dim")
                     return
                 addr, name = devices[idx]
-                self._log.append(f"  Selected: {addr} ({name or '?'})", "default")
+                da = mask_mac(addr) if is_private() else addr
+                self._log.append(f"  Selected: {da} ({name or '?'})", "default")
 
                 def _fire_rickroll():
                     self._do_payload(RICKROLL_PAYLOAD, "Rick Roll")

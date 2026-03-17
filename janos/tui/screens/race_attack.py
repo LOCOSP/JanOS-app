@@ -532,7 +532,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
                         f"  {i+1:2d}. {d['addr']}  {d['rssi']:4d}dBm  {name}{tag}",
                         attr
                     )
-                self._log.append("  Press [1-9] to select, [c] to check vuln", "dim")
+                self._log.append("  Press [1-9] quick-select or [c] to pick from list", "dim")
             except ImportError:
                 self._log.append("  ERROR: 'bleak' not installed", "error")
                 self._log.append("  Run: pip install bleak", "dim")
@@ -861,10 +861,26 @@ class RACEAttackScreen(urwid.WidgetWrap):
         if key == "c":
             if self._running:
                 return None
-            if self._target_addr:
+            if self._scanned:
+                # Show full device picker (supports >9 devices)
+                choices = []
+                for d in self._scanned:
+                    tag = " [RACE!]" if d["race"] else ""
+                    name = d["name"] or "(unknown)"
+                    choices.append(f"{d['addr']}  {d['rssi']}dBm  {name}{tag}")
+
+                def on_pick(idx):
+                    self._app.dismiss_overlay()
+                    if idx is not None and idx < len(self._scanned):
+                        d = self._scanned[idx]
+                        self._target_addr = d["addr"]
+                        self._target_name = d["name"] or d["addr"]
+                        self._do_check(d["addr"], d["name"])
+
+                dialog = ChoiceDialog("Select device to check:", choices, on_pick)
+                self._app.show_overlay(dialog, 65, min(len(choices) + 6, 20))
+            elif self._target_addr:
                 self._do_check(self._target_addr, self._target_name)
-            elif self._scanned:
-                self._log.append("  Select device first ([1-9])", "warning")
             else:
                 self._log.append("  Scan first ([s])", "warning")
             return None

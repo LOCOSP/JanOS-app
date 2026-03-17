@@ -107,7 +107,7 @@ class AttacksScreen(urwid.WidgetWrap):
         )
 
         self._menu_view = urwid.Pile([
-            ("fixed", 16, self._listbox),
+            ("fixed", 18, self._listbox),
             ("pack", log_label),
             self._log,
             ("pack", urwid.Divider("─")),

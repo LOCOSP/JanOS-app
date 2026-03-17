@@ -32,7 +32,7 @@ if $IS_PI5; then
 fi
 
 echo "[*] Installing system dependencies..."
-for pkg in tcpdump aircrack-ng; do
+for pkg in tcpdump aircrack-ng pulseaudio-utils; do
     if ! command -v "$pkg" &>/dev/null; then
         echo "    Installing $pkg..."
         sudo apt-get install -y -qq "$pkg" 2>/dev/null || echo "    [!] Failed to install $pkg"

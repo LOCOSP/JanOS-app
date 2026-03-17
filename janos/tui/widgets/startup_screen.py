@@ -132,19 +132,44 @@ def run_startup_checks(device: str, connected: bool, gps_available: bool,
     except ImportError:
         checks.append(("info", "scapy not installed — pip install scapy"))
 
+    # bleak check (needed for RACE attack)
+    try:
+        import bleak  # noqa: F401
+        checks.append(("ok", "bleak (RACE BLE)"))
+    except ImportError:
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "bleak"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            checks.append(("ok", "bleak (just installed)"))
+        except Exception:
+            checks.append(("info", "bleak not installed — pip install bleak"))
+
+    # pybluez check (needed for BlueDucky)
+    try:
+        import bluetooth  # noqa: F401
+        checks.append(("ok", "pybluez (BlueDucky)"))
+    except ImportError:
+        checks.append(("info", "pybluez not available (system site-packages)"))
+
     # System tool checks — auto-install if missing
     for tool, apt_pkg, purpose in [
         ("tcpdump", "tcpdump", "MITM pcap capture"),
         ("airmon-ng", "aircrack-ng", "Dragon Drain monitor mode"),
+        ("bdaddr", None, "RACE MAC spoofing"),
+        ("parecord", "pulseaudio-utils", "RACE audio capture"),
     ]:
         if _which(tool):
             checks.append(("ok", f"{tool} ({purpose})"))
-        else:
+        elif apt_pkg:
             installed = _apt_install(apt_pkg)
             if installed:
                 checks.append(("ok", f"{tool} (just installed)"))
             else:
                 checks.append(("info", f"{tool} not found — apt install {apt_pkg}"))
+        else:
+            checks.append(("info", f"{tool} not found ({purpose})"))
 
     # WiFi interfaces — show all with driver/chipset (like wifite)
     try:

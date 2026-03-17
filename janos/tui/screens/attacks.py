@@ -45,6 +45,7 @@ ADVANCED_ATTACKS = [
     ("d", "Dragon Drain (WPA3 DoS)", None,                        "dragon_drain_running"),
     ("m", "MITM (ARP Spoofing)",     None,                        "mitm_running"),
     ("k", "BlueDucky (BT HID)",      None,                        "bt_ducky_running"),
+    ("j", "RACE (Headphone Jack)",   None,                        "race_running"),
 ]
 
 # Combined for flag iteration
@@ -69,7 +70,8 @@ class AttacksScreen(urwid.WidgetWrap):
     def __init__(self, state: AppState, serial: SerialManager, app,
                  loot: LootManager | None = None,
                  portal=None, evil_twin=None,
-                 dragon_drain=None, mitm=None, bt_ducky=None) -> None:
+                 dragon_drain=None, mitm=None, bt_ducky=None,
+                 race_attack=None) -> None:
         self.state = state
         self.serial = serial
         self._app = app
@@ -79,6 +81,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self._dragon_drain = dragon_drain
         self._mitm = mitm
         self._bt_ducky = bt_ducky
+        self._race_attack = race_attack
         self._sub_screen = None  # active sub-screen or None
 
         # Handshake auto-rescan state (cycle when no network selected)
@@ -96,7 +99,7 @@ class AttacksScreen(urwid.WidgetWrap):
         self._walker = urwid.SimpleFocusListWalker([])
         self._listbox = urwid.ListBox(self._walker)
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [d/m/k]Adv  [9]Stop  [x]Clear"))
+        self._status = urwid.Text(("dim", "  [1-7]WiFi  [b/t/a]BT  [d/m/k/j]Adv  [9]Stop  [x]Clear"))
         self._last_flags = ""  # track state changes to avoid needless rebuilds
 
         log_label = urwid.AttrMap(
@@ -183,9 +186,9 @@ class AttacksScreen(urwid.WidgetWrap):
                 ("attack_active", f"  ACTIVE: {run_str} | [9]Stop all  [x]Clear")
             )
         elif sel:
-            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear"))
+            self._status.set_text(("dim", f"  Target: {sel} | [1-7]WiFi  [b/t/a]BT  [d/m/k/j]Adv  [9]Stop  [x]Clear"))
         else:
-            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [d/m]Adv  [9]Stop  [x]Clear"))
+            self._status.set_text(("dim", f"  [1-7]WiFi  [b/t/a]BT  [d/m/k/j]Adv  [9]Stop  [x]Clear"))
 
     def handle_serial_line(self, line: str) -> None:
         """Route serial data to appropriate handler."""
@@ -599,6 +602,8 @@ class AttacksScreen(urwid.WidgetWrap):
             self._mitm._stop()
         if self._bt_ducky and hasattr(self._bt_ducky, '_stop'):
             self._bt_ducky._stop()
+        if self._race_attack and hasattr(self._race_attack, '_stop'):
+            self._race_attack._stop()
         self.state.stop_all()
         self._reset_hs_rescan()
         self._log.append(">>> All attacks STOPPED", "warning")
@@ -643,6 +648,9 @@ class AttacksScreen(urwid.WidgetWrap):
             return None
         if key == "k" and self._bt_ducky:
             self._enter_sub_screen(self._bt_ducky)
+            return None
+        if key == "j" and self._race_attack:
+            self._enter_sub_screen(self._race_attack)
             return None
 
         if key == "9":

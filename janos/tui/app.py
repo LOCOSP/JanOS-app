@@ -32,6 +32,7 @@ from .screens.map_screen import MapScreen
 from .screens.dragon_drain import DragonDrainScreen
 from .screens.mitm import MITMScreen
 from .screens.bt_ducky import BlueDuckyScreen
+from .screens.race_attack import RACEAttackScreen
 from .widgets.confirm_dialog import ConfirmDialog
 from .widgets.info_dialog import InfoDialog
 from .widgets.startup_screen import StartupScreen, run_startup_checks
@@ -149,6 +150,7 @@ class JanOSTUI:
         self._dragon_drain = DragonDrainScreen(self.state, self, self.loot)
         self._mitm = MITMScreen(self.state, self, self.loot)
         self._bt_ducky = BlueDuckyScreen(self.state, self, self.loot)
+        self._race_attack = RACEAttackScreen(self.state, self, self.loot)
 
         # Main screens
         self._scan = ScanScreen(self.state, self.serial, self.net_mgr, self.loot, self)
@@ -158,6 +160,7 @@ class JanOSTUI:
             portal=self._portal, evil_twin=self._evil_twin,
             dragon_drain=self._dragon_drain, mitm=self._mitm,
             bt_ducky=self._bt_ducky,
+            race_attack=self._race_attack,
         )
 
         # Add-ons screen
@@ -856,6 +859,8 @@ class JanOSTUI:
                 self._mitm._stop()
             if hasattr(self, '_bt_ducky'):
                 self._bt_ducky._stop()
+            if hasattr(self, '_race_attack'):
+                self._race_attack._stop()
             self.state.stop_all()
             self._refresh_ui()
             return True

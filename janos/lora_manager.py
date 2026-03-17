@@ -1019,13 +1019,15 @@ class LoRaManager:
                         f"  TX: {len(packet)}B timeout!", "error")
             except Exception as exc:
                 self._emit(f"  TX error: {exc}", "error")
-        # Resume RX after all TX done
+        # Resume RX after all TX done — same sequence as sniffer init:
+        # 1) clear stale IRQ, 2) enter RX_CONTINUOUS, 3) remove GPIO callback
+        lora.clearIrqStatus(0x03FF)
+        lora.request(lora.RX_CONTINUOUS)
         try:
             import RPi.GPIO as _gpio
             _gpio.remove_event_detect(lora._irq)
         except Exception:
             pass
-        lora.request(lora.RX_CONTINUOUS)
 
     def _cleanup_radio(self, lora) -> None:
         """Release SPI without GPIO.cleanup() (preserves pin mode for reuse).

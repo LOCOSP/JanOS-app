@@ -275,7 +275,7 @@ class BTWardrivingScreen(urwid.WidgetWrap):
             if is_private():
                 gps_str = mask_coords_str(lat, lon)
             else:
-                gps_str = f"{lat:.5f},{lon:.5f}" if lat or lon else "\u2014"
+                gps_str = f"{lat:.5f},{lon:.5f}" if (lat is not None and lon is not None and (lat or lon)) else "\u2014"
             if rssi > -50:
                 rssi_attr = "success"
             elif rssi > -70:

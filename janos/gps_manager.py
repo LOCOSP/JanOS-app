@@ -198,8 +198,8 @@ class GpsManager:
         for s in sentences:
             try:
                 self._parse(s)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("GPS parse error: %s — %s", s.strip(), exc)
 
     def _parse(self, sentence: str) -> None:
         # Strip checksum

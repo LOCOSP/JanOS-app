@@ -246,7 +246,7 @@ class WardrivingScreen(urwid.WidgetWrap):
             lat = self.state.gps_latitude
             lon = self.state.gps_longitude
             if is_private():
-                gps_str = mask_coords_str(f"{lat},{lon}")
+                gps_str = mask_coords_str(lat, lon)
             else:
                 gps_str = f"{lat:.5f},{lon:.5f}" if lat or lon else "—"
             rssi_attr = NetworkManager.rssi_level(net.rssi)

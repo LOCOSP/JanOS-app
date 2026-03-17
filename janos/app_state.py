@@ -104,6 +104,7 @@ class AppState:
     gps_satellites_visible: int = 0
     gps_fix_quality: int = 0
     gps_hdop: float = 99.9
+    gps_external: bool = False  # external GPS connected via [g] in Add-ons
 
     # AIO v2 module
     aio_available: bool = False

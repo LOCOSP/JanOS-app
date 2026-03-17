@@ -555,6 +555,7 @@ class AddOnsScreen(urwid.WidgetWrap):
                 self._app._loop.watch_file(gps.fd, self._app._on_gps_data)
             except Exception:
                 pass
+            self.state.gps_external = True
             self._log.append(f"GPS connected: {device} @ {baud}", "success")
             self._rebuild_menu()
         else:
@@ -574,6 +575,7 @@ class AddOnsScreen(urwid.WidgetWrap):
                 pass
             gps.close()
         self.state.gps_available = False
+        self.state.gps_external = False
         self._log.append("GPS disconnected", "warning")
         self._rebuild_menu()
 

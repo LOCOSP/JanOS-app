@@ -31,7 +31,7 @@ import urwid
 from ...app_state import AppState
 from ...loot_manager import LootManager
 from ..widgets.log_viewer import LogViewer
-from ..widgets.choice_dialog import ChoiceDialog
+from ..widgets.list_picker import ListPickerDialog
 
 # ---------------------------------------------------------------------------
 # RACE Protocol Constants
@@ -704,7 +704,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
                 if idx is not None:
                     self._hijack_target(idx)
 
-            dialog = ChoiceDialog("Hijack which phone?", choices, on_pick)
+            dialog = ListPickerDialog("Hijack which phone?", choices, on_pick)
             self._app.show_overlay(dialog, 60, min(len(choices) + 6, 16))
         else:
             self._hijack_target(0)
@@ -877,7 +877,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
                         self._target_name = d["name"] or d["addr"]
                         self._do_check(d["addr"], d["name"])
 
-                dialog = ChoiceDialog("Select device to check:", choices, on_pick)
+                dialog = ListPickerDialog("Select device to check:", choices, on_pick)
                 self._app.show_overlay(dialog, 65, min(len(choices) + 6, 20))
             elif self._target_addr:
                 self._do_check(self._target_addr, self._target_name)

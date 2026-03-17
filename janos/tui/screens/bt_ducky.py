@@ -25,7 +25,7 @@ from ...loot_manager import LootManager
 from ..widgets.log_viewer import LogViewer
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.text_input_dialog import TextInputDialog
-from ..widgets.choice_dialog import ChoiceDialog
+from ..widgets.list_picker import ListPickerDialog
 
 # ---------------------------------------------------------------------------
 # HID keycodes  (USB HID Usage Table — Keyboard/Keypad page 0x07)
@@ -760,7 +760,7 @@ class BlueDuckyScreen(urwid.WidgetWrap):
             # Schedule dialog on main loop
             try:
                 self._app.loop.set_alarm_in(0, lambda *_: self._app.show_overlay(
-                    ChoiceDialog("Rick Roll target:", choices, on_pick),
+                    ListPickerDialog("Rick Roll target:", choices, on_pick),
                     55, min(len(choices) + 6, 16),
                 ))
             except Exception:
@@ -866,7 +866,7 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                         except Exception as e:
                             self._log.append(f"  Failed to read {fp}: {e}", "error")
 
-            dialog = ChoiceDialog("Select payload:", choices, on_choice)
+            dialog = ListPickerDialog("Select payload:", choices, on_choice)
             self._app.show_overlay(dialog, 50, min(len(choices) + 6, 16))
             return None
 

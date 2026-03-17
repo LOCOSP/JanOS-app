@@ -240,7 +240,7 @@ class AddOnsScreen(urwid.WidgetWrap):
                     ("attack_active",
                      f"  MeshCore Messenger "
                      f"({self._lora.packets_received} pkts)  "
-                     f"[a]Advert [n]Name [s]Stop [x]Clear"))
+                     f"[a]Advert [n]Name [x]Clear [Esc]Exit"))
             else:
                 self._status.set_text(
                     ("attack_active",
@@ -770,6 +770,12 @@ class AddOnsScreen(urwid.WidgetWrap):
     def keypress(self, size, key):
         # -- MeshCore Messenger: capture ALL keys when active --
         if self._mc_view_active and self._lora.running and self._lora.mode == "meshcore":
+            # Esc always exits messenger (even with text in input)
+            if key == "esc":
+                self._lora.stop()
+                self.state.lora_packets = 0
+                self._leave_messenger_view()
+                return None
             if key == "enter":
                 text = self._mc_input.get_edit_text().strip()
                 if text:

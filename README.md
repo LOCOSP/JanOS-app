@@ -82,7 +82,26 @@ esptool.py --chip esp32c5 --baud 115200 --before no_reset write_flash 0x2000 boo
 
 ### Configuration
 
-JanOS uses environment variables for optional cloud service credentials and hardware settings. Set them in your shell profile (`~/.bashrc`, `~/.zshrc`) or export before running JanOS.
+JanOS uses a `secrets.conf` file for API credentials — this file is gitignored so your tokens stay safe across updates.
+
+#### Secrets File (recommended)
+
+Create a `secrets.conf` file in the project root (next to `janos/`):
+```ini
+# JanOS API tokens (gitignored — safe from merge conflicts)
+JANOS_WIGLE_NAME=AID1234567890
+JANOS_WIGLE_TOKEN=abcdef1234567890
+JANOS_WPASEC_KEY=your-wpasec-key-here
+```
+
+This file is loaded automatically at startup. **Priority**: environment variables > `secrets.conf` > empty default.
+
+You can also use environment variables instead (e.g. in `~/.bashrc`):
+```bash
+export JANOS_WIGLE_NAME="AID1234567890"
+export JANOS_WIGLE_TOKEN="abcdef1234567890"
+export JANOS_WPASEC_KEY="your-wpasec-key-here"
+```
 
 #### WiGLE (wardriving upload + user stats)
 
@@ -90,44 +109,45 @@ To upload wardriving data and show WiGLE user stats in the sidebar:
 
 1. Create an account at [wigle.net](https://wigle.net)
 2. Go to **Account** > **API Token** > generate a new token
-3. Set environment variables:
-```bash
-export JANOS_WIGLE_NAME="AID1234567890"    # your API Name (AIDxxxxx)
-export JANOS_WIGLE_TOKEN="abcdef1234567890" # your API Token
-```
+3. Add `JANOS_WIGLE_NAME` and `JANOS_WIGLE_TOKEN` to `secrets.conf`
 
 When configured:
 - **Wardriving screen**: press `[w]` after stopping to upload CSV files to WiGLE
 - **Sidebar**: shows your WiGLE user stats (discovered WiFi/BT networks, rank) — refreshed hourly
 
-#### WPA-sec (handshake upload)
+#### WPA-sec (handshake cracking)
 
-To upload captured .pcap handshakes for cloud cracking:
+To upload captured .pcap handshakes for cloud cracking and download results:
 
 1. Register at [wpa-sec.stanev.org](https://wpa-sec.stanev.org)
 2. Copy your API key from the website
-3. Set environment variable:
-```bash
-export JANOS_WPASEC_KEY="your-wpasec-key-here"
-```
+3. Add `JANOS_WPASEC_KEY` to `secrets.conf`
 
 When configured:
-- **Sniffers tab**: press `[u]` to upload all .pcap files to WPA-sec, `[p]` to download cracked passwords
+- **Add-ons tab**: press `[u]` to upload all .pcap files to WPA-sec, `[p]` to download cracked passwords
+- **Wardriving**: scanned SSIDs are matched against downloaded WPA-sec passwords — a popup with sound notification appears when a network with a known password is detected
 
 #### GPS
 
 GPS is auto-detected on startup. Default UART device: `/dev/ttyAMA0` at 9600 baud (standard for ClockworkPi uConsole with AIO v2 board).
 
-The GPS device path and baud rate are defined in `janos/config.py`:
-```python
-GPS_DEVICE = "/dev/ttyAMA0"
-GPS_BAUD_RATE = 9600
+Override via `secrets.conf` or environment variables:
+```ini
+JANOS_GPS_DEVICE=/dev/ttyAMA0
+JANOS_GPS_BAUD=9600
 ```
 
 GPS provides:
 - Geo-tagging for all loot types (handshakes, wardriving, BT devices, MeshCore nodes)
 - Coordinates displayed in sidebar when fix is valid
 - Privacy mode adds random noise (approx. 1km) to displayed coordinates (loot files are NOT affected)
+
+#### Sound Notifications
+
+Terminal bell notifications can be disabled:
+```ini
+JANOS_SOUND=0
+```
 
 #### Summary
 
@@ -136,6 +156,9 @@ GPS provides:
 | `JANOS_WIGLE_NAME` | WiGLE API Name | [wigle.net](https://wigle.net) > Account > API Token |
 | `JANOS_WIGLE_TOKEN` | WiGLE API Token | Same as above |
 | `JANOS_WPASEC_KEY` | WPA-sec API key | [wpa-sec.stanev.org](https://wpa-sec.stanev.org) |
+| `JANOS_GPS_DEVICE` | GPS serial device | Default: `/dev/ttyAMA0` |
+| `JANOS_GPS_BAUD` | GPS baud rate | Default: `9600` |
+| `JANOS_SOUND` | Sound notifications | `0` to disable, `1` (default) to enable |
 
 ---
 
@@ -244,7 +267,7 @@ GPS provides:
 - **Bluetooth** — BLE Scan (device discovery), BT Tracker (follow specific MAC), AirTag Scanner (Apple AirTags + Samsung SmartTags) — with GPS geo-tagged loot
 - **Handshake Serial PCAP** — capture WPA handshakes without SD card, PCAP/HCCAPX streamed as base64 via serial and auto-saved to loot
 - **WiGLE upload** — wardriving data (WiFi + BT) in WiGLE-compatible CSV, upload with `[w]` key. WiGLE user stats shown in sidebar (discovered networks, rank)
-- **WPA-sec upload** — upload .pcap handshakes for cloud cracking with `[u]` key
+- **WPA-sec integration** — upload .pcap handshakes for cloud cracking with `[u]`, download cracked passwords with `[p]`. During wardriving, scanned SSIDs are automatically matched against cracked passwords with popup + sound notification
 - **Map tab** — vector world map rendered with Unicode braille characters, plots all GPS-tagged loot (handshakes=red, WiFi=green, BT=cyan, MeshCore=yellow), pan/zoom navigation, auto-hides sidebar for full width
 - **Custom Captive Portals** — load custom HTML portal pages from `portals/` folder, send to ESP32 via chunked base64 serial transfer
 - **Add-ons** — Flash ESP32 firmware, AIO v2 GPIO control (GPS/LORA/SDR/USB), LoRa tools (sniffer, scanner, balloon tracker, MeshCore, Meshtastic)

@@ -768,6 +768,34 @@ class AddOnsScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def keypress(self, size, key):
+        # -- MeshCore Messenger: capture ALL keys when active --
+        if self._mc_view_active and self._lora.running and self._lora.mode == "meshcore":
+            if key == "enter":
+                text = self._mc_input.get_edit_text().strip()
+                if text:
+                    self._mc_ensure_name(
+                        lambda: self._mc_send_inline(text))
+                return None
+            # Shortcut keys only when input bar is empty
+            input_empty = not self._mc_input.get_edit_text()
+            if input_empty and key == "a":
+                self._mc_ensure_name(self._mc_send_advert)
+                return None
+            if input_empty and key == "n":
+                self._mc_set_name()
+                return None
+            if input_empty and key == "s":
+                self._lora.stop()
+                self.state.lora_packets = 0
+                self._leave_messenger_view()
+                return None
+            if input_empty and key == "x":
+                self._mc_chat_log.clear()
+                self._update_status_hint()
+                return None
+            # All other keys → input bar (typing)
+            return self._mc_pile.keypress(size, key)
+
         if key == "g":
             self._start_gps_setup()
             return None
@@ -788,34 +816,6 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self.state.aio_lora and key in ("6", "7", "8", "9", "0"):
             self._start_lora(key)
             return None
-        # MeshCore Messenger keys (only when MeshCore running)
-        if self._lora.running and self._lora.mode == "meshcore":
-            if key == "enter":
-                text = self._mc_input.get_edit_text().strip()
-                if text:
-                    self._mc_ensure_name(
-                        lambda: self._mc_send_inline(text))
-                return None
-            # Shortcut keys only when input bar is empty (otherwise typing)
-            input_empty = not self._mc_input.get_edit_text()
-            if input_empty and key == "a":
-                self._mc_ensure_name(self._mc_send_advert)
-                return None
-            if input_empty and key == "n":
-                self._mc_set_name()
-                return None
-            if input_empty and key == "s":
-                self._lora.stop()
-                self.state.lora_packets = 0
-                self._leave_messenger_view()
-                return None
-            if input_empty and key == "x":
-                self._mc_chat_log.clear()
-                self._update_status_hint()
-                return None
-            # Pass all other keys to input bar for typing
-            if self._mc_view_active:
-                return self._mc_pile.keypress(size, key)
         # Stop running LoRa operation
         if key == "s" and self._lora.running:
             self._lora.stop()

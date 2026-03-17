@@ -913,4 +913,9 @@ class JanOSTUI:
             log.debug("USB hub reset skipped: %s", exc)
 
     def run(self) -> None:
+        # Startup beep — 3 bells to confirm sound is working
+        if SOUND_ENABLED:
+            for _ in range(3):
+                print("\a", end="", flush=True)
+                time.sleep(0.15)
         self._loop.run()

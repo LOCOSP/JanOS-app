@@ -504,6 +504,8 @@ class JanOSTUI:
                 pass
             self.state.connected = False
             self.state.esp32_ready = False
+            self._boot_tick = 0
+            self._boot_total = 0
             self._serial_watched = False
             # Remove the FD watcher — device is gone
             if saved_fd is not None:
@@ -621,10 +623,16 @@ class JanOSTUI:
                 if self._try_reconnect():
                     self._refresh_ui()
         # Boot readiness probe: port open but firmware not responding yet
+        # Informational only — does NOT block operations
         if self.state.connected and not self.state.esp32_ready \
                 and not self.state.flashing:
             self._boot_tick = getattr(self, "_boot_tick", 0) + 1
-            if self._boot_tick >= 2:  # probe every 2s
+            self._boot_total = getattr(self, "_boot_total", 0) + 1
+            if self._boot_total >= 30:  # 30s timeout — assume ready
+                self.state.esp32_ready = True
+                log.info("ESP32 boot probe timeout — assuming ready")
+                self._refresh_ui()
+            elif self._boot_tick >= 2:  # probe every 2s
                 self._boot_tick = 0
                 if self.serial.probe():
                     self.state.esp32_ready = True
@@ -664,20 +672,18 @@ class JanOSTUI:
     # ------------------------------------------------------------------
 
     def wait_for_esp32(self, on_connected) -> None:
-        """Show a polling dialog until ESP32 is detected and ready.
+        """Show a polling dialog until ESP32 is detected.
 
         Use from any screen that needs a serial connection before proceeding.
-        If already connected and ready, *on_connected* is called immediately.
-        Handles two states: device not connected, or connected but booting.
+        If already connected, *on_connected* is called immediately.
+        Only checks connection state — esp32_ready is informational (sidebar).
         """
-        if self.state.connected and self.state.esp32_ready:
+        if self.state.connected:
             on_connected()
             return
 
         _alarm = [None]
         _waiting = [True]
-
-        booting = self.state.connected and not self.state.esp32_ready
 
         def check(loop=None, _data=None):
             if not _waiting[0]:
@@ -688,33 +694,18 @@ class JanOSTUI:
                 else:
                     _alarm[0] = self._loop.set_alarm_in(2, check)
                     return
-            # Connected — check if firmware is ready
-            if not self.state.esp32_ready:
-                if self.serial.probe():
-                    self.state.esp32_ready = True
-                else:
-                    _alarm[0] = self._loop.set_alarm_in(2, check)
-                    return
+            # Connected — proceed immediately
             _waiting[0] = False
             self.dismiss_overlay()
             on_connected()
 
-        if booting:
-            msg = (
-                "ESP32 is booting...\n\n"
-                "Port detected but firmware\n"
-                "is not responding yet.\n\n"
-                "Please wait for boot to complete."
-            )
-            title = "ESP32 Booting"
-        else:
-            msg = (
-                "Connect ESP32 via USB.\n\n"
-                "Plug in ESP32-C5 to any USB port.\n"
-                "Auto-detecting ttyUSB0-3 / ttyACM0-3\n\n"
-                "Waiting for ESP32..."
-            )
-            title = "ESP32 Required"
+        msg = (
+            "Connect ESP32 via USB.\n\n"
+            "Plug in ESP32-C5 to any USB port.\n"
+            "Auto-detecting ttyUSB0-3 / ttyACM0-3\n\n"
+            "Waiting for ESP32..."
+        )
+        title = "ESP32 Required"
 
         def on_dismiss():
             _waiting[0] = False

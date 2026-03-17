@@ -137,7 +137,7 @@ class WardrivingScreen(urwid.WidgetWrap):
 
     def _try_start(self) -> None:
         """Check ESP32 + GPS and start wardriving or show dialog."""
-        if not self.state.connected or not self.state.esp32_ready:
+        if not self.state.connected:
             self._app.wait_for_esp32(self._try_start)
             return
         if not self.state.gps_available:

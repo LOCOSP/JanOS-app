@@ -416,8 +416,8 @@ class AttacksScreen(urwid.WidgetWrap):
             self._enter_sub_screen(self._evil_twin)
             return
 
-        # ESP32 attacks require serial connection + ready
-        if not self.state.connected or not self.state.esp32_ready:
+        # ESP32 attacks require serial connection
+        if not self.state.connected:
             self._app.wait_for_esp32(lambda: self._start_wifi_attack(idx))
             return
 
@@ -500,7 +500,7 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _start_bt_scan(self) -> None:
         """Start one-time BLE scan (10s). No confirmation needed."""
-        if not self.state.connected or not self.state.esp32_ready:
+        if not self.state.connected:
             self._app.wait_for_esp32(self._start_bt_scan)
             return
         if self.state.bt_scan_running:
@@ -519,7 +519,7 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _start_bt_tracker(self) -> None:
         """Show MAC input dialog, then start BLE tracking."""
-        if not self.state.connected or not self.state.esp32_ready:
+        if not self.state.connected:
             self._app.wait_for_esp32(self._start_bt_tracker)
             return
         def on_input(mac: str) -> None:
@@ -554,7 +554,7 @@ class AttacksScreen(urwid.WidgetWrap):
 
     def _start_bt_airtag(self) -> None:
         """Start continuous AirTag/SmartTag scanner."""
-        if not self.state.connected or not self.state.esp32_ready:
+        if not self.state.connected:
             self._app.wait_for_esp32(self._start_bt_airtag)
             return
         if self.state.bt_airtag_running:

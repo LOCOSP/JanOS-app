@@ -185,11 +185,12 @@ class SerialManager:
         log.info("Serial port %s opened at %d baud", self.device, self.baud_rate)
 
     def probe(self) -> bool:
-        """Check if firmware is responsive.  Non-blocking, no writes.
+        """Check if firmware is responsive.
 
         Checks for pending data first (boot banner).  If nothing pending,
-        tries a quick write — but catches timeout gracefully (XIAO CDC
-        blocks writes until firmware boots).
+        tries a quick write — on XIAO CDC, write blocks with
+        SerialTimeoutException until firmware boots.  A successful write
+        (no exception) means firmware is ready, even if it doesn't echo back.
         """
         if not self.serial_conn:
             return False
@@ -201,12 +202,11 @@ class SerialManager:
             try:
                 self.serial_conn.write(b"\r\n")
                 self.serial_conn.flush()
+                return True  # write succeeded = firmware is running
             except serial.SerialTimeoutException:
                 return False  # write blocked = firmware not ready
             except Exception:
                 return False
-            time.sleep(0.3)
-            return self.serial_conn.in_waiting > 0
         except Exception:
             return False
 

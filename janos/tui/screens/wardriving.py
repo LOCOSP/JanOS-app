@@ -238,7 +238,7 @@ class WardrivingScreen(urwid.WidgetWrap):
         # Sort by RSSI (strongest first)
         sorted_nets = sorted(
             self._seen.values(),
-            key=lambda n: int(n.rssi) if n.rssi.lstrip("-").isdigit() else -100,
+            key=lambda n: int(n.rssi) if n.rssi and n.rssi.lstrip("-").isdigit() else -100,
             reverse=True,
         )
         for net in sorted_nets:
@@ -248,7 +248,7 @@ class WardrivingScreen(urwid.WidgetWrap):
             if is_private():
                 gps_str = mask_coords_str(lat, lon)
             else:
-                gps_str = f"{lat:.5f},{lon:.5f}" if lat or lon else "—"
+                gps_str = f"{lat:.5f},{lon:.5f}" if (lat is not None and lon is not None and (lat or lon)) else "—"
             rssi_attr = NetworkManager.rssi_level(net.rssi)
             rows.append([
                 ("weight", 2, urwid.Text(mask_ssid(net.ssid))),

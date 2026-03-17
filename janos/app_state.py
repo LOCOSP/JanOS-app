@@ -84,6 +84,9 @@ class AppState:
     mitm_running: bool = False
     mitm_packets: int = 0
 
+    # BlueDucky
+    bt_ducky_running: bool = False
+
     # Bluetooth
     bt_wardriving_running: bool = False
     bt_wardriving_devices: int = 0
@@ -148,6 +151,7 @@ class AppState:
             self.bt_airtag_running,
             self.dragon_drain_running,
             self.mitm_running,
+            self.bt_ducky_running,
         ])
 
     def stop_all(self) -> None:
@@ -168,6 +172,7 @@ class AppState:
         self.bt_airtag_running = False
         self.dragon_drain_running = False
         self.mitm_running = False
+        self.bt_ducky_running = False
 
     def reset_sniffer(self) -> None:
         self.sniffer_running = False

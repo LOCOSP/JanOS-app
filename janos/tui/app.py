@@ -848,15 +848,15 @@ class JanOSTUI:
         self.show_overlay(dialog, 35, 7)
 
     def _quit(self) -> None:
-        # Always send stop — even if flags are out of sync with ESP32 state
-        try:
-            self.serial.send_command("stop")
-            time.sleep(0.3)
-            # Second stop for good measure (some modes need it)
-            self.serial.send_command("stop")
-            time.sleep(0.1)
-        except Exception:
-            pass
+        # Send stop only if ESP32 is connected
+        if self.state.connected:
+            try:
+                self.serial.send_command("stop")
+                time.sleep(0.3)
+                self.serial.send_command("stop")
+                time.sleep(0.1)
+            except Exception:
+                pass
         # Restore WiFi adapters from monitor mode
         self._restore_wifi_monitor()
         self.loot.close()

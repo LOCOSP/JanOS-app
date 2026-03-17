@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import subprocess
 import threading
 import time
 
@@ -388,10 +389,22 @@ class JanOSTUI:
     # Overlay support (for dialogs)
     # ------------------------------------------------------------------
 
+    _BEEP_WAV = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                             "assets", "beep.wav")
+
     def beep(self) -> None:
-        """Play terminal bell sound if enabled."""
-        if SOUND_ENABLED:
-            print("\a", end="", flush=True)
+        """Play beep sound via aplay (ALSA) if enabled."""
+        if not SOUND_ENABLED:
+            return
+        if os.path.isfile(self._BEEP_WAV):
+            try:
+                subprocess.Popen(
+                    ["aplay", "-q", self._BEEP_WAV],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except FileNotFoundError:
+                pass  # aplay not available (e.g. Windows)
 
     def show_overlay(self, widget: urwid.Widget, width: int, height: int,
                      beep: bool = False) -> None:
@@ -913,9 +926,9 @@ class JanOSTUI:
             log.debug("USB hub reset skipped: %s", exc)
 
     def run(self) -> None:
-        # Startup beep — 3 bells to confirm sound is working
+        # Startup beep — 3 beeps to confirm sound is working
         if SOUND_ENABLED:
             for _ in range(3):
-                print("\a", end="", flush=True)
-                time.sleep(0.15)
+                self.beep()
+                time.sleep(0.25)
         self._loop.run()

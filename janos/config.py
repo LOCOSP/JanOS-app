@@ -1,6 +1,30 @@
 """Constants and configuration for JanOS."""
 
 import os
+from pathlib import Path
+
+
+def _load_secrets() -> dict[str, str]:
+    """Load KEY=VALUE pairs from secrets.conf (next to janos/ package)."""
+    secrets: dict[str, str] = {}
+    # Walk up from this file to find the project root (contains janos/)
+    conf = Path(__file__).resolve().parent.parent / "secrets.conf"
+    if not conf.is_file():
+        return secrets
+    try:
+        for line in conf.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                secrets[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return secrets
+
+
+_secrets = _load_secrets()
 
 BAUD_RATE = 115200
 SCAN_TIMEOUT = 15
@@ -115,13 +139,13 @@ GPS_PRIVACY_NOISE_DEG = 0.01  # ±0.01° ≈ ±1.1km randomization in private mo
 
 # WiGLE API (wardriving upload)
 WIGLE_API_URL = "https://api.wigle.net/api/v2/file/upload"
-WIGLE_API_NAME = ""   # set via config or env JANOS_WIGLE_NAME
-WIGLE_API_TOKEN = ""  # set via config or env JANOS_WIGLE_TOKEN
+WIGLE_API_NAME = _secrets.get("JANOS_WIGLE_NAME", "")
+WIGLE_API_TOKEN = _secrets.get("JANOS_WIGLE_TOKEN", "")
 
 # WPA-sec (handshake upload + password download)
 WPASEC_URL = "https://wpa-sec.stanev.org/?submit"
 WPASEC_DL_URL = "https://wpa-sec.stanev.org/?api&dl=1"
-WPASEC_KEY = ""  # set via config or env JANOS_WPASEC_KEY
+WPASEC_KEY = _secrets.get("JANOS_WPASEC_KEY", "")
 
 # Sound notifications (terminal bell)
 SOUND_ENABLED = os.environ.get("JANOS_SOUND", "1") != "0"

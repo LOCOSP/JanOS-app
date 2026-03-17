@@ -10,4 +10,5 @@ loot/
 portals/
 nul
 test_esp_*.py
+secrets.conf
 CLAUDE.md

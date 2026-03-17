@@ -118,7 +118,7 @@ class SnifferScreen(urwid.WidgetWrap):
             return
 
     def _start_sniffer(self) -> None:
-        if not self.state.connected and self._app:
+        if (not self.state.connected or not self.state.esp32_ready) and self._app:
             self._app.wait_for_esp32(self._start_sniffer)
             return
         # Ensure ESP32 is idle — stop + wait for cleanup (pcap base64 dump ~1s)

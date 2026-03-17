@@ -65,7 +65,7 @@ class ScanScreen(urwid.WidgetWrap):
     def _start_scan(self) -> None:
         if self._scanning:
             return
-        if not self.state.connected and self._app:
+        if (not self.state.connected or not self.state.esp32_ready) and self._app:
             self._app.wait_for_esp32(self._start_scan)
             return
         self._scanning = True

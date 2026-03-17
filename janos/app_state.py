@@ -36,6 +36,7 @@ class AppState:
     device: str = ""
     device_description: str = ""  # USB device chip name (e.g. "CP2102N")
     connected: bool = False
+    esp32_ready: bool = False  # True once firmware responds to probe
     wifi_interfaces: List = field(default_factory=list)  # [(iface, mode, driver, chipset)]
 
     # Scan

@@ -1019,10 +1019,21 @@ class LoRaManager:
                         f"  TX: {len(packet)}B timeout!", "error")
             except Exception as exc:
                 self._emit(f"  TX error: {exc}", "error")
-        # Resume RX after all TX done — same sequence as sniffer init:
-        # 1) clear stale IRQ, 2) enter RX_CONTINUOUS, 3) remove GPIO callback
+        # Resume RX — bypass lora.request() which has a getMode() guard
+        # that can skip setup if radio state is stale. Do it manually:
+        lora.setStandby(lora.STANDBY_RC)
         lora.clearIrqStatus(0x03FF)
-        lora.request(lora.RX_CONTINUOUS)
+        # Restore packet params (endPacket set payloadLength to TX size)
+        lora.setPacketParamsLoRa(
+            lora._preambleLength, lora._headerType,
+            255, lora._crcType, False,
+        )
+        lora._irqSetup(
+            lora.IRQ_RX_DONE | lora.IRQ_TIMEOUT
+            | lora.IRQ_HEADER_ERR | lora.IRQ_CRC_ERR,
+        )
+        lora.setRx(lora.RX_CONTINUOUS)
+        # Remove GPIO callback — we use SPI polling
         try:
             import RPi.GPIO as _gpio
             _gpio.remove_event_detect(lora._irq)

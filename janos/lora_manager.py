@@ -865,12 +865,19 @@ class LoRaManager:
     # MeshCore TX — send group text and advertisements
     # ------------------------------------------------------------------
 
+    def _preseed_dedup(self, packet: bytes) -> None:
+        """Add TX packet to dedup cache so own retransmissions are filtered."""
+        # dedup_key = header_byte + payload (skip path_byte at index 1)
+        dedup_key = packet[0:1] + packet[2:]
+        self._seen_packets[dedup_key] = time.time()
+
     def send_meshcore_message(self, text: str, node_name: str) -> None:
         """Queue a MeshCore public group text for transmission."""
         if not self.running or self.mode != "meshcore":
             self._emit("  MeshCore not running — start sniffer first", "warning")
             return
         packet = self._build_mc_group_text(text, node_name)
+        self._preseed_dedup(packet)
         self._tx_queue.put(packet)
 
     def send_meshcore_advert(self, node_name: str,
@@ -880,6 +887,7 @@ class LoRaManager:
             self._emit("  MeshCore not running — start sniffer first", "warning")
             return
         packet = self._build_mc_advert(node_name, lat, lon)
+        self._preseed_dedup(packet)
         self._tx_queue.put(packet)
 
     def _build_mc_group_text(self, text: str, node_name: str) -> bytes:

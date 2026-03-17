@@ -30,6 +30,7 @@ import urwid
 
 from ...app_state import AppState
 from ...loot_manager import LootManager
+from ...privacy import is_private, mask_mac
 from ..widgets.log_viewer import LogViewer
 from ..widgets.list_picker import ListPickerDialog
 
@@ -545,8 +546,9 @@ class RACEAttackScreen(urwid.WidgetWrap):
                     tag = " [RACE!]" if d["race"] else ""
                     attr = "attack_active" if d["race"] else "default"
                     name = d["name"] or "(unknown)"
+                    da = mask_mac(d['addr']) if is_private() else d['addr']
                     self._log.append(
-                        f"  {i+1:2d}. {d['addr']}  {d['rssi']:4d}dBm  {name}{tag}",
+                        f"  {i+1:2d}. {da}  {d['rssi']:4d}dBm  {name}{tag}",
                         attr
                     )
                 self._log.append("  Press [1-9] quick-select or [c] to pick from list", "dim")
@@ -566,7 +568,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
         self._target_addr = addr
         self._target_name = name or addr
         self._body.original_widget = self._log
-        self._log.append(f">>> Checking {addr} for RACE vulnerability...", "attack_active")
+        da = mask_mac(addr) if is_private() else addr
+        self._log.append(f">>> Checking {da} for RACE vulnerability...", "attack_active")
 
         async def _check():
             try:
@@ -577,12 +580,14 @@ class RACEAttackScreen(urwid.WidgetWrap):
                         self._log.append(f"  Firmware: {info['version']}", "default")
                     if info["bd_addr"]:
                         self._headphone_mac = info["bd_addr"]
-                        self._log.append(f"  Classic BT MAC: {info['bd_addr']}", "default")
+                        dbd = mask_mac(info['bd_addr']) if is_private() else info['bd_addr']
+                        self._log.append(f"  Classic BT MAC: {dbd}", "default")
                     if info["link_keys"]:
                         self._link_keys = info["link_keys"]
                         self._log.append(f"  Link keys found: {len(info['link_keys'])}", "success")
                         for ka, kv in info["link_keys"]:
-                            self._log.append(f"    {ka} → {kv.hex()}", "default")
+                            dka = mask_mac(ka) if is_private() else ka
+                            self._log.append(f"    {dka} → {kv.hex()}", "default")
                         self._log.append("  Press [h] to hijack, [l] to listen", "dim")
                         self.state.race_running = True
                     elif info["error"]:
@@ -613,7 +618,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
             self._log.append("  Select a device first ([s] scan)", "warning")
             return
         self._body.original_widget = self._log
-        self._log.append(f">>> Extracting keys from {self._target_addr}...", "attack_active")
+        dta = mask_mac(self._target_addr) if is_private() else self._target_addr
+        self._log.append(f">>> Extracting keys from {dta}...", "attack_active")
         self._log.append("  Connecting + dumping flash (may take 30-60s)...", "dim")
 
         async def _extract():
@@ -628,8 +634,9 @@ class RACEAttackScreen(urwid.WidgetWrap):
                     if keys:
                         self._link_keys = keys
                         self._log.append(f"  Direct extraction: {len(keys)} key(s)", "success")
-                        for addr, key in keys:
-                            self._log.append(f"    {addr} → {key.hex()}", "default")
+                        for kaddr, key in keys:
+                            dka = mask_mac(kaddr) if is_private() else kaddr
+                            self._log.append(f"    {dka} → {key.hex()}", "default")
                 except Exception as e:
                     self._log.append(f"  Direct extraction failed: {e}", "warning")
                     self._log.append("  Trying flash dump...", "dim")
@@ -638,7 +645,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
                 try:
                     bd = await client.get_bd_address()
                     self._headphone_mac = bd
-                    self._log.append(f"  Classic BT: {bd}", "default")
+                    dbd = mask_mac(bd) if is_private() else bd
+                    self._log.append(f"  Classic BT: {dbd}", "default")
                 except Exception:
                     pass
 
@@ -678,8 +686,9 @@ class RACEAttackScreen(urwid.WidgetWrap):
                     if found_keys:
                         self._link_keys = found_keys
                         self._log.append(f"  Found {len(found_keys)} potential key(s) in flash:", "success")
-                        for addr, key in found_keys:
-                            self._log.append(f"    {addr} → {key.hex()}", "default")
+                        for faddr, key in found_keys:
+                            dfa = mask_mac(faddr) if is_private() else faddr
+                            self._log.append(f"    {dfa} → {key.hex()}", "default")
                     else:
                         self._log.append("  No link keys found in flash", "warning")
 
@@ -735,8 +744,10 @@ class RACEAttackScreen(urwid.WidgetWrap):
     def _hijack_target(self, key_idx: int) -> None:
         phone_mac, link_key = self._link_keys[key_idx]
         hp_mac = self._headphone_mac
-        self._log.append(f">>> Hijacking as {hp_mac}...", "attack_active")
-        self._log.append(f"  Target phone: {phone_mac}", "default")
+        dhp = mask_mac(hp_mac) if is_private() else hp_mac
+        dpm = mask_mac(phone_mac) if is_private() else phone_mac
+        self._log.append(f">>> Hijacking as {dhp}...", "attack_active")
+        self._log.append(f"  Target phone: {dpm}", "default")
         self._log.append(f"  Link key: {link_key.hex()}", "dim")
 
         def _hijack_thread():
@@ -749,7 +760,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
 
                 # Verify
                 new_mac = _get_adapter_mac()
-                self._log.append(f"  Adapter MAC: {new_mac}", "default")
+                dnm = mask_mac(new_mac) if is_private() and new_mac else new_mac
+                self._log.append(f"  Adapter MAC: {dnm}", "default")
 
                 # Step 2: Inject link key
                 self._log.append("  [2/4] Injecting link key into BlueZ...", "dim")
@@ -907,7 +919,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
                 for d in self._scanned:
                     tag = " [RACE!]" if d["race"] else ""
                     name = d["name"] or "(unknown)"
-                    choices.append(f"{d['addr']}  {d['rssi']}dBm  {name}{tag}")
+                    da = mask_mac(d['addr']) if is_private() else d['addr']
+                    choices.append(f"{da}  {d['rssi']}dBm  {name}{tag}")
 
                 def on_pick(idx):
                     self._app.dismiss_overlay()
@@ -932,7 +945,8 @@ class RACEAttackScreen(urwid.WidgetWrap):
                 d = self._scanned[idx]
                 self._target_addr = d["addr"]
                 self._target_name = d["name"] or d["addr"]
-                self._log.append(f"  Selected: {d['addr']} ({d['name'] or '?'})", "default")
+                da = mask_mac(d['addr']) if is_private() else d['addr']
+                self._log.append(f"  Selected: {da} ({d['name'] or '?'})", "default")
                 # Auto-check if not running
                 if not self._running:
                     self._do_check(d["addr"], d["name"])

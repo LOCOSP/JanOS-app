@@ -141,6 +141,13 @@ class LoRaManager:
             lora.setDio3TcxoCtrl(lora.DIO3_OUTPUT_1_8, 10)
 
             lora.setRxGain(lora.RX_GAIN_BOOSTED)
+            try:
+                lora.setTxPower(22, lora.TX_POWER_SX1262)
+            except Exception:
+                try:
+                    lora.setTxPower(22)
+                except Exception:
+                    pass
             self._emit("SX1262 radio initialized", "dim")
             return lora
         except Exception as exc:
@@ -720,6 +727,8 @@ class LoRaManager:
             f"RSSI:{rssi}dBm SNR:{snr:.1f}dB",
             "success",
         )
+        # Debug: show raw header bytes for comparison with TX
+        self._emit(f"  RX hex[:{min(16, len(data))}]: {data[:16].hex()}", "dim")
 
         # Decode by type
         if payload_type == 0x04:
@@ -899,9 +908,9 @@ class LoRaManager:
         # Payload: channel_hash + mac + ciphertext
         payload = bytes([MESHCORE_PUBLIC_HASH]) + mac + ciphertext
 
-        # Packet: header + transport_codes(4B) + path_byte + payload
-        header = 0x14  # (0<<6)|(0x05<<2)|0x00 = TFlood GrpTxt
-        return bytes([header]) + b"\x00\x00\x00\x00" + b"\x00" + payload
+        # Packet: header + path_byte + payload (Flood routing, NO transport codes)
+        header = 0x15  # (0<<6)|(0x05<<2)|0x01 = Flood GrpTxt
+        return bytes([header]) + b"\x00" + payload
 
     def _build_mc_advert(self, node_name: str,
                          lat: float = 0.0, lon: float = 0.0) -> bytes:
@@ -912,7 +921,7 @@ class LoRaManager:
         ts_bytes = struct.pack("<I", timestamp)
 
         # Appdata: flags + optional GPS + name
-        flags = 0x01  # Chat node type
+        flags = 0x00  # Client node type (0=Client, 1=Repeater, 2=Room)
         flags |= 0x80  # has name
         has_gps = lat != 0.0 or lon != 0.0
         if has_gps:
@@ -986,19 +995,19 @@ class LoRaManager:
             except Exception:
                 break
             try:
+                self._emit(
+                    f"  TX hex[:{min(16, len(packet))}]: "
+                    f"{packet[:16].hex()}", "dim")
                 lora.beginPacket()
                 lora.write(list(packet), len(packet))
-                lora.endPacket(5000)
-                self._emit(f"  TX: {len(packet)}B sent", "success")
+                status = lora.endPacket(5000)
+                self._emit(
+                    f"  TX: {len(packet)}B sent (status={status})",
+                    "success")
             except Exception as exc:
                 self._emit(f"  TX error: {exc}", "error")
-        # Resume RX
+        # Resume RX — just re-arm continuous mode, don't touch GPIO
         lora.request(lora.RX_CONTINUOUS)
-        try:
-            import RPi.GPIO as _gpio
-            _gpio.remove_event_detect(lora._irq)
-        except Exception:
-            pass
 
     def _cleanup_radio(self, lora) -> None:
         """Release SPI without GPIO.cleanup() (preserves pin mode for reuse).

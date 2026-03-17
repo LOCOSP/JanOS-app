@@ -133,6 +133,21 @@ class AddOnsScreen(urwid.WidgetWrap):
             ("pack", urwid.Divider("─")),
             ("pack", self._status),
         ])
+
+        # -- Messenger layout (used when MeshCore is active) --
+        self._mc_chat_log = LogViewer(max_lines=500)
+        self._mc_input = urwid.Edit(("bold", "  ≫ "))
+        self._mc_input_wrap = urwid.AttrMap(self._mc_input, "default")
+        self._mc_status = urwid.Text(("dim", ""))
+        self._mc_pile = urwid.Pile([
+            self._mc_chat_log,
+            ("pack", urwid.Divider("─")),
+            ("pack", self._mc_input_wrap),
+            ("pack", urwid.Divider("─")),
+            ("pack", self._mc_status),
+        ])
+        self._mc_view_active = False
+
         super().__init__(self._pile)
         self._rebuild_menu()
 
@@ -186,7 +201,7 @@ class AddOnsScreen(urwid.WidgetWrap):
                 ))
                 self._walker.append(urwid.Divider("─"))
                 self._walker.append(_AddonItem(
-                    "9", "MeshCore Sniffer",
+                    "9", "MeshCore Messenger",
                     self._lora.running and self._lora.mode == "meshcore",
                 ))
                 self._walker.append(_AddonItem(
@@ -220,11 +235,12 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self._lora.running:
             mode = self._lora.mode.capitalize()
             if self._lora.mode == "meshcore":
-                self._status.set_text(
+                # Update messenger footer status
+                self._mc_status.set_text(
                     ("attack_active",
-                     f"  MeshCore RUNNING "
+                     f"  MeshCore Messenger "
                      f"({self._lora.packets_received} pkts)  "
-                     f"[c]Chat [a]Advert [n]Name [s]Stop [x]Clear"))
+                     f"[a]Advert [n]Name [s]Stop [x]Clear"))
             else:
                 self._status.set_text(
                     ("attack_active",
@@ -245,6 +261,28 @@ class AddOnsScreen(urwid.WidgetWrap):
                 ("dim", "  [1]Flash  [g]GPS  [2]Install AIO  [x]Clear"))
 
     # ------------------------------------------------------------------
+    # Messenger view switching
+    # ------------------------------------------------------------------
+
+    def _enter_messenger_view(self) -> None:
+        """Switch from normal addons layout to MeshCore Messenger."""
+        if self._mc_view_active:
+            return
+        self._mc_view_active = True
+        self._mc_chat_log.clear()
+        self._mc_input.set_edit_text("")
+        # Focus the input bar for immediate typing
+        self._mc_pile.focus_position = 2  # input row
+        self._set_w(self._mc_pile)
+
+    def _leave_messenger_view(self) -> None:
+        """Switch back to normal addons layout."""
+        if not self._mc_view_active:
+            return
+        self._mc_view_active = False
+        self._set_w(self._pile)
+
+    # ------------------------------------------------------------------
     # Refresh (called every 1s by app._tick)
     # ------------------------------------------------------------------
 
@@ -257,11 +295,12 @@ class AddOnsScreen(urwid.WidgetWrap):
             except queue.Empty:
                 break
 
-        # Drain LoRa output queue
+        # Drain LoRa output queue — route to messenger chat if active
+        target_log = self._mc_chat_log if self._mc_view_active else self._log
         while not self._lora.queue.empty():
             try:
                 line, attr = self._lora.queue.get_nowait()
-                self._log.append(line, attr)
+                target_log.append(line, attr)
             except queue.Empty:
                 break
 
@@ -280,6 +319,10 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self._lora.running:
             self.state.lora_packets = self._lora.packets_received
             self._update_status_hint()
+        elif self._mc_view_active:
+            # LoRa stopped externally — leave messenger view
+            self._leave_messenger_view()
+            self._rebuild_menu()
 
         if self._flash.running:
             self._status.set_text(
@@ -493,6 +536,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self.state.lora_packets = 0
             self.state.mc_nodes = 0
             self.state.mc_messages = 0
+            self._leave_messenger_view()
             if same_mode:
                 # Toggle off
                 self._rebuild_menu()
@@ -508,6 +552,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._lora.start_tracker()
         elif key == "9":
             self._lora.start_meshcore()
+            self._enter_messenger_view()
         elif key == "0":
             self._lora.start_meshtastic()
         self._rebuild_menu()
@@ -571,25 +616,17 @@ class AddOnsScreen(urwid.WidgetWrap):
             return
         self._mc_node_name = name
         self._save_mc_name(name)
-        self._log.append(f"Node name: {name}", "success")
+        target = self._mc_chat_log if self._mc_view_active else self._log
+        target.append(f"Node name: {name}", "success")
         if callback:
             callback()
 
-    def _mc_send_chat(self) -> None:
-        """Show chat input dialog."""
-        dialog = TextInputDialog(
-            "MeshCore message",
-            self._on_mc_chat_entered,
-        )
-        self._app.show_overlay(dialog, 60, 8)
-
-    def _on_mc_chat_entered(self, text: str | None) -> None:
-        self._app.dismiss_overlay()
-        if not text:
-            return
+    def _mc_send_inline(self, text: str) -> None:
+        """Send message from inline input bar and clear it."""
         self._lora.send_meshcore_message(text, self._mc_node_name)
-        # Show locally in log
-        self._log.append(f"TX> {self._mc_node_name}: {text}", "success")
+        self._mc_chat_log.append(
+            f"  ⬆ {self._mc_node_name}: {text}", "success")
+        self._mc_input.set_edit_text("")
 
     def _mc_send_advert(self) -> None:
         """Send MeshCore advertisement."""
@@ -597,8 +634,9 @@ class AddOnsScreen(urwid.WidgetWrap):
         lon = self.state.gps_longitude or 0.0
         self._lora.send_meshcore_advert(self._mc_node_name, lat, lon)
         gps_str = f" ({lat:.5f},{lon:.5f})" if lat and lon else ""
-        self._log.append(
-            f"TX> Advert: {self._mc_node_name}{gps_str}", "success")
+        target = self._mc_chat_log if self._mc_view_active else self._log
+        target.append(
+            f"  ⬆ Advert: {self._mc_node_name}{gps_str}", "success")
 
     def _mc_set_name(self) -> None:
         """Show dialog to set/change node name."""
@@ -750,21 +788,39 @@ class AddOnsScreen(urwid.WidgetWrap):
         if self.state.aio_lora and key in ("6", "7", "8", "9", "0"):
             self._start_lora(key)
             return None
-        # MeshCore TX keys (only when MeshCore running)
+        # MeshCore Messenger keys (only when MeshCore running)
         if self._lora.running and self._lora.mode == "meshcore":
-            if key == "c":
-                self._mc_ensure_name(self._mc_send_chat)
+            if key == "enter":
+                text = self._mc_input.get_edit_text().strip()
+                if text:
+                    self._mc_ensure_name(
+                        lambda: self._mc_send_inline(text))
                 return None
-            if key == "a":
+            # Shortcut keys only when input bar is empty (otherwise typing)
+            input_empty = not self._mc_input.get_edit_text()
+            if input_empty and key == "a":
                 self._mc_ensure_name(self._mc_send_advert)
                 return None
-            if key == "n":
+            if input_empty and key == "n":
                 self._mc_set_name()
                 return None
+            if input_empty and key == "s":
+                self._lora.stop()
+                self.state.lora_packets = 0
+                self._leave_messenger_view()
+                return None
+            if input_empty and key == "x":
+                self._mc_chat_log.clear()
+                self._update_status_hint()
+                return None
+            # Pass all other keys to input bar for typing
+            if self._mc_view_active:
+                return self._mc_pile.keypress(size, key)
         # Stop running LoRa operation
         if key == "s" and self._lora.running:
             self._lora.stop()
             self.state.lora_packets = 0
+            self._leave_messenger_view()
             return None
         # WPA-sec cloud (only when token configured)
         if key == "u" and wpasec_configured():
@@ -775,7 +831,10 @@ class AddOnsScreen(urwid.WidgetWrap):
             return None
         if key == "x":
             if not self._flashing and not self._installing_aio:
-                self._log.clear()
+                if self._mc_view_active:
+                    self._mc_chat_log.clear()
+                else:
+                    self._log.clear()
                 self._update_status_hint()
             return None
         return super().keypress(size, key)

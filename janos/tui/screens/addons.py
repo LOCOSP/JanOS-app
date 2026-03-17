@@ -593,8 +593,8 @@ class AddOnsScreen(urwid.WidgetWrap):
 
     def _mc_send_advert(self) -> None:
         """Send MeshCore advertisement."""
-        lat = self.state.gps_lat or 0.0
-        lon = self.state.gps_lon or 0.0
+        lat = self.state.gps_latitude or 0.0
+        lon = self.state.gps_longitude or 0.0
         self._lora.send_meshcore_advert(self._mc_node_name, lat, lon)
         gps_str = f" ({lat:.5f},{lon:.5f})" if lat and lon else ""
         self._log.append(

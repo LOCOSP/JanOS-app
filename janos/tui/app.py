@@ -514,24 +514,6 @@ class JanOSTUI:
             self.state.gps_fix_quality = fix.fix_quality
             self.state.gps_hdop = fix.hdop
 
-    _GPS_SHARE_FILE = "/tmp/janos_gps.json"
-
-    def _share_gps(self) -> None:
-        """Write GPS data to shared file for external game process."""
-        try:
-            import json as _json
-            data = _json.dumps({
-                "lat": self.state.gps_latitude,
-                "lon": self.state.gps_longitude,
-                "alt": self.state.gps_altitude,
-                "fix": self.state.gps_fix_valid,
-                "sats": self.state.gps_satellites,
-            })
-            with open(self._GPS_SHARE_FILE, "w") as f:
-                f.write(data)
-        except Exception:
-            pass
-
     # ------------------------------------------------------------------
     # Serial data callback (fired by urwid event loop)
     # ------------------------------------------------------------------
@@ -650,8 +632,6 @@ class JanOSTUI:
         # Poll GPS every tick as fallback (watch_file may not fire for USB GPS)
         if self.state.gps_available:
             self._on_gps_data()
-        # Share GPS data for external game process
-        self._share_gps()
         # AIO + WiFi status refresh every 10 seconds (non-blocking thread)
         self._aio_tick += 1
         if self._aio_tick >= 10:
@@ -983,7 +963,20 @@ class JanOSTUI:
                 self._game_cmd = None
                 self._game_cwd = None
                 self._game_env = None
-                # Stop urwid screen so game gets the terminal/display
+                # Close serial so game can use it
+                device = self.state.device
+                if self.serial and self.serial.is_open:
+                    try:
+                        self.serial.close()
+                    except Exception:
+                        pass
+                # Close GPS so game can use it
+                if self.gps:
+                    try:
+                        self.gps.close()
+                    except Exception:
+                        pass
+                # Stop urwid screen so game gets the display
                 self._loop.screen.stop()
                 try:
                     proc = subprocess.Popen(cmd, cwd=cwd, env=env)
@@ -994,6 +987,19 @@ class JanOSTUI:
                     self.state.game_running = False
                 # Restart urwid screen
                 self._loop.screen.start()
+                # Reopen serial + GPS
+                if device:
+                    try:
+                        self.serial.setup()
+                        self.state.connected = True
+                    except Exception as e:
+                        log.error("Serial reopen failed: %s", e)
+                        self.state.connected = False
+                if self.gps and self.state.gps_available:
+                    try:
+                        self.gps.setup()
+                    except Exception:
+                        pass
                 # Continue TUI loop
                 continue
             else:

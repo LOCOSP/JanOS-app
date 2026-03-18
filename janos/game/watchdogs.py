@@ -21,7 +21,9 @@ import json
 import math
 import os
 import random
+import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -46,9 +48,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 W, H = 480, 270
 FPS = 30
-GPS_FILE = "/tmp/janos_gps.json"
-CMD_FILE = "/tmp/janos_game_cmd.txt"      # game → JanOS commands
-FEED_FILE = "/tmp/janos_game_feed.jsonl"  # JanOS → game events
+GPS_DEVICE = os.environ.get("JANOS_GPS_DEVICE", "/dev/ttyAMA0")
+GPS_BAUD = 9600
 
 # Colors (pyxel palette indices)
 C_WATER = 1       # dark blue
@@ -88,57 +89,144 @@ LEVEL_NAMES = [
     "NETRUNNER", "ELITE", "GHOST", "CYBER_GOD",
 ]
 
+# BT/WiFi/HS regex patterns (same as JanOS)
+BT_RE = re.compile(
+    r'^\s*\d+\.\s+([0-9A-Fa-f:]{17})\s+RSSI:\s*(-?\d+)\s*dBm'
+    r'(?:\s+Name:\s*(.+?))?$'
+)
+WIFI_RE = re.compile(
+    r'(\d+)\.\s+([\w:]{17})\s+(.+?)\s+Ch:(\d+)\s+RSSI:(-?\d+)'
+)
+HS_BEGIN_RE = re.compile(r'---\s*PCAP BEGIN\s*---')
+HS_SSID_RE = re.compile(r'SSID:\s*(\S+)\s+AP:\s*(\S+)')
+
+
 # ---------------------------------------------------------------------------
-# IPC: game ↔ JanOS via shared files
+# ESP32 serial (direct, owns the port)
 # ---------------------------------------------------------------------------
 
-def send_command(cmd: str) -> None:
-    """Write a command for JanOS to execute (game → JanOS)."""
-    try:
-        with open(CMD_FILE, "a") as f:
-            f.write(cmd + "\n")
-    except Exception:
-        pass
+class Esp32Serial:
+    """Direct serial connection to ESP32."""
 
+    def __init__(self, port: str):
+        import serial as pyserial
+        self._ser = pyserial.Serial(port, 115200, timeout=0.1)
+        self._lock = threading.Lock()
+        self._lines: list[str] = []
+        self._running = True
+        self._thread = threading.Thread(target=self._reader, daemon=True)
+        self._thread.start()
 
-def drain_feed() -> list[dict]:
-    """Read and clear event feed from JanOS (JanOS → game)."""
-    events = []
-    try:
-        with open(FEED_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-        # Truncate after reading
-        with open(FEED_FILE, "w") as f:
+    def _reader(self):
+        buf = ""
+        while self._running:
+            try:
+                data = self._ser.read(512)
+                if data:
+                    buf += data.decode("utf-8", errors="replace")
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        line = line.strip()
+                        if line:
+                            with self._lock:
+                                self._lines.append(line)
+            except Exception:
+                time.sleep(0.1)
+
+    def send(self, cmd: str):
+        with self._lock:
+            try:
+                self._ser.write((cmd + "\n").encode())
+            except Exception:
+                pass
+
+    def drain(self) -> list[str]:
+        with self._lock:
+            lines = list(self._lines)
+            self._lines.clear()
+        return lines
+
+    def close(self):
+        self._running = False
+        try:
+            self._ser.close()
+        except Exception:
             pass
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass
-    return events
 
 
 # ---------------------------------------------------------------------------
-# GPS reader (from shared file)
+# GPS reader (direct NMEA from /dev/ttyAMA0)
 # ---------------------------------------------------------------------------
 
-def read_gps() -> tuple[float, float, bool]:
-    """Read GPS from shared JSON file."""
-    try:
-        with open(GPS_FILE, "r") as f:
-            data = json.load(f)
-        return (
-            data.get("lat", 0.0),
-            data.get("lon", 0.0),
-            data.get("fix", False),
-        )
-    except Exception:
-        return 0.0, 0.0, False
+class GpsReader:
+    """Reads NMEA sentences from GPS UART."""
+
+    def __init__(self, device: str = GPS_DEVICE, baud: int = GPS_BAUD):
+        self.lat = 0.0
+        self.lon = 0.0
+        self.fix = False
+        self._running = True
+        try:
+            import serial as pyserial
+            self._ser = pyserial.Serial(device, baud, timeout=1)
+            self._thread = threading.Thread(target=self._reader, daemon=True)
+            self._thread.start()
+        except Exception:
+            self._ser = None
+
+    def _reader(self):
+        buf = ""
+        while self._running and self._ser:
+            try:
+                data = self._ser.read(256)
+                if data:
+                    buf += data.decode("ascii", errors="replace")
+                    while "\n" in buf:
+                        line, buf = buf.split("\n", 1)
+                        self._parse_nmea(line.strip())
+            except Exception:
+                time.sleep(0.5)
+
+    def _parse_nmea(self, line: str):
+        """Parse GGA or RMC sentence."""
+        if not line.startswith("$"):
+            return
+        parts = line.split(",")
+        try:
+            if parts[0] in ("$GPGGA", "$GNGGA"):
+                if len(parts) > 9 and parts[2] and parts[4]:
+                    self.lat = self._nmea_to_dec(parts[2], parts[3])
+                    self.lon = self._nmea_to_dec(parts[4], parts[5])
+                    self.fix = int(parts[6] or "0") > 0
+            elif parts[0] in ("$GPRMC", "$GNRMC"):
+                if len(parts) > 6 and parts[3] and parts[5]:
+                    if parts[2] == "A":  # Active
+                        self.lat = self._nmea_to_dec(parts[3], parts[4])
+                        self.lon = self._nmea_to_dec(parts[5], parts[6])
+                        self.fix = True
+                    else:
+                        self.fix = False
+        except (ValueError, IndexError):
+            pass
+
+    @staticmethod
+    def _nmea_to_dec(coord: str, direction: str) -> float:
+        """Convert NMEA coordinate (DDMM.MMMM) to decimal degrees."""
+        dot = coord.index(".")
+        degrees = float(coord[:dot - 2])
+        minutes = float(coord[dot - 2:])
+        dec = degrees + minutes / 60.0
+        if direction in ("S", "W"):
+            dec = -dec
+        return dec
+
+    def close(self):
+        self._running = False
+        if self._ser:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -372,16 +460,20 @@ class WatchDogsGame:
         self.ble_scanning = False
         self.sniffing = False
         self.capturing_hs = False
-        self._hs_serial_mode = False
-        self._esp32_connected = bool(serial_port)
-        self._feed_pos = 0
 
-        # Clear command file on start
-        try:
-            with open(CMD_FILE, "w") as f:
-                pass
-        except Exception:
-            pass
+        # ESP32 serial (direct — JanOS is stopped)
+        self.serial: Esp32Serial | None = None
+        if serial_port:
+            try:
+                self.serial = Esp32Serial(serial_port)
+                self.msg(f"[SYS] ESP32 on {serial_port}", C_SUCCESS)
+            except Exception as e:
+                self.msg(f"[SYS] ESP32 error: {e}", C_ERROR)
+
+        # GPS (direct NMEA — JanOS is stopped)
+        self.gps_reader = GpsReader()
+        if self.gps_reader._ser:
+            self.msg(f"[SYS] GPS on {GPS_DEVICE}", C_SUCCESS)
 
         # Load persistent markers from loot
         self.loot_path = loot_path
@@ -396,8 +488,7 @@ class WatchDogsGame:
         self.proj.smooth_move(self.player_lat, self.player_lon)
         self.proj.zoom = 5  # city level
 
-        esp_label = f"ESP32 ({serial_port})" if serial_port else "No ESP32"
-        self.msg(f"[SYS] JanOS // WATCH_MODE — {esp_label}", C_HACK_CYAN)
+        self.msg("[SYS] JanOS // WATCH_MODE initialized", C_HACK_CYAN)
         self.msg("[SYS] Arrow keys=move [b]=scan [1-5]=tools", C_DIM)
 
         pyxel.run(self.update, self.draw)
@@ -426,8 +517,8 @@ class WatchDogsGame:
         self.proj.smooth_move(self.player_lat, self.player_lon)
         self.proj.update()
 
-        # IPC feed from JanOS
-        self._process_feed()
+        # ESP32 serial data
+        self._process_serial()
 
         # Scan pulse
         self.scan_pulse = (self.scan_pulse + 1) % 60
@@ -484,14 +575,14 @@ class WatchDogsGame:
             pyxel.quit()
 
     def _update_gps(self):
-        """Read GPS from shared file."""
-        if pyxel.frame_count % 30 == 0:  # every second
-            lat, lon, fix = read_gps()
-            if fix and lat != 0 and lon != 0:
-                self.player_lat = lat
-                self.player_lon = lon
-                self.gps_fix = True
-                self._manual_move = False
+        """Read GPS from direct NMEA reader."""
+        if self.gps_reader.fix and self.gps_reader.lat != 0:
+            self.player_lat = self.gps_reader.lat
+            self.player_lon = self.gps_reader.lon
+            self.gps_fix = True
+            self._manual_move = False
+        else:
+            self.gps_fix = self.gps_reader.fix
 
     def _update_movement(self):
         """Arrow key movement (manual override or no GPS)."""
@@ -578,22 +669,21 @@ class WatchDogsGame:
                 self.hack_target = None
 
     # ------------------------------------------------------------------
-    # IPC feed processing (JanOS → game)
+    # Serial processing (direct ESP32)
     # ------------------------------------------------------------------
 
-    def _process_feed(self):
-        """Read events from JanOS feed file."""
-        if pyxel.frame_count % 5 != 0:  # every ~170ms
+    def _process_serial(self):
+        if not self.serial:
             return
-        for evt in drain_feed():
-            etype = evt.get("type", "")
-
-            if etype == "ble":
-                mac = evt.get("mac", "")
-                if mac and mac not in self._known_ble_macs:
+        for line in self.serial.drain():
+            # BLE device
+            m = BT_RE.match(line)
+            if m:
+                mac = m.group(1)
+                if mac not in self._known_ble_macs:
                     self._known_ble_macs.add(mac)
-                    name = evt.get("name", "Unknown")[:18]
-                    rssi = evt.get("rssi", -70)
+                    name = (m.group(3) or "").strip() or "Unknown"
+                    rssi = int(m.group(2))
                     offset_lat = (random.random() - 0.5) * self.proj.lat_span * 0.3
                     offset_lon = (random.random() - 0.5) * self.proj.lon_span * 0.3
                     dev = BleDevice(
@@ -605,14 +695,17 @@ class WatchDogsGame:
                     self.ble_devices.append(dev)
                     self.msg(f"[BLE] {name} {mac[-8:]} {rssi}dBm", C_HACK_CYAN)
                     self.xp += 10
+                continue
 
-            elif etype == "wifi":
-                bssid = evt.get("bssid", "")
-                if bssid and bssid not in self._known_wifi_bssids:
+            # WiFi network
+            wm = WIFI_RE.search(line)
+            if wm:
+                bssid = wm.group(2)
+                if bssid not in self._known_wifi_bssids:
                     self._known_wifi_bssids.add(bssid)
-                    ssid = evt.get("ssid", "?")[:18]
-                    ch = evt.get("channel", 0)
-                    rssi = evt.get("rssi", -70)
+                    ssid = wm.group(3).strip()
+                    ch = int(wm.group(4))
+                    rssi = int(wm.group(5))
                     offset_lat = (random.random() - 0.5) * self.proj.lat_span * 0.2
                     offset_lon = (random.random() - 0.5) * self.proj.lon_span * 0.2
                     net = WifiNetwork(
@@ -624,95 +717,96 @@ class WatchDogsGame:
                     self.wifi_networks.append(net)
                     self.msg(f"[WiFi] {ssid} Ch:{ch} {rssi}dBm", C_WARNING)
                     self.xp += 15
+                continue
 
-            elif etype == "handshake":
-                ssid = evt.get("ssid", "Handshake")
-                bssid = evt.get("bssid", "")
-                self.msg(f"[HS] {ssid} captured!", C_SUCCESS)
+            # Handshake detection
+            if HS_BEGIN_RE.search(line):
+                self.msg("[HS] Handshake captured!", C_SUCCESS)
                 self.xp += 200
                 self.glitch_timer = 10
-                lat = evt.get("lat", self.player_lat)
-                lon = evt.get("lon", self.player_lon)
-                self.markers.append(MapMarker(lat, lon, ssid[:20], "handshake"))
-                px, py = self.proj.geo_to_screen(lat, lon)
-                for _ in range(30):
-                    self.particles.append(
-                        Particle(px, py, random.choice([11, 10, 3])))
+                if self.player_lat and self.player_lon:
+                    self.markers.append(MapMarker(
+                        self.player_lat, self.player_lon,
+                        "Handshake", "handshake",
+                    ))
+                    px, py = self.proj.geo_to_screen(
+                        self.player_lat, self.player_lon)
+                    for _ in range(30):
+                        self.particles.append(
+                            Particle(px, py, random.choice([11, 10, 3])))
 
-            elif etype == "msg":
-                self.msg(evt.get("text", ""), evt.get("color", C_DIM))
-
-            elif etype == "status":
-                self.wifi_scanning = evt.get("wifi_scanning", False)
-                self.ble_scanning = evt.get("ble_scanning", False)
-                self.sniffing = evt.get("sniffer_running", False)
-                self.capturing_hs = evt.get("handshake_running", False)
-                self._esp32_connected = evt.get("esp32", False)
+            ssid_m = HS_SSID_RE.search(line)
+            if ssid_m:
+                ssid = ssid_m.group(1)
+                bssid = ssid_m.group(2)
+                self.msg(f"[HS] {ssid} ({bssid})", C_SUCCESS)
+                if self.markers and self.markers[-1].type == "handshake":
+                    self.markers[-1].label = ssid[:20]
 
     # ------------------------------------------------------------------
-    # Tools — send commands to JanOS via IPC
+    # Tools — direct ESP32 serial commands
     # ------------------------------------------------------------------
-
-    def _send_cmd(self, cmd: str):
-        send_command(cmd)
-        self.glitch_timer = 5
 
     def _toggle_wifi_scan(self):
-        if not self._esp32_connected:
+        if not self.serial:
             self.msg("[ERR] No ESP32 connected", C_ERROR)
             return
         if self.wifi_scanning:
-            self._send_cmd("stop")
+            self.serial.send("stop")
             self.wifi_scanning = False
             self.msg("[WiFi] Scan stopped", C_DIM)
         else:
-            self._send_cmd("scan_networks")
+            self.serial.send("scan_networks")
             self.wifi_scanning = True
             self.msg("[WiFi] Wardriving started...", C_WARNING)
+            self.glitch_timer = 5
 
     def _toggle_bt_scan(self):
-        if not self._esp32_connected:
+        if not self.serial:
             self.msg("[ERR] No ESP32 connected", C_ERROR)
             return
         if self.ble_scanning:
-            self._send_cmd("stop")
+            self.serial.send("stop")
             self.ble_scanning = False
             self.msg("[BT] Scan stopped", C_DIM)
         else:
-            self._send_cmd("bt_scan")
+            self.serial.send("bt_scan")
             self.ble_scanning = True
             self.msg("[BT] Wardriving started...", 12)
+            self.glitch_timer = 5
 
     def _toggle_sniffer(self):
-        if not self._esp32_connected:
+        if not self.serial:
             self.msg("[ERR] No ESP32 connected", C_ERROR)
             return
         if self.sniffing:
-            self._send_cmd("stop")
+            self.serial.send("stop")
             self.sniffing = False
             self.msg("[SNF] Sniffer stopped", C_DIM)
         else:
-            self._send_cmd("start_sniffer")
+            self.serial.send("start_sniffer")
             self.sniffing = True
             self.msg("[SNF] Packet sniffer active...", 12)
+            self.glitch_timer = 5
 
     def _start_handshake(self, serial_mode: bool = False):
-        if not self._esp32_connected:
+        if not self.serial:
             self.msg("[ERR] No ESP32 connected", C_ERROR)
             return
         if self.capturing_hs:
-            self._send_cmd("stop")
+            self.serial.send("stop")
             self.capturing_hs = False
             self.msg("[HS] Capture stopped", C_DIM)
         else:
             cmd = "start_handshake_serial" if serial_mode else "start_handshake"
-            self._send_cmd(cmd)
+            self.serial.send(cmd)
             self.capturing_hs = True
             mode = "Serial" if serial_mode else "SD"
             self.msg(f"[HS] Handshake capture ({mode})...", C_SUCCESS)
+            self.glitch_timer = 8
 
     def _do_ble_scan(self):
-        if not self._esp32_connected:
+        if not self.serial:
             # Simulate
             for _ in range(random.randint(2, 5)):
                 mac = ":".join(f"{random.randint(0,255):02X}" for _ in range(6))
@@ -738,20 +832,18 @@ class WatchDogsGame:
                     self.xp += 10
             self.glitch_timer = 5
             return
-        self._send_cmd("bt_scan")
+        self.serial.send("bt_scan")
         self.msg("[BLE] Scan pulse...", 12)
+        self.glitch_timer = 5
 
     def _cleanup(self):
-        """Clean up on exit."""
-        send_command("game_exit")
-        try:
-            os.remove(CMD_FILE)
-        except Exception:
-            pass
-        try:
-            os.remove(FEED_FILE)
-        except Exception:
-            pass
+        """Clean up on exit — stop ESP32, close serial + GPS."""
+        if self.serial:
+            self.serial.send("stop")
+            time.sleep(0.3)
+            self.serial.close()
+        if self.gps_reader:
+            self.gps_reader.close()
 
     # ------------------------------------------------------------------
     # Draw

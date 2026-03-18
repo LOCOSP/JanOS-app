@@ -101,42 +101,47 @@ class SniffersScreen(urwid.WidgetWrap):
         pkg_dir = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
 
-        # Use same python as JanOS
+        # Build a shell script that handles DISPLAY/XAUTHORITY/user
         python = sys.executable
-        cmd = [
-            python, "-m", "janos.game.watchdogs",
-            self.state.device or "", loot_dir,
-        ]
-        env = os.environ.copy()
-        env.setdefault("DISPLAY", ":0")
-        # Under sudo, we need X authority from the real user
+        device = self.state.device or ""
         sudo_user = os.environ.get("SUDO_USER", "")
-        if sudo_user and "XAUTHORITY" not in env:
-            env["XAUTHORITY"] = f"/home/{sudo_user}/.Xauthority"
-        # Allow local X connections
-        try:
-            subprocess.run(
-                ["xhost", "+local:"],
-                env=env, capture_output=True, timeout=3,
-            )
-        except Exception:
-            pass
+
+        # Write launcher script
+        script = "/tmp/janos_game_launch.sh"
+        with open(script, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write(f"export DISPLAY=:0\n")
+            if sudo_user:
+                f.write(f"export XAUTHORITY=/home/{sudo_user}/.Xauthority\n")
+                f.write(f"export HOME=/home/{sudo_user}\n")
+                # Run as user, not root
+                f.write(f"exec sudo -u {sudo_user} "
+                        f"DISPLAY=:0 "
+                        f"XAUTHORITY=/home/{sudo_user}/.Xauthority "
+                        f"HOME=/home/{sudo_user} "
+                        f"{python} -m janos.game.watchdogs "
+                        f"'{device}' '{loot_dir}' "
+                        f">/tmp/janos_game.log 2>&1\n")
+            else:
+                f.write(f"exec {python} -m janos.game.watchdogs "
+                        f"'{device}' '{loot_dir}' "
+                        f">/tmp/janos_game.log 2>&1\n")
+        os.chmod(script, 0o755)
 
         self.state.game_running = True
         self._status.set_text(("success", "  Watch Dogs game launched!"))
-        log_file = "/tmp/janos_game.log"
 
         def _monitor():
             try:
-                with open(log_file, "w") as lf:
-                    proc = subprocess.Popen(
-                        cmd, cwd=pkg_dir, env=env,
-                        stdout=lf, stderr=lf,
-                    )
-                    proc.wait()
-            except Exception as e:
-                with open(log_file, "a") as lf:
-                    lf.write(f"Launch error: {e}\n")
+                proc = subprocess.Popen(
+                    ["/bin/bash", script],
+                    cwd=pkg_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                proc.wait()
+            except Exception:
+                pass
             finally:
                 self.state.game_running = False
 

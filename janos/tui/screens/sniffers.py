@@ -1,5 +1,7 @@
-"""Sniffers tab — menu wrapper for Wardriving, BT Wardriving, and Packet Sniffer."""
+"""Sniffers tab — menu wrapper for Wardriving, BT Wardriving, Packet Sniffer, and Watch Dogs Game."""
 
+import os
+import subprocess
 import threading
 import urwid
 
@@ -42,6 +44,9 @@ class SniffersScreen(urwid.WidgetWrap):
             urwid.Text(("default", "  [2] Wardriving BT")),
             urwid.Text(("default", "  [3] Packet Sniffer")),
             urwid.Divider(),
+            urwid.Text(("bold", "  \u2500\u2500 Game \u2500\u2500")),
+            urwid.Text(("default", "  [g] Watch Dogs Game")),
+            urwid.Divider(),
         ]
         # Cloud upload/download hints (only when configured)
         self._cloud_hints = urwid.Pile([])
@@ -81,6 +86,37 @@ class SniffersScreen(urwid.WidgetWrap):
         if hints:
             hints.insert(0, urwid.Text(("bold", "  \u2500\u2500 Cloud \u2500\u2500")))
         self._cloud_hints.contents = [(w, ("pack", None)) for w in hints]
+
+    def _launch_game(self) -> None:
+        """Launch Watch Dogs game as external pyxel process."""
+        self._status.set_text(("warning", "  Launching Watch Dogs..."))
+
+        def _run():
+            serial_port = self.state.device or ""
+            loot_dir = ""
+            if self._loot:
+                loot_dir = self._loot.loot_root
+            cmd = [
+                "python3", "-m", "janos.game.watchdogs",
+                serial_port, loot_dir,
+            ]
+            # Find project root (where janos/ package lives)
+            pkg_dir = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            try:
+                self.state.game_running = True
+                proc = subprocess.Popen(
+                    cmd, cwd=pkg_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                proc.wait()
+            except Exception as e:
+                self._status.set_text(("error", f"  Game error: {e}"))
+            finally:
+                self.state.game_running = False
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _upload_wigle(self) -> None:
         """Upload wardriving CSVs to WiGLE."""
@@ -169,6 +205,11 @@ class SniffersScreen(urwid.WidgetWrap):
             return None
         if key == "3":
             self._enter_sub_screen(self._sniffer)
+            return None
+
+        # Game
+        if key == "g":
+            self._launch_game()
             return None
 
         # Cloud services (menu only)

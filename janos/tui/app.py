@@ -514,6 +514,24 @@ class JanOSTUI:
             self.state.gps_fix_quality = fix.fix_quality
             self.state.gps_hdop = fix.hdop
 
+    _GPS_SHARE_FILE = "/tmp/janos_gps.json"
+
+    def _share_gps(self) -> None:
+        """Write GPS data to shared file for external game process."""
+        try:
+            import json as _json
+            data = _json.dumps({
+                "lat": self.state.gps_latitude,
+                "lon": self.state.gps_longitude,
+                "alt": self.state.gps_altitude,
+                "fix": self.state.gps_fix_valid,
+                "sats": self.state.gps_satellites,
+            })
+            with open(self._GPS_SHARE_FILE, "w") as f:
+                f.write(data)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Serial data callback (fired by urwid event loop)
     # ------------------------------------------------------------------
@@ -632,6 +650,8 @@ class JanOSTUI:
         # Poll GPS every tick as fallback (watch_file may not fire for USB GPS)
         if self.state.gps_available:
             self._on_gps_data()
+        # Share GPS data for external game process
+        self._share_gps()
         # AIO + WiFi status refresh every 10 seconds (non-blocking thread)
         self._aio_tick += 1
         if self._aio_tick >= 10:

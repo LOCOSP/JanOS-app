@@ -660,6 +660,8 @@ class JanOSTUI:
                 "gps_lat": self.state.gps_latitude,
                 "gps_lon": self.state.gps_longitude,
                 "gps_fix": self.state.gps_fix_valid,
+                "sats": self.state.gps_satellites_visible
+                    or self.state.gps_satellites,
                 "esp32": self.state.connected,
                 "wardriving": self.state.wardriving_running,
                 "bt_scanning": self.state.bt_scan_running

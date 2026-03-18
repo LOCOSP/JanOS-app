@@ -106,17 +106,35 @@ class SniffersScreen(urwid.WidgetWrap):
         ]
         env = os.environ.copy()
         env.setdefault("DISPLAY", ":0")
+        # Under sudo, we need X authority from the real user
+        sudo_user = os.environ.get("SUDO_USER", "")
+        if sudo_user and "XAUTHORITY" not in env:
+            env["XAUTHORITY"] = f"/home/{sudo_user}/.Xauthority"
+        # Also allow local X connections (fallback)
+        try:
+            os.system("xhost +local: >/dev/null 2>&1")
+        except Exception:
+            pass
 
         self.state.game_running = True
         self._status.set_text(("success", "  Watch Dogs game launched!"))
 
         def _monitor():
             try:
-                proc = subprocess.Popen(
-                    cmd, cwd=pkg_dir, env=env,
+                # Drop privileges if running as root (sudo)
+                kwargs = dict(
+                    cwd=pkg_dir, env=env,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                if sudo_user and os.getuid() == 0:
+                    import pwd
+                    pw = pwd.getpwnam(sudo_user)
+                    kwargs["preexec_fn"] = lambda: (
+                        os.setgid(pw.pw_gid),
+                        os.setuid(pw.pw_uid),
+                    )
+                proc = subprocess.Popen(cmd, **kwargs)
                 proc.wait()
             except Exception:
                 pass

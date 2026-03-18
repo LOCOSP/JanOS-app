@@ -602,8 +602,6 @@ class JanOSTUI:
         """Route an incoming serial line to the active screen's handler."""
         # Buffer for game overlay terminal (always, game reads when running)
         self._game_serial_buf.append(line)
-        if len(self._game_serial_buf) > 50:
-            self._game_serial_buf = self._game_serial_buf[-50:]
 
         active_idx = self._tab_bar.active
         screen = self._screens[active_idx]
@@ -635,7 +633,8 @@ class JanOSTUI:
 
     _GAME_STATE_FILE = "/tmp/janos_state.json"
     _GAME_CMD_FILE = "/tmp/janos_game_cmd.txt"
-    _game_serial_buf: list[str] = []  # last N serial lines for game overlay
+    _game_serial_buf: list[str] = []     # rolling serial buffer for game
+    _game_serial_sent: int = 0          # how many lines already sent to state file
 
     def _export_game_state(self) -> None:
         """Write state to shared file for Watch Dogs game overlay."""
@@ -653,9 +652,14 @@ class JanOSTUI:
                 "sniffer": self.state.sniffer_running,
                 "handshake": self.state.handshake_running,
                 "handshakes": getattr(self.state, "handshake_count", 0),
-                "serial_lines": list(self._game_serial_buf),
+                "serial_lines": self._game_serial_buf[self._game_serial_sent:],
             }
-            self._game_serial_buf.clear()
+            self._game_serial_sent = len(self._game_serial_buf)
+            # Trim buffer to prevent unbounded growth
+            if len(self._game_serial_buf) > 200:
+                trim = len(self._game_serial_buf) - 100
+                self._game_serial_buf = self._game_serial_buf[trim:]
+                self._game_serial_sent = len(self._game_serial_buf)
             with open(self._GAME_STATE_FILE, "w") as f:
                 json.dump(data, f)
         except Exception as e:

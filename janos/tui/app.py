@@ -3,6 +3,7 @@
 import logging
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import threading
@@ -636,6 +637,17 @@ class JanOSTUI:
     _GAME_STATE_FILE = "/tmp/janos_state.json"
     _GAME_CMD_FILE = "/tmp/janos_game_cmd.txt"
 
+    def _count_session_hs(self) -> int:
+        """Count handshake files in current loot session."""
+        try:
+            hs_dir = Path(self.loot.session_path) / "handshakes"
+            if not hs_dir.is_dir():
+                return 0
+            return sum(1 for f in hs_dir.iterdir()
+                       if f.suffix in (".pcap", ".hccapx"))
+        except Exception:
+            return 0
+
     def _export_game_state(self) -> None:
         """Write state to shared file for Watch Dogs game overlay."""
         try:
@@ -651,7 +663,7 @@ class JanOSTUI:
                     or getattr(self.state, "bt_wardriving_running", False),
                 "sniffer": self.state.sniffer_running,
                 "handshake": self.state.handshake_running,
-                "handshakes": getattr(self.state, "handshake_count", 0),
+                "handshakes": self._count_session_hs(),
                 "serial_lines": self._game_serial_buf[self._game_serial_sent:],
             }
             self._game_serial_sent = len(self._game_serial_buf)

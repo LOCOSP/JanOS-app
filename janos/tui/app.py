@@ -680,6 +680,8 @@ class JanOSTUI:
                 "ble_devices": ble_devs,
                 "wifi_networks": wifi_nets,
                 "serial_lines": list(self._game_serial_buf),
+                "loot_points": self.loot.get_gps_points()
+                    if self.loot else [],
             }
             self._game_serial_buf.clear()
             with open(self._GAME_STATE_FILE, "w") as f:

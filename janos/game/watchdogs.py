@@ -301,17 +301,14 @@ class WatchDogsGame:
         self.terminal_lines: list[str] = []
         self.terminal_max = 12  # visible lines
 
+        # Loot GPS points (all types, from JanOS)
+        self.loot_points: list[dict] = []  # {lat, lon, type, label}
+
         # Init
         try:
             open(CMD_FILE, "w").close()
         except Exception:
             pass
-
-        loaded = load_gps_markers(loot_path)
-        for m in loaded:
-            self.markers.append(MapMarker(m["lat"], m["lon"], m["label"], m["type"]))
-        if loaded:
-            self.msg(f"[LOOT] {len(loaded)} handshake markers loaded", C_DIM)
 
         self.proj.smooth_move(self.player_lat, self.player_lon)
         self.proj.zoom = 6  # city level
@@ -482,6 +479,11 @@ class WatchDogsGame:
             if len(self.terminal_lines) > 100:
                 self.terminal_lines = self.terminal_lines[-100:]
 
+        # Loot GPS points (all types — wifi, bt, handshake, meshcore)
+        loot = state.get("loot_points", [])
+        if loot:
+            self.loot_points = loot
+
         # Level up
         new_lvl = 1 + self.xp // 200
         if new_lvl > self.level:
@@ -530,6 +532,7 @@ class WatchDogsGame:
         pyxel.cls(C_WATER)
         self._draw_coastlines()
         self._draw_grid()
+        self._draw_loot_points()
         self._draw_markers()
         self._draw_wifi()
         self._draw_ble()
@@ -591,7 +594,33 @@ class WatchDogsGame:
                 pyxel.line(sx, HUD_TOP, sx, TERM_Y, C_GRID)
             lon += sp
 
-    # -- Markers --
+    # -- Loot GPS points (wifi=green, bt=cyan, handshake=red, meshcore=yellow) --
+    def _draw_loot_points(self):
+        # Color map by type
+        TYPE_COLORS = {
+            "wifi": C_SUCCESS,      # green
+            "bt": C_HACK_CYAN,      # cyan
+            "handshake": C_ERROR,   # red
+            "meshcore": C_WARNING,  # yellow
+        }
+        for pt in self.loot_points:
+            sx, sy = self.proj.geo_to_screen(pt["lat"], pt["lon"])
+            if not self.proj.screen_visible(sx, sy):
+                continue
+            c = TYPE_COLORS.get(pt.get("type", ""), C_DIM)
+            # Size based on zoom
+            if self.proj.zoom >= 8:
+                pyxel.circ(sx, sy, 2, c)
+                # Label at high zoom
+                if self.proj.zoom >= 10:
+                    label = pt.get("label", "")[:16]
+                    pyxel.text(sx + 4, sy - 2, label, c)
+            elif self.proj.zoom >= 5:
+                pyxel.rect(sx, sy, 2, 2, c)
+            else:
+                pyxel.pset(sx, sy, c)
+
+    # -- Markers (handshake locks — separate from loot dots) --
     def _draw_markers(self):
         for m in self.markers:
             sx, sy = self.proj.geo_to_screen(m.lat, m.lon)
@@ -867,6 +896,17 @@ class WatchDogsGame:
             dx, dy = (m.lon - self.player_lon) * scale, (self.player_lat - m.lat) * scale
             if abs(dx) < rr and abs(dy) < rr:
                 pyxel.pset(rx+int(dx), ry+int(dy), C_ERROR)
+        # Loot points on radar (sampled to avoid perf issues)
+        loot_colors = {"wifi": C_SUCCESS, "bt": C_HACK_CYAN,
+                        "handshake": C_ERROR, "meshcore": C_WARNING}
+        step = max(1, len(self.loot_points) // 100)
+        for i in range(0, len(self.loot_points), step):
+            pt = self.loot_points[i]
+            dx = (pt["lon"] - self.player_lon) * scale
+            dy = (self.player_lat - pt["lat"]) * scale
+            if abs(dx) < rr and abs(dy) < rr:
+                pyxel.pset(rx+int(dx), ry+int(dy),
+                           loot_colors.get(pt.get("type", ""), C_DIM))
         pyxel.pset(rx, ry, C_TEXT)
 
     # -- Cyberdeck Menu (top-left) --

@@ -679,6 +679,8 @@ class JanOSTUI:
 
     def _poll_game_commands(self) -> None:
         """Read and execute commands from Watch Dogs game overlay."""
+        if not self.state.game_running:
+            return
         try:
             with open(self._GAME_CMD_FILE, "r") as f:
                 content = f.read()

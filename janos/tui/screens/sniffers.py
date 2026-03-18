@@ -110,17 +110,19 @@ class SniffersScreen(urwid.WidgetWrap):
         script = "/tmp/janos_game_launch.sh"
         with open(script, "w") as f:
             f.write("#!/bin/bash\n")
+            f.write(f"cd '{pkg_dir}'\n")
             f.write(f"export DISPLAY=:0\n")
             if sudo_user:
-                f.write(f"export XAUTHORITY=/home/{sudo_user}/.Xauthority\n")
-                f.write(f"export HOME=/home/{sudo_user}\n")
-                # Run as user, not root
+                # sudo -u preserves cwd, but pass PYTHONPATH as fallback
+                f.write(f"export PYTHONPATH='{pkg_dir}'\n")
                 f.write(f"exec sudo -u {sudo_user} "
                         f"DISPLAY=:0 "
                         f"XAUTHORITY=/home/{sudo_user}/.Xauthority "
                         f"HOME=/home/{sudo_user} "
+                        f"PYTHONPATH='{pkg_dir}' "
+                        f"bash -c \"cd '{pkg_dir}' && "
                         f"{python} -m janos.game.watchdogs "
-                        f"'{device}' '{loot_dir}' "
+                        f"'{device}' '{loot_dir}'\" "
                         f">/tmp/janos_game.log 2>&1\n")
             else:
                 f.write(f"exec {python} -m janos.game.watchdogs "

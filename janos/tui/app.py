@@ -638,54 +638,28 @@ class JanOSTUI:
     _game_serial_buf: list[str] = []  # last N serial lines for game overlay
 
     def _export_game_state(self) -> None:
-        """Write state to shared file for Watch Dogs game overlay.
-        Always export — game may start before flag is set."""
+        """Write state to shared file for Watch Dogs game overlay."""
         try:
-            # Collect BLE devices
-            ble_devs = []
-            if hasattr(self.state, "bt_devices"):
-                for mac, info in list(self.state.bt_devices.items())[:50]:
-                    if isinstance(info, dict):
-                        ble_devs.append(info)
-                    else:
-                        ble_devs.append({"mac": mac, "name": str(info), "rssi": -70})
-
-            # Collect WiFi networks
-            wifi_nets = []
-            if hasattr(self, "_scan") and hasattr(self._scan, "_networks"):
-                for net in list(self._scan._networks.values())[:50]:
-                    wifi_nets.append({
-                        "bssid": getattr(net, "bssid", ""),
-                        "ssid": getattr(net, "ssid", ""),
-                        "channel": getattr(net, "channel", 0),
-                        "rssi": getattr(net, "rssi", -70),
-                    })
-
             data = {
                 "gps_lat": self.state.gps_latitude,
                 "gps_lon": self.state.gps_longitude,
                 "gps_fix": self.state.gps_fix_valid,
-                "sats": self.state.gps_satellites_visible
-                    or self.state.gps_satellites,
+                "sats": getattr(self.state, "gps_satellites_visible", 0)
+                    or getattr(self.state, "gps_satellites", 0),
                 "esp32": self.state.connected,
                 "wardriving": self.state.wardriving_running,
-                "bt_scanning": self.state.bt_scan_running
-                    or self.state.bt_wardriving_running,
+                "bt_scanning": getattr(self.state, "bt_scan_running", False)
+                    or getattr(self.state, "bt_wardriving_running", False),
                 "sniffer": self.state.sniffer_running,
                 "handshake": self.state.handshake_running,
-                "handshakes": self.state.handshake_count
-                    if hasattr(self.state, "handshake_count") else 0,
-                "ble_devices": ble_devs,
-                "wifi_networks": wifi_nets,
+                "handshakes": getattr(self.state, "handshake_count", 0),
                 "serial_lines": list(self._game_serial_buf),
-                "loot_points": self.loot.get_gps_points()
-                    if self.loot else [],
             }
             self._game_serial_buf.clear()
             with open(self._GAME_STATE_FILE, "w") as f:
                 json.dump(data, f)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Game state export error: %s", e)
 
     def _poll_game_commands(self) -> None:
         """Read and execute commands from Watch Dogs game overlay."""

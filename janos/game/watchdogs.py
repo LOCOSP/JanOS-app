@@ -358,9 +358,12 @@ class WatchDogsGame:
             self._update_menu()
         else:
             # Zoom
-            if pyxel.btnp(pyxel.KEY_PLUS) or pyxel.btnp(pyxel.KEY_KP_PLUS):
+            if (pyxel.btnp(pyxel.KEY_PLUS) or pyxel.btnp(pyxel.KEY_KP_PLUS)
+                    or pyxel.btnp(pyxel.KEY_EQUALS)
+                    or pyxel.btnp(pyxel.KEY_RIGHTBRACKET)):
                 self.proj.zoom_in()
-            if pyxel.btnp(pyxel.KEY_MINUS) or pyxel.btnp(pyxel.KEY_KP_MINUS):
+            if (pyxel.btnp(pyxel.KEY_MINUS) or pyxel.btnp(pyxel.KEY_KP_MINUS)
+                    or pyxel.btnp(pyxel.KEY_LEFTBRACKET)):
                 self.proj.zoom_out()
             if pyxel.btnp(pyxel.KEY_0):
                 self.proj.reset_view()
@@ -679,65 +682,72 @@ class WatchDogsGame:
             r = 25 + int(math.sin(pyxel.frame_count * 0.3) * 8)
             pyxel.circb(cx, cy, r, 12)
 
-    # -- Player (centered, detailed) --
+    # -- Player (centered, Watch Dogs Aiden Pearce style — large, dark) --
     def _draw_player(self):
         cx, cy = W // 2, HUD_TOP + MAP_H // 2
-        b = math.sin(self._breath * 0.05) * 0.5  # breathing
+        b = math.sin(self._breath * 0.05) * 0.8  # breathing
 
         # Shadow
-        pyxel.elli(cx-5, cy+12, 11, 4, 1)
+        pyxel.elli(cx - 7, cy + 18, 15, 5, 1)
 
-        # Legs (dark pants)
-        pyxel.rect(cx-3, cy+5, 3, 7, C_PLAYER_CAP)
-        pyxel.rect(cx+1, cy+5, 3, 7, C_PLAYER_CAP)
-        # Shoes
-        pyxel.rect(cx-4, cy+11, 4, 2, 0)
-        pyxel.rect(cx+1, cy+11, 4, 2, 0)
+        # === Legs (dark pants + boots) ===
+        pyxel.rect(cx - 4, cy + 8, 4, 10, 2)   # left leg
+        pyxel.rect(cx + 1, cy + 8, 4, 10, 2)   # right leg
+        # Boots (black)
+        pyxel.rect(cx - 5, cy + 16, 5, 3, 0)
+        pyxel.rect(cx + 1, cy + 16, 5, 3, 0)
 
-        # Coat body (long trench coat)
-        pyxel.rect(cx-5, cy-4, 11, 10, C_PLAYER_COAT)
-        # Coat inner
-        pyxel.rect(cx-1, cy-3, 3, 8, C_PLAYER_BODY)
-        # Coat collar
-        pyxel.rect(cx-5, cy-5, 2, 3, C_PLAYER_COAT)
-        pyxel.rect(cx+4, cy-5, 2, 3, C_PLAYER_COAT)
+        # === Coat (long dark trench coat) ===
+        # Main body
+        pyxel.rect(cx - 7, cy - 6, 15, 15, 2)   # dark coat body
+        # Coat flaps (bottom, below belt)
+        pyxel.rect(cx - 7, cy + 5, 6, 5, 2)
+        pyxel.rect(cx + 2, cy + 5, 6, 5, 2)
+        # Belt line
+        pyxel.line(cx - 6, cy + 4, cx + 7, cy + 4, 0)
+        # Collar turned up
+        pyxel.rect(cx - 7, cy - 8, 3, 4, 2)
+        pyxel.rect(cx + 5, cy - 8, 3, 4, 2)
+        # Inner shirt (dark gray)
+        pyxel.rect(cx - 1, cy - 5, 3, 9, 1)
 
-        # Head
-        pyxel.rect(cx-3, cy-10, 7, 6, C_PLAYER_SKIN)
-        # Cap (flat cap with brim)
-        pyxel.rect(cx-4, cy-12, 9, 3, C_PLAYER_CAP)
-        pyxel.rect(cx-5, cy-10, 11, 1, C_PLAYER_CAP)
+        # === Head ===
+        pyxel.rect(cx - 4, cy - 15, 9, 8, 15)  # skin
+        # Cap (dark flat cap with brim — signature Aiden look)
+        pyxel.rect(cx - 5, cy - 18, 11, 4, 2)
+        pyxel.rect(cx - 6, cy - 15, 13, 2, 2)   # brim
+        # Eyes
+        if pyxel.frame_count % 90 < 85:  # blink
+            pyxel.pset(cx - 2, cy - 12, 0)
+            pyxel.pset(cx + 2, cy - 12, 0)
+        # Scarf / face mask (covering nose+mouth like Aiden)
+        pyxel.rect(cx - 3, cy - 10, 7, 3, 5)
 
-        # Face details
-        pyxel.pset(cx-1, cy-8, 0)  # left eye
-        pyxel.pset(cx+2, cy-8, 0)  # right eye
-        # Mouth/scarf (covering lower face like Aiden)
-        pyxel.rect(cx-2, cy-6, 5, 2, C_PLAYER_COAT)
-
-        # Right arm + device (phone/cyberdeck)
-        ay = cy - 2 + int(b)
-        pyxel.rect(cx+6, cy-3, 2, 6, C_PLAYER_COAT)  # arm
-        # Phone in hand
-        pyxel.rect(cx+8, ay, 4, 6, 0)         # phone body
-        pyxel.rect(cx+9, ay+1, 2, 4, C_DEVICE_SCREEN)  # screen
-        # Screen glow flicker
-        if pyxel.frame_count % 8 < 6:
-            pyxel.pset(cx+9, ay+1, C_SUCCESS)
-            pyxel.pset(cx+10, ay+3, C_HACK_CYAN)
-
-        # Left arm at side
-        pyxel.rect(cx-7, cy-3, 2, 6, C_PLAYER_COAT)
-
-        # Hacking pose override
+        # === Right arm + phone/device ===
+        ay = cy - 3 + int(b)
         if self.hacking:
-            # Both arms forward
-            pyxel.rect(cx+6, cy-4, 3, 4, C_PLAYER_COAT)
-            pyxel.rect(cx-8, cy-4, 3, 4, C_PLAYER_COAT)
-            # Phone glows brighter
-            pyxel.rect(cx+9, ay, 5, 7, 0)
-            pyxel.rect(cx+10, ay+1, 3, 5, C_HACK_CYAN)
+            # Both arms forward (hacking pose)
+            pyxel.rect(cx + 8, cy - 5, 3, 7, 2)
+            pyxel.rect(cx - 10, cy - 5, 3, 7, 2)
+            # Phone held up, screen bright
+            pyxel.rect(cx + 11, ay - 1, 5, 8, 0)
+            pyxel.rect(cx + 12, ay, 3, 6, C_HACK_CYAN)
             if pyxel.frame_count % 2 == 0:
-                pyxel.rect(cx+10, ay+1, 3, 5, C_SUCCESS)
+                pyxel.rect(cx + 12, ay, 3, 6, C_SUCCESS)
+            # Glow around phone
+            pyxel.pset(cx + 11, ay - 2, C_HACK_CYAN)
+            pyxel.pset(cx + 16, ay + 3, C_HACK_CYAN)
+        else:
+            # Right arm holding phone down
+            pyxel.rect(cx + 8, cy - 4, 3, 8, 2)
+            # Phone
+            pyxel.rect(cx + 11, ay + 1, 5, 7, 0)
+            pyxel.rect(cx + 12, ay + 2, 3, 5, C_DEVICE_SCREEN)
+            if pyxel.frame_count % 10 < 8:
+                pyxel.pset(cx + 12, ay + 2, C_SUCCESS)
+                pyxel.pset(cx + 14, ay + 5, C_HACK_CYAN)
+            # Left arm at side
+            pyxel.rect(cx - 10, cy - 4, 3, 8, 2)
 
     def _draw_particles(self):
         for p in self.particles:

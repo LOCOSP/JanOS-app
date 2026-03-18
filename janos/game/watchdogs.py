@@ -411,12 +411,19 @@ class WatchDogsGame:
         if not self._esp32:
             self.msg(f"[ERR] No ESP32 — cannot start {name}", C_ERROR)
             return
-        # Toggle: if already running, stop
-        running = getattr(self, state_key, False) if hasattr(self, state_key) else False
+        # Check if this specific thing is already running
+        running = False
+        if state_key == "wardriving": running = self.wifi_scanning
+        elif state_key == "bt_scanning": running = self.ble_scanning
+        elif state_key == "sniffer": running = self.sniffing
+        elif state_key == "handshake": running = self.capturing_hs
+
         if running:
             send_command("stop")
             self.msg(f"[STOP] {name}", C_DIM)
         else:
+            # Stop whatever is running first, then start new
+            send_command("stop")
             send_command(cmd)
             self.msg(f"[START] {name}...", C_HACK_CYAN)
             self.glitch_timer = 5

@@ -94,12 +94,12 @@ LEVEL_NAMES = [
 
 # Cyberdeck menu items
 MENU_ITEMS = [
-    ("1", "WiFi Wardriving",       "scan_networks", "wardriving"),
-    ("2", "BT Wardriving",         "bt_scan",       "bt_scanning"),
-    ("3", "Packet Sniffer",        "start_sniffer", "sniffer"),
-    ("4", "Handshake Capture",     "start_handshake", "handshake"),
-    ("5", "Handshake No SD",       "start_handshake_serial", "handshake"),
-    ("b", "BLE Scan",              "bt_scan",       "bt_scanning"),
+    ("1", "WiFi Scan",             "scan_networks",           "wardriving"),
+    ("2", "BLE Scan",              "scan_bt",                 "bt_scanning"),
+    ("3", "Packet Sniffer",        "start_sniffer",           "sniffer"),
+    ("4", "Handshake Capture",     "start_handshake",         "handshake"),
+    ("5", "Handshake No SD",       "start_handshake_serial",  "handshake"),
+    ("b", "BLE Quick Scan",        "scan_bt",                 "bt_scanning"),
 ]
 
 
@@ -297,9 +297,10 @@ class WatchDogsGame:
         self.menu_open = False
         self.menu_sel = 0
 
-        # Terminal output panel (bottom 30%)
+        # Terminal output panel (bottom 30%) with scroll
         self.terminal_lines: list[str] = []
-        self.terminal_max = 12  # visible lines
+        self.term_scroll = 0     # 0 = bottom (auto-scroll), >0 = scrolled up
+        self.term_line_h = 6     # pixel height per line (tight packing)
 
         # Loot GPS points (all types, from JanOS)
         self.loot_points: list[dict] = []  # {lat, lon, type, label}
@@ -378,6 +379,16 @@ class WatchDogsGame:
             if pyxel.btn(pyxel.KEY_RIGHT):
                 self.player_lon += speed; self._manual_move = True
             self.player_lat = max(-85, min(85, self.player_lat))
+
+        # Terminal scroll (Page Up/Down)
+        if pyxel.btnp(pyxel.KEY_PAGEUP):
+            self.term_scroll = min(self.term_scroll + 5,
+                                   max(0, len(self.terminal_lines) - 5))
+        if pyxel.btnp(pyxel.KEY_PAGEDOWN):
+            self.term_scroll = max(0, self.term_scroll - 5)
+        # Auto-scroll to bottom when new lines arrive
+        if pyxel.btnp(pyxel.KEY_END):
+            self.term_scroll = 0
 
         if pyxel.btnp(pyxel.KEY_ESCAPE):
             self._cleanup()
@@ -477,10 +488,15 @@ class WatchDogsGame:
         self._last_hs = hs
 
         # Serial output → terminal panel
-        for line in state.get("serial_lines", []):
-            self.terminal_lines.append(line)
-            if len(self.terminal_lines) > 100:
-                self.terminal_lines = self.terminal_lines[-100:]
+        new_lines = state.get("serial_lines", [])
+        if new_lines:
+            self.terminal_lines.extend(new_lines)
+            if len(self.terminal_lines) > 500:
+                self.terminal_lines = self.terminal_lines[-500:]
+            # Auto-scroll to bottom if user hasn't scrolled up
+            if self.term_scroll == 0:
+                pass  # already at bottom
+            # Don't reset scroll if user is reading history
 
         # Loot GPS points (all types — wifi, bt, handshake, meshcore)
         loot = state.get("loot_points", [])
@@ -774,50 +790,74 @@ class WatchDogsGame:
         for sl in self.scan_lines:
             pyxel.rect(0, sl, W, 1, C_GRID)
 
-    # -- Terminal panel (bottom 30%) --
+    # -- Terminal panel (bottom 30%) with scroll --
     def _draw_terminal(self):
         # Background
         pyxel.rect(0, TERM_Y, W, TERM_H, 0)
-        # Top border with label
+        # Top border
         pyxel.line(0, TERM_Y, W - 1, TERM_Y, C_MENU_BORDER)
-        pyxel.text(3, TERM_Y + 2, "> OUTPUT", C_HACK_CYAN)
-        # Separator line
-        pyxel.line(50, TERM_Y + 1, 50, TERM_Y + 7, C_MENU_BORDER)
-        # Active tool label
+        # Header
+        pyxel.text(3, TERM_Y + 1, "> OUTPUT", C_HACK_CYAN)
+        # Active tool
         tool_name = ""
         if self.capturing_hs: tool_name = "HANDSHAKE"
         elif self.wifi_scanning: tool_name = "WiFi SCAN"
         elif self.ble_scanning: tool_name = "BT SCAN"
         elif self.sniffing: tool_name = "SNIFFER"
         if tool_name:
-            pyxel.text(54, TERM_Y + 2, tool_name, C_WARNING)
+            pyxel.text(54, TERM_Y + 1, tool_name, C_WARNING)
+        # Scroll indicator
+        if self.term_scroll > 0:
+            pyxel.text(W - 60, TERM_Y + 1, f"SCROLL +{self.term_scroll}", C_DIM)
+        # Line count
+        pyxel.text(W - 30, TERM_Y + 1, f"L:{len(self.terminal_lines)}", C_DIM)
 
-        # Terminal lines
-        visible = self.terminal_lines[-(self.terminal_max):]
-        y = TERM_Y + 10
-        for line in visible:
-            # Truncate long lines
-            display = line[:75]
-            # Color coding based on content
+        # Calculate visible area
+        content_y = TERM_Y + 8
+        content_h = TERM_H - 10
+        max_visible = content_h // self.term_line_h
+
+        # Get visible slice with scroll
+        total = len(self.terminal_lines)
+        if self.term_scroll == 0:
+            # Auto-scroll: show latest lines
+            start = max(0, total - max_visible)
+            end = total
+        else:
+            # Scrolled up
+            end = max(0, total - self.term_scroll)
+            start = max(0, end - max_visible)
+
+        y = content_y
+        for i in range(start, end):
+            line = self.terminal_lines[i]
+            display = line[:90]
+            # Color coding
             c = C_TEXT
-            if "RSSI:" in line or "dBm" in line:
+            if line.startswith(">>>"):
+                c = C_HACK_CYAN  # echo'd command
+            elif "RSSI:" in line or "dBm" in line:
                 c = C_HACK_CYAN
             elif "SSID:" in line or "AP:" in line:
                 c = C_SUCCESS
-            elif "error" in line.lower() or "fail" in line.lower():
+            elif "error" in line.lower() or "fail" in line.lower() or "Unrecognized" in line:
                 c = C_ERROR
             elif "PCAP" in line or "HCCAPX" in line or "handshake" in line.lower():
                 c = C_WARNING
-            elif line.startswith("  "):
+            elif line.startswith(">") or line.startswith("  "):
                 c = C_DIM
             pyxel.text(4, y, display, c)
-            y += 6
+            y += self.term_line_h
             if y >= TERM_Y + TERM_H - 2:
                 break
 
-        # Cursor blink
-        if pyxel.frame_count % 30 < 20:
-            pyxel.text(4, y, "_", C_HACK_CYAN)
+        # Cursor blink at bottom
+        if self.term_scroll == 0 and pyxel.frame_count % 30 < 20:
+            pyxel.text(4, min(y, TERM_Y + TERM_H - 7), "_", C_HACK_CYAN)
+
+        # Scroll hint
+        if total > max_visible and self.term_scroll == 0:
+            pyxel.text(W - 80, TERM_Y + TERM_H - 7, "PgUp/PgDn scroll", C_DIM)
 
     # -- HUD top --
     def _draw_hud_top(self):

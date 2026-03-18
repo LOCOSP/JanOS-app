@@ -88,35 +88,25 @@ class SniffersScreen(urwid.WidgetWrap):
         self._cloud_hints.contents = [(w, ("pack", None)) for w in hints]
 
     def _launch_game(self) -> None:
-        """Launch Watch Dogs game as external pyxel process."""
-        self._status.set_text(("warning", "  Launching Watch Dogs..."))
+        """Launch Watch Dogs game — stops JanOS TUI, runs game fullscreen."""
+        serial_port = self.state.device or ""
+        loot_dir = ""
+        if self._loot:
+            loot_dir = self._loot.loot_root
+        # Find project root (where janos/ package lives)
+        pkg_dir = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
 
-        def _run():
-            serial_port = self.state.device or ""
-            loot_dir = ""
-            if self._loot:
-                loot_dir = self._loot.loot_root
-            cmd = [
-                "python3", "-m", "janos.game.watchdogs",
-                serial_port, loot_dir,
-            ]
-            # Find project root (where janos/ package lives)
-            pkg_dir = os.path.dirname(os.path.dirname(
-                os.path.dirname(os.path.abspath(__file__))))
-            try:
-                self.state.game_running = True
-                proc = subprocess.Popen(
-                    cmd, cwd=pkg_dir,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                proc.wait()
-            except Exception as e:
-                self._status.set_text(("error", f"  Game error: {e}"))
-            finally:
-                self.state.game_running = False
+        cmd = [
+            "python3", "-m", "janos.game.watchdogs",
+            serial_port, loot_dir,
+        ]
+        env = os.environ.copy()
+        env.setdefault("DISPLAY", ":0")
 
-        threading.Thread(target=_run, daemon=True).start()
+        self.state.game_running = True
+        # Exit urwid main loop — game takes over the terminal/display
+        self._app.stop_and_run_game(cmd, pkg_dir, env)
 
     def _upload_wigle(self) -> None:
         """Upload wardriving CSVs to WiGLE."""

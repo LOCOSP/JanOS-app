@@ -958,8 +958,43 @@ class JanOSTUI:
     _STARTUP_WAV = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                                "assets", "startup.wav")
 
+    _game_cmd: list | None = None
+    _game_cwd: str | None = None
+    _game_env: dict | None = None
+
+    def stop_and_run_game(self, cmd: list, cwd: str, env: dict) -> None:
+        """Stop TUI loop, run game subprocess, then restart TUI."""
+        self._game_cmd = cmd
+        self._game_cwd = cwd
+        self._game_env = env
+        raise urwid.ExitMainLoop()
+
     def run(self) -> None:
         # Startup sound (use beep instead of startup.wav — less intrusive)
         if SOUND_ENABLED:
             self.beep()
-        self._loop.run()
+        while True:
+            self._loop.run()
+            # Check if we exited to launch game
+            if self._game_cmd:
+                cmd = self._game_cmd
+                cwd = self._game_cwd
+                env = self._game_env
+                self._game_cmd = None
+                self._game_cwd = None
+                self._game_env = None
+                # Stop urwid screen so game gets the terminal/display
+                self._loop.screen.stop()
+                try:
+                    proc = subprocess.Popen(cmd, cwd=cwd, env=env)
+                    proc.wait()
+                except Exception as e:
+                    log.error("Game launch failed: %s", e)
+                finally:
+                    self.state.game_running = False
+                # Restart urwid screen
+                self._loop.screen.start()
+                # Continue TUI loop
+                continue
+            else:
+                break  # Normal exit (quit)

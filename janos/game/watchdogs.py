@@ -299,6 +299,9 @@ class WatchDogsGame:
         # Menu
         self.menu_open = False
         self.menu_sel = 0
+        self._pending_cmd = None
+        self._pending_cmd_frame = 0
+        self._pending_cmd_name = ""
 
         # Terminal output panel (bottom 30%) with scroll
         self.terminal_lines: list[str] = []
@@ -340,6 +343,15 @@ class WatchDogsGame:
         self.proj.update()
 
         self.scan_pulse = (self.scan_pulse + 1) % 60
+
+        # Delayed command execution (after stop)
+        if (self._pending_cmd and
+                pyxel.frame_count >= self._pending_cmd_frame):
+            send_command(self._pending_cmd)
+            self.msg(f"[START] {self._pending_cmd_name}...", C_HACK_CYAN)
+            self.glitch_timer = 5
+            self._pending_cmd = None
+
         self._update_hack()
 
         # Particles
@@ -422,11 +434,12 @@ class WatchDogsGame:
             send_command("stop")
             self.msg(f"[STOP] {name}", C_DIM)
         else:
-            # Stop whatever is running first, then start new
+            # Queue: stop first, then new command after delay
             send_command("stop")
-            send_command(cmd)
-            self.msg(f"[START] {name}...", C_HACK_CYAN)
-            self.glitch_timer = 5
+            self._pending_cmd = cmd
+            self._pending_cmd_frame = pyxel.frame_count + 15  # ~0.5s delay
+            self._pending_cmd_name = name
+            self.msg(f"[INIT] {name}...", C_DIM)
 
     def _sync_janos(self):
         if pyxel.frame_count % 10 != 0:
@@ -497,16 +510,17 @@ class WatchDogsGame:
                     self.particles.append(Particle(px, py, random.choice([11, 10, 3])))
         self._last_hs = hs
 
-        # Serial output → terminal panel
+        # Serial output → terminal panel (filter noise)
         new_lines = state.get("serial_lines", [])
-        if new_lines:
-            self.terminal_lines.extend(new_lines)
-            if len(self.terminal_lines) > 500:
-                self.terminal_lines = self.terminal_lines[-500:]
-            # Auto-scroll to bottom if user hasn't scrolled up
-            if self.term_scroll == 0:
-                pass  # already at bottom
-            # Don't reset scroll if user is reading history
+        for line in new_lines:
+            # Skip noise lines
+            if line.strip() in (">", "", "OK"):
+                continue
+            if line.startswith("[MEM]"):
+                continue
+            self.terminal_lines.append(line)
+        if len(self.terminal_lines) > 500:
+            self.terminal_lines = self.terminal_lines[-500:]
 
         # Loot GPS points (all types — wifi, bt, handshake, meshcore)
         loot = state.get("loot_points", [])

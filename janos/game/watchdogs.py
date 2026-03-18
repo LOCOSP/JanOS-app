@@ -968,120 +968,175 @@ class WatchDogsGame:
 
     # -- Menu: big Aiden with options scattered around (Watch Dogs style) --
     def _draw_menu(self):
-        # Semi-transparent overlay
+        # Dark overlay
         for y in range(HUD_TOP, TERM_Y):
             if y % 2 == 0:
                 pyxel.line(0, y, W - 1, y, 0)
 
-        cx, cy = W // 2, HUD_TOP + MAP_H // 2
+        cx = W // 2
+        # Character positioned slightly left, waist-up (cut at belt)
+        px = cx - 20
+        belt_y = TERM_Y - 4  # bottom of character = bottom of map area
+        # Scale: ~80px from belt to top of cap
 
-        # === Big Aiden (centered, ~40px tall) ===
-        # Shadow
-        pyxel.elli(cx - 10, cy + 24, 21, 6, 1)
-        # Boots
-        pyxel.rect(cx - 6, cy + 18, 5, 4, C_BOOTS)
-        pyxel.rect(cx + 2, cy + 18, 5, 4, C_BOOTS)
-        # Legs (dark jeans)
-        pyxel.rect(cx - 5, cy + 9, 4, 10, C_PANTS)
-        pyxel.rect(cx + 2, cy + 9, 4, 10, C_PANTS)
-        # Coat body (brown trench)
-        pyxel.rect(cx - 9, cy - 8, 19, 18, C_COAT)
-        # Coat lining
-        pyxel.rect(cx - 2, cy - 6, 5, 14, C_COAT_DARK)
-        # Coat flaps
-        pyxel.rect(cx - 9, cy + 6, 8, 6, C_COAT)
-        pyxel.rect(cx + 2, cy + 6, 8, 6, C_COAT)
+        # === Coat torso (brown trench, wide) ===
+        pyxel.rect(px - 14, belt_y - 35, 29, 36, C_COAT)
+        # Coat darker side panels
+        pyxel.rect(px - 14, belt_y - 35, 5, 36, C_COAT_DARK)
+        pyxel.rect(px + 10, belt_y - 35, 5, 36, C_COAT_DARK)
+        # Center seam / inner layer
+        pyxel.rect(px - 3, belt_y - 30, 7, 28, C_COAT_DARK)
+        # Lapel / collar folds
+        pyxel.line(px - 3, belt_y - 30, px - 8, belt_y - 42, C_COAT_DARK)
+        pyxel.line(px + 3, belt_y - 30, px + 8, belt_y - 42, C_COAT_DARK)
         # Belt
-        pyxel.line(cx - 8, cy + 5, cx + 9, cy + 5, 0)
-        pyxel.pset(cx, cy + 5, 6)  # buckle
-        # Collar (turned up)
-        pyxel.rect(cx - 9, cy - 11, 4, 5, C_COAT)
-        pyxel.rect(cx + 6, cy - 11, 4, 5, C_COAT)
-        # Head
-        pyxel.rect(cx - 5, cy - 19, 11, 9, C_SKIN)
-        # Cap (dark, with brim)
-        pyxel.rect(cx - 6, cy - 23, 13, 5, C_CAP)
-        pyxel.rect(cx - 8, cy - 19, 17, 2, C_CAP)
-        # Eyes
-        if pyxel.frame_count % 90 < 85:
-            pyxel.rect(cx - 3, cy - 16, 2, 1, 0)
-            pyxel.rect(cx + 2, cy - 16, 2, 1, 0)
-        # Scarf/mask (orange accent — covering lower face)
-        pyxel.rect(cx - 4, cy - 14, 9, 4, C_SCARF)
-        # Arms
-        pyxel.rect(cx + 10, cy - 6, 4, 10, C_COAT)
-        pyxel.rect(cx - 13, cy - 6, 4, 10, C_COAT)
-        # Phone in right hand
-        pyxel.rect(cx + 14, cy - 4, 5, 8, 0)
-        pyxel.rect(cx + 15, cy - 3, 3, 6, C_DEVICE_SCREEN)
-        if pyxel.frame_count % 6 < 4:
-            pyxel.pset(cx + 15, cy - 3, C_SUCCESS)
-            pyxel.pset(cx + 17, cy + 1, C_HACK_CYAN)
+        pyxel.rect(px - 13, belt_y - 2, 27, 3, 0)
+        pyxel.rect(px - 1, belt_y - 2, 3, 3, 6)  # buckle
 
-        # === Options scattered around character with lines ===
-        # Positions: (offset_x, offset_y) from center
+        # === Collar turned up (high, like Aiden) ===
+        pyxel.rect(px - 14, belt_y - 42, 6, 10, C_COAT)
+        pyxel.rect(px + 9, belt_y - 42, 6, 10, C_COAT)
+        # Collar inner
+        pyxel.rect(px - 10, belt_y - 40, 3, 6, C_COAT_DARK)
+        pyxel.rect(px + 8, belt_y - 40, 3, 6, C_COAT_DARK)
+
+        # === Neck / Scarf (orange accent, wrapped) ===
+        pyxel.rect(px - 6, belt_y - 44, 13, 5, C_SCARF)
+        pyxel.rect(px - 5, belt_y - 42, 11, 2, 9)  # brighter wrap
+        # Scarf texture lines
+        pyxel.line(px - 4, belt_y - 43, px + 5, belt_y - 43, C_COAT_DARK)
+
+        # === Head (larger, detailed) ===
+        head_y = belt_y - 60
+        # Face shape
+        pyxel.rect(px - 7, head_y, 15, 14, C_SKIN)
+        # Jawline (slightly narrower bottom)
+        pyxel.rect(px - 6, head_y + 11, 13, 3, C_SKIN)
+        # Cap (flat cap, dark, with prominent brim)
+        pyxel.rect(px - 8, head_y - 6, 17, 7, C_CAP)
+        pyxel.rect(px - 10, head_y, 21, 3, C_CAP)  # wide brim
+        # Cap shadow on forehead
+        pyxel.line(px - 7, head_y + 2, px + 7, head_y + 2, C_COAT_DARK)
+        # Eyes (narrow, intense)
+        if pyxel.frame_count % 120 < 115:
+            pyxel.rect(px - 4, head_y + 5, 3, 2, 0)  # left eye
+            pyxel.rect(px + 2, head_y + 5, 3, 2, 0)  # right eye
+            # Eye highlights
+            pyxel.pset(px - 3, head_y + 5, 7)
+            pyxel.pset(px + 3, head_y + 5, 7)
+        # Nose shadow
+        pyxel.pset(px, head_y + 8, C_COAT_DARK)
+        # Face mask / scarf pulled up (covers lower face)
+        pyxel.rect(px - 6, head_y + 9, 13, 5, C_SCARF)
+        pyxel.rect(px - 5, head_y + 10, 11, 3, 9)  # scarf folds
+
+        # === Left arm (at side, relaxed) ===
+        pyxel.rect(px - 19, belt_y - 33, 6, 20, C_COAT)
+        pyxel.rect(px - 18, belt_y - 14, 4, 4, C_SKIN)  # hand
+
+        # === Right arm (holding phone up) ===
+        # Upper arm
+        pyxel.rect(px + 15, belt_y - 35, 6, 12, C_COAT)
+        # Forearm (angled up toward phone)
+        pyxel.rect(px + 17, belt_y - 40, 5, 10, C_COAT)
+        # Hand holding phone
+        pyxel.rect(px + 19, belt_y - 44, 4, 5, C_SKIN)
+
+        # === Phone / device (the hub — all lines converge here) ===
+        phone_x = px + 20
+        phone_y = belt_y - 52
+        # Phone body
+        pyxel.rect(phone_x, phone_y, 8, 12, 0)
+        pyxel.rectb(phone_x, phone_y, 8, 12, 5)
+        # Screen (glowing)
+        pyxel.rect(phone_x + 1, phone_y + 1, 6, 10, C_DEVICE_SCREEN)
+        # Screen content flicker
+        if pyxel.frame_count % 8 < 6:
+            pyxel.pset(phone_x + 2, phone_y + 2, C_SUCCESS)
+            pyxel.pset(phone_x + 5, phone_y + 4, C_HACK_CYAN)
+            pyxel.pset(phone_x + 3, phone_y + 7, C_WARNING)
+            pyxel.pset(phone_x + 4, phone_y + 9, C_TEXT)
+        # Phone glow aura
+        for gx in range(-2, 10):
+            for gy in range(-2, 14):
+                if random.random() < 0.02:
+                    pyxel.pset(phone_x + gx, phone_y + gy, C_HACK_CYAN)
+
+        # Phone center point (where lines converge)
+        phone_cx = phone_x + 4
+        phone_cy = phone_y + 6
+
+        # === Options — lines from PHONE to scattered labels ===
         option_positions = [
-            (-120, -40),   # top-left
-            (-130, 0),     # mid-left
-            (-110, 35),    # bottom-left
-            (90, -45),     # top-right
-            (100, 0),      # mid-right
-            (85, 35),      # bottom-right
+            (-180, -55),    # far top-left
+            (-170, -25),    # mid-left upper
+            (-160, 5),      # mid-left
+            (60, -55),      # top-right
+            (70, -25),      # mid-right upper
+            (60, 5),        # mid-right
+            (50, 30),       # bottom-right (STOP)
         ]
 
         for i, (key, name, cmd, state_key) in enumerate(MENU_ITEMS):
             if i >= len(option_positions):
                 break
             ox, oy = option_positions[i]
-            tx, ty = cx + ox, cy + oy
+            tx = phone_cx + ox
+            ty = phone_cy + oy
 
-            # Running state
             running = False
             if state_key == "wardriving": running = self.wifi_scanning
             elif state_key == "bt_scanning": running = self.ble_scanning
             elif state_key == "sniffer": running = self.sniffing
             elif state_key == "handshake": running = self.capturing_hs
+            is_stop = (state_key == "_stop_all")
 
             sel = (i == self.menu_sel)
 
-            # Line from character to option
-            line_end_x = cx + (10 if ox > 0 else -10)
-            pyxel.line(line_end_x, cy + oy // 3, tx + 40, ty + 4,
-                       C_HACK_CYAN if sel else C_COAST)
+            # Line from phone to option label
+            lc = C_HACK_CYAN if sel else (C_ERROR if is_stop else C_COAST)
+            # Line with a small break/node near the phone
+            node_x = phone_cx + (6 if ox > 0 else -6)
+            node_y = phone_cy + oy // 4
+            pyxel.line(phone_cx, phone_cy, node_x, node_y, lc)
+            pyxel.line(node_x, node_y, tx + 40, ty + 4, lc)
+            # Node dot
+            pyxel.circ(node_x, node_y, 1, lc)
 
             # Option box
-            bw = 80
+            bw = 85
             if sel:
-                pyxel.rect(tx, ty - 1, bw, 11, C_HACK_CYAN)
+                pyxel.rect(tx, ty - 1, bw, 11, C_HACK_CYAN if not is_stop else C_ERROR)
                 pyxel.rectb(tx, ty - 1, bw, 11, C_TEXT)
-                label_c = 0  # black on cyan
+                label_c = 0
             else:
                 pyxel.rect(tx, ty - 1, bw, 11, 0)
-                pyxel.rectb(tx, ty - 1, bw, 11, C_COAST)
-                label_c = C_TEXT
+                pyxel.rectb(tx, ty - 1, bw, 11, C_ERROR if is_stop else C_COAST)
+                label_c = C_ERROR if is_stop else C_TEXT
 
-            # Label
-            status = " ON" if running else ""
             pyxel.text(tx + 2, ty + 1, f"[{key}] {name}", label_c)
             if running:
-                pyxel.text(tx + bw - 14, ty + 1, "ON", C_SUCCESS if not sel else 0)
+                pyxel.text(tx + bw - 14, ty + 1, "ON",
+                           C_SUCCESS if not sel else 0)
 
-            # Corner dots (Watch Dogs style)
-            pyxel.pset(tx - 1, ty - 2, C_TEXT)
-            pyxel.pset(tx + bw, ty - 2, C_TEXT)
-            pyxel.pset(tx - 1, ty + 10, C_TEXT)
-            pyxel.pset(tx + bw, ty + 10, C_TEXT)
+            # Corner brackets (Watch Dogs UI style)
+            # Top-left corner
+            pyxel.line(tx - 1, ty - 2, tx + 3, ty - 2, C_TEXT)
+            pyxel.line(tx - 1, ty - 2, tx - 1, ty + 2, C_TEXT)
+            # Bottom-right corner
+            pyxel.line(tx + bw - 3, ty + 10, tx + bw, ty + 10, C_TEXT)
+            pyxel.line(tx + bw, ty + 7, tx + bw, ty + 10, C_TEXT)
 
-        # ESP32 status at top
+        # ESP32 status
         esp_c = C_SUCCESS if self._esp32 else C_ERROR
-        esp_t = "ESP32 CONNECTED" if self._esp32 else "ESP32 OFFLINE"
-        pyxel.text(cx - 40, HUD_TOP + 5, esp_t, esp_c)
+        esp_t = "// ESP32 CONNECTED" if self._esp32 else "// ESP32 OFFLINE"
+        pyxel.text(10, HUD_TOP + 5, esp_t, esp_c)
 
-        # Hints at bottom
-        pyxel.text(cx - 55, TERM_Y - 10, "UP/DOWN select  ENTER activate  TAB close", C_DIM)
+        # Hints
+        pyxel.text(W // 2 - 55, TERM_Y - 8, "UP/DOWN  ENTER  TAB", C_DIM)
 
         # Title
-        pyxel.text(cx - 45, HUD_TOP + 15, "// HACKING IS OUR WEAPON", C_HACK_CYAN)
+        pyxel.text(10, HUD_TOP + 15, "// CONNECTION IS POWER", C_HACK_CYAN)
 
 
 # ---------------------------------------------------------------------------

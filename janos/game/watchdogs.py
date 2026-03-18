@@ -103,6 +103,7 @@ MENU_ITEMS = [
     ("4", "Handshake Capture",     "start_handshake",         "handshake"),
     ("5", "Handshake No SD",       "start_handshake_serial",  "handshake"),
     ("b", "BLE Quick Scan",        "scan_bt",                 "bt_scanning"),
+    ("x", "STOP ALL",              "stop",                    "_stop_all"),
 ]
 
 
@@ -423,6 +424,14 @@ class WatchDogsGame:
         if not self._esp32:
             self.msg(f"[ERR] No ESP32 — cannot start {name}", C_ERROR)
             return
+
+        # Stop all — just send stop
+        if state_key == "_stop_all":
+            send_command("stop")
+            self.msg("[STOP] All operations stopped", C_WARNING)
+            self.glitch_timer = 3
+            return
+
         # Check if this specific thing is already running
         running = False
         if state_key == "wardriving": running = self.wifi_scanning
@@ -564,8 +573,9 @@ class WatchDogsGame:
                 self.hacking, self.hack_target = False, None
 
     def _cleanup(self):
-        try: os.remove(CMD_FILE)
-        except Exception: pass
+        """Clean exit — JanOS keeps running, ESP32 keeps doing its thing.
+        User can stop via [x] STOP ALL in menu, or from JanOS TUI."""
+        pass
 
     # ------------------------------------------------------------------
     # Draw

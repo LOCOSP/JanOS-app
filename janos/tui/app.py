@@ -600,11 +600,10 @@ class JanOSTUI:
 
     def _dispatch_line(self, line: str) -> None:
         """Route an incoming serial line to the active screen's handler."""
-        # Buffer for game overlay terminal
-        if self.state.game_running:
-            self._game_serial_buf.append(line)
-            if len(self._game_serial_buf) > 50:
-                self._game_serial_buf = self._game_serial_buf[-50:]
+        # Buffer for game overlay terminal (always, game reads when running)
+        self._game_serial_buf.append(line)
+        if len(self._game_serial_buf) > 50:
+            self._game_serial_buf = self._game_serial_buf[-50:]
 
         active_idx = self._tab_bar.active
         screen = self._screens[active_idx]
@@ -639,9 +638,8 @@ class JanOSTUI:
     _game_serial_buf: list[str] = []  # last N serial lines for game overlay
 
     def _export_game_state(self) -> None:
-        """Write state to shared file for Watch Dogs game overlay."""
-        if not self.state.game_running:
-            return
+        """Write state to shared file for Watch Dogs game overlay.
+        Always export — game may start before flag is set."""
         try:
             # Collect BLE devices
             ble_devs = []
@@ -691,8 +689,6 @@ class JanOSTUI:
 
     def _poll_game_commands(self) -> None:
         """Read and execute commands from Watch Dogs game overlay."""
-        if not self.state.game_running:
-            return
         try:
             with open(self._GAME_CMD_FILE, "r") as f:
                 lines = f.readlines()

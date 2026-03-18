@@ -519,33 +519,46 @@ class WatchDogsGame:
                     self.particles.append(Particle(px, py, random.choice([11, 10, 3])))
         self._last_hs = hs
 
-        # Serial output → terminal panel (aggressive filter)
+        # Serial output → terminal panel (smart filter)
         new_lines = state.get("serial_lines", [])
         for line in new_lines:
             s = line.strip()
-            # Skip empty / prompt / system noise
+            # Always skip: empty, prompt, OK
             if not s or s == ">" or s == "OK":
                 continue
             # Skip echo'd commands (> cmd)
             if s.startswith("> ") and len(s) < 40:
                 continue
-            # Skip memory info
+            # Skip memory/system noise
             if s.startswith("[MEM]"):
-                continue
-            # Skip base64 data (PCAP/HCCAPX dumps)
-            if len(s) > 50 and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n" for c in s):
-                continue
-            # Skip system/internal messages
-            skip_prefixes = (
-                "Command returned", "Stop command received",
-                "Stopping ", "cleanup", "Dumping ",
-                "PCAP buffer:", "--- PCAP", "--- HCCAPX",
-                "=====", "Total handshakes",
-            )
-            if any(s.startswith(p) for p in skip_prefixes):
                 continue
             if "already running" in s:
                 continue
+            skip_prefixes = (
+                "Command returned", "Stop command received",
+                "Stopping ", "cleanup",
+            )
+            if any(s.startswith(p) for p in skip_prefixes):
+                continue
+
+            # During HS capture: allow PCAP/base64 (proof of capture)
+            # Otherwise: filter out binary/system data
+            if not self.capturing_hs:
+                # Skip base64 blobs
+                if len(s) > 50 and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n" for c in s):
+                    continue
+                # Skip PCAP/HCCAPX markers
+                if s.startswith("---") and ("PCAP" in s or "HCCAPX" in s):
+                    continue
+                if s.startswith("PCAP buffer:") or s.startswith("Dumping"):
+                    continue
+                if s.startswith("=====") or s.startswith("Total handshakes"):
+                    continue
+            # Skip raw hex dumps (sniffer packet data)
+            if len(s) > 30 and s.count(":") > 5 and not any(
+                    kw in s for kw in ["RSSI", "SSID", "Name", "AP", "BSSID"]):
+                continue
+
             self.terminal_lines.append(s)
         if len(self.terminal_lines) > 500:
             self.terminal_lines = self.terminal_lines[-500:]

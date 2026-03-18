@@ -77,6 +77,8 @@ class JanOSTUI:
         self.state = AppState(device=device, start_time=time.time())
         self.serial = SerialManager(device)
         self.net_mgr = NetworkManager(self.state)
+        self._game_serial_buf: list[str] = []
+        self._game_serial_sent: int = 0
 
         # GPS module — optional, graceful degradation
         self.gps = GpsManager()
@@ -633,8 +635,6 @@ class JanOSTUI:
 
     _GAME_STATE_FILE = "/tmp/janos_state.json"
     _GAME_CMD_FILE = "/tmp/janos_game_cmd.txt"
-    _game_serial_buf: list[str] = []     # rolling serial buffer for game
-    _game_serial_sent: int = 0          # how many lines already sent to state file
 
     def _export_game_state(self) -> None:
         """Write state to shared file for Watch Dogs game overlay."""
@@ -670,20 +670,27 @@ class JanOSTUI:
         try:
             with open(self._GAME_CMD_FILE, "r") as f:
                 content = f.read()
-            if not content.strip():
-                return
-            # Clear file immediately
+        except FileNotFoundError:
+            return
+        except Exception:
+            return
+        if not content.strip():
+            return
+        # Clear file
+        try:
             with open(self._GAME_CMD_FILE, "w") as f:
                 pass
-            for line in content.strip().split("\n"):
-                cmd = line.strip()
-                if cmd and self.serial and self.serial.is_open:
-                    log.info("Game cmd: %s", cmd)
-                    self.serial.send_command(cmd)
-        except FileNotFoundError:
+        except Exception:
             pass
-        except Exception as e:
-            log.debug("Game cmd poll error: %s", e)
+        for line in content.strip().split("\n"):
+            cmd = line.strip()
+            if not cmd:
+                continue
+            if self.serial and self.serial.is_open:
+                self.serial.send_command(cmd)
+            # Also append to serial buf so game sees feedback
+            self._game_serial_buf.append(f">>> {cmd}")
+
 
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()

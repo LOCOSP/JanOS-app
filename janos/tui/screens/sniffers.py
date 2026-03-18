@@ -97,9 +97,10 @@ class SniffersScreen(urwid.WidgetWrap):
         loot_dir = ""
         if self._loot:
             loot_dir = self._loot.loot_root
-        # Find project root (where janos/ package lives)
-        pkg_dir = os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
+        # Find project root (parent of janos/ package)
+        # __file__ = .../JanOS-app/janos/tui/screens/sniffers.py → 4x dirname
+        pkg_dir = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))))
 
         # Build a shell script that handles DISPLAY/XAUTHORITY/user
         python = sys.executable

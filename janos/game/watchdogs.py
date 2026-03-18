@@ -519,15 +519,34 @@ class WatchDogsGame:
                     self.particles.append(Particle(px, py, random.choice([11, 10, 3])))
         self._last_hs = hs
 
-        # Serial output → terminal panel (filter noise)
+        # Serial output → terminal panel (aggressive filter)
         new_lines = state.get("serial_lines", [])
         for line in new_lines:
-            # Skip noise lines
-            if line.strip() in (">", "", "OK"):
+            s = line.strip()
+            # Skip empty / prompt / system noise
+            if not s or s == ">" or s == "OK":
                 continue
-            if line.startswith("[MEM]"):
+            # Skip echo'd commands (> cmd)
+            if s.startswith("> ") and len(s) < 40:
                 continue
-            self.terminal_lines.append(line)
+            # Skip memory info
+            if s.startswith("[MEM]"):
+                continue
+            # Skip base64 data (PCAP/HCCAPX dumps)
+            if len(s) > 50 and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n" for c in s):
+                continue
+            # Skip system/internal messages
+            skip_prefixes = (
+                "Command returned", "Stop command received",
+                "Stopping ", "cleanup", "Dumping ",
+                "PCAP buffer:", "--- PCAP", "--- HCCAPX",
+                "=====", "Total handshakes",
+            )
+            if any(s.startswith(p) for p in skip_prefixes):
+                continue
+            if "already running" in s:
+                continue
+            self.terminal_lines.append(s)
         if len(self.terminal_lines) > 500:
             self.terminal_lines = self.terminal_lines[-500:]
 
@@ -816,45 +835,46 @@ class WatchDogsGame:
         # Scroll indicator
         if self.term_scroll > 0:
             pyxel.text(W - 60, TERM_Y + 1, f"SCROLL +{self.term_scroll}", C_DIM)
-        # Line count
         pyxel.text(W - 30, TERM_Y + 1, f"L:{len(self.terminal_lines)}", C_DIM)
 
-        # Calculate visible area
+        # Tight packing: 5px per line
+        line_h = 5
         content_y = TERM_Y + 8
         content_h = TERM_H - 10
-        max_visible = content_h // self.term_line_h
+        max_visible = content_h // line_h
 
-        # Get visible slice with scroll
+        # Visible slice with scroll
         total = len(self.terminal_lines)
         if self.term_scroll == 0:
-            # Auto-scroll: show latest lines
             start = max(0, total - max_visible)
             end = total
         else:
-            # Scrolled up
             end = max(0, total - self.term_scroll)
             start = max(0, end - max_visible)
 
         y = content_y
         for i in range(start, end):
             line = self.terminal_lines[i]
-            display = line[:90]
-            # Color coding
+            # Fit more text per line
+            display = line[:110]
+            # Color by content type
             c = C_TEXT
             if line.startswith(">>>"):
-                c = C_HACK_CYAN  # echo'd command
+                c = C_HACK_CYAN
             elif "RSSI:" in line or "dBm" in line:
                 c = C_HACK_CYAN
-            elif "SSID:" in line or "AP:" in line:
+            elif "SSID:" in line or "SSID" in line:
                 c = C_SUCCESS
-            elif "error" in line.lower() or "fail" in line.lower() or "Unrecognized" in line:
-                c = C_ERROR
-            elif "PCAP" in line or "HCCAPX" in line or "handshake" in line.lower():
+            elif "AP:" in line or "BSSID:" in line:
+                c = C_SUCCESS
+            elif "handshake" in line.lower() or "captured" in line.lower():
                 c = C_WARNING
-            elif line.startswith(">") or line.startswith("  "):
-                c = C_DIM
+            elif "scan" in line.lower() and "start" in line.lower():
+                c = C_HACK_CYAN
+            elif any(x in line for x in ["Ch:", "Channel", "Auth:"]):
+                c = 6  # light gray — detail info
             pyxel.text(4, y, display, c)
-            y += self.term_line_h
+            y += line_h
             if y >= TERM_Y + TERM_H - 2:
                 break
 

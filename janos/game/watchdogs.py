@@ -384,6 +384,11 @@ class WatchDogsGame:
                 self.proj.zoom_out()
             if pyxel.btnp(pyxel.KEY_0):
                 self.proj.reset_view()
+            # Quick stop (S key)
+            if pyxel.btnp(pyxel.KEY_S):
+                send_command("stop")
+                self.msg("[STOP] All operations stopped", C_WARNING)
+                self.glitch_timer = 3
             # Manual pan (only without GPS fix)
             speed = self.proj.lon_span / W * 3
             if pyxel.btn(pyxel.KEY_UP):
@@ -938,7 +943,7 @@ class WatchDogsGame:
             dots = "." * ((pyxel.frame_count // 10) % 4)
             pyxel.text(145, y, " ".join(tools) + dots, 12)
         elif not self.menu_open:
-            pyxel.text(145, y, "[TAB] Menu", C_COAST)
+            pyxel.text(145, y, "[TAB]Menu [S]Stop", C_COAST)
 
         # Right: GPS status (real JanOS state)
         if self.gps_fix:

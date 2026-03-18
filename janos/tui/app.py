@@ -669,20 +669,21 @@ class JanOSTUI:
         """Read and execute commands from Watch Dogs game overlay."""
         try:
             with open(self._GAME_CMD_FILE, "r") as f:
-                lines = f.readlines()
-            if not lines:
+                content = f.read()
+            if not content.strip():
                 return
-            # Clear file
+            # Clear file immediately
             with open(self._GAME_CMD_FILE, "w") as f:
                 pass
-            for line in lines:
+            for line in content.strip().split("\n"):
                 cmd = line.strip()
-                if cmd and self.serial:
+                if cmd and self.serial and self.serial.is_open:
+                    log.info("Game cmd: %s", cmd)
                     self.serial.send_command(cmd)
         except FileNotFoundError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Game cmd poll error: %s", e)
 
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()

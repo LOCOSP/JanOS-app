@@ -90,6 +90,9 @@ class AppState:
     # RACE Attack
     race_running: bool = False
 
+    # Watch Dogs Game
+    game_running: bool = False
+
     # Bluetooth
     bt_wardriving_running: bool = False
     bt_wardriving_devices: int = 0

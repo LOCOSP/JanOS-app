@@ -460,6 +460,29 @@ _FRAMES = {
             "success",
         ),
     ],
+    "game": [
+        (
+            "  ┌─────┐\n"
+            "  │ ⌐_⌐ │ ▶\n"
+            "  └┤/|\\├┘\n"
+            "   ┘   └  PLAY",
+            "attack_active",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ ⌐.⌐ │ ▷\n"
+            "  └┤/|\\├┘\n"
+            "   ┘   └  PLAY",
+            "attack_active",
+        ),
+        (
+            "  ┌─────┐\n"
+            "  │ ⌐_⌐ │▶▶\n"
+            "  └┤/|\\├┘\n"
+            "   ┘   └  GAME",
+            "attack_active",
+        ),
+    ],
 }
 
 
@@ -471,6 +494,8 @@ def get_creature_state(state) -> str:
     """Pick the highest-priority animation state from AppState flags."""
     if state.firmware_crashed:
         return "crash"
+    if state.game_running:
+        return "game"
     if state.evil_twin_running:
         return "evil_twin"
     if state.portal_running:

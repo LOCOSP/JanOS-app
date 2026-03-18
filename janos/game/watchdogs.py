@@ -38,6 +38,11 @@ except ImportError:
 # ---------------------------------------------------------------------------
 W, H = 480, 270
 FPS = 30
+HUD_TOP = 12          # top bar height
+HUD_BOT = 14          # bottom bar height
+TERM_H = 80           # terminal panel height (~30%)
+MAP_H = H - HUD_TOP - HUD_BOT - TERM_H  # map area height
+TERM_Y = H - HUD_BOT - TERM_H  # terminal top y
 STATE_FILE = "/tmp/janos_state.json"
 CMD_FILE = "/tmp/janos_game_cmd.txt"
 
@@ -210,7 +215,7 @@ class MapProjection:
     @property
     def lon_span(self): return ZOOM_LEVELS[self.zoom][0]
     @property
-    def lat_span(self): return self.lon_span * (H - 30) / W
+    def lat_span(self): return self.lon_span * MAP_H / W
     @property
     def label(self): return ZOOM_LEVELS[self.zoom][1]
 
@@ -222,16 +227,15 @@ class MapProjection:
         self.center_lon += (self._target_lon - self.center_lon) * 0.08
 
     def geo_to_screen(self, lat, lon):
-        map_h = H - 26
         dx = lon - self.center_lon
         if dx > 180: dx -= 360
         elif dx < -180: dx += 360
         dy = self.center_lat - lat
         return (int(W/2 + dx * W / self.lon_span),
-                int(12 + map_h/2 + dy * map_h / self.lat_span))
+                int(HUD_TOP + MAP_H/2 + dy * MAP_H / self.lat_span))
 
     def screen_visible(self, sx, sy):
-        return -20 <= sx <= W+20 and -20 <= sy <= H+20
+        return -20 <= sx <= W+20 and HUD_TOP-10 <= sy <= TERM_Y+10
 
     def zoom_in(self):
         if self.zoom < len(ZOOM_LEVELS) - 1: self.zoom += 1
@@ -292,6 +296,10 @@ class WatchDogsGame:
         # Menu
         self.menu_open = False
         self.menu_sel = 0
+
+        # Terminal output panel (bottom 30%)
+        self.terminal_lines: list[str] = []
+        self.terminal_max = 12  # visible lines
 
         # Init
         try:
@@ -468,6 +476,12 @@ class WatchDogsGame:
                     self.particles.append(Particle(px, py, random.choice([11, 10, 3])))
         self._last_hs = hs
 
+        # Serial output → terminal panel
+        for line in state.get("serial_lines", []):
+            self.terminal_lines.append(line)
+            if len(self.terminal_lines) > 100:
+                self.terminal_lines = self.terminal_lines[-100:]
+
         # Level up
         new_lvl = 1 + self.xp // 200
         if new_lvl > self.level:
@@ -478,7 +492,7 @@ class WatchDogsGame:
         if pyxel.btn(pyxel.KEY_SPACE) and not self.menu_open:
             if not self.hacking:
                 best, best_d = None, 999
-                px, py = W // 2, (H - 26) // 2 + 12  # player always center
+                px, py = W // 2, HUD_TOP + MAP_H // 2  # player always center
                 for d in self.ble_devices + self.wifi_networks:
                     if d.hacked: continue
                     sx, sy = self.proj.geo_to_screen(d.lat, d.lon)
@@ -524,6 +538,7 @@ class WatchDogsGame:
         self._draw_particles()
         self._draw_hack_bar()
         self._draw_glitch()
+        self._draw_terminal()
         self._draw_hud_top()
         self._draw_hud_bottom()
         self._draw_messages()
@@ -566,14 +581,14 @@ class WatchDogsGame:
         lat = int((self.proj.center_lat - self.proj.lat_span) / sp) * sp
         while lat < self.proj.center_lat + self.proj.lat_span:
             _, sy = self.proj.geo_to_screen(lat, 0)
-            if 12 < sy < H - 14:
+            if HUD_TOP < sy < TERM_Y:
                 pyxel.line(0, sy, W-1, sy, C_GRID)
             lat += sp
         lon = int((self.proj.center_lon - self.proj.lon_span) / sp) * sp
         while lon < self.proj.center_lon + self.proj.lon_span:
             sx, _ = self.proj.geo_to_screen(0, lon)
             if 0 < sx < W:
-                pyxel.line(sx, 12, sx, H-14, C_GRID)
+                pyxel.line(sx, HUD_TOP, sx, TERM_Y, C_GRID)
             lon += sp
 
     # -- Markers --
@@ -627,7 +642,7 @@ class WatchDogsGame:
 
     # -- Scan effects --
     def _draw_scan_fx(self):
-        cx, cy = W // 2, (H - 26) // 2 + 12
+        cx, cy = W // 2, HUD_TOP + MAP_H // 2
         if self.scan_pulse < 30:
             r = int(self.scan_pulse * 1.5)
             pyxel.circb(cx, cy, r, C_GRID if self.scan_pulse > 20 else C_HACK_CYAN)
@@ -637,7 +652,7 @@ class WatchDogsGame:
 
     # -- Player (centered, detailed) --
     def _draw_player(self):
-        cx, cy = W // 2, (H - 26) // 2 + 12
+        cx, cy = W // 2, HUD_TOP + MAP_H // 2
         b = math.sin(self._breath * 0.05) * 0.5  # breathing
 
         # Shadow
@@ -720,6 +735,51 @@ class WatchDogsGame:
         for sl in self.scan_lines:
             pyxel.rect(0, sl, W, 1, C_GRID)
 
+    # -- Terminal panel (bottom 30%) --
+    def _draw_terminal(self):
+        # Background
+        pyxel.rect(0, TERM_Y, W, TERM_H, 0)
+        # Top border with label
+        pyxel.line(0, TERM_Y, W - 1, TERM_Y, C_MENU_BORDER)
+        pyxel.text(3, TERM_Y + 2, "> OUTPUT", C_HACK_CYAN)
+        # Separator line
+        pyxel.line(50, TERM_Y + 1, 50, TERM_Y + 7, C_MENU_BORDER)
+        # Active tool label
+        tool_name = ""
+        if self.capturing_hs: tool_name = "HANDSHAKE"
+        elif self.wifi_scanning: tool_name = "WiFi SCAN"
+        elif self.ble_scanning: tool_name = "BT SCAN"
+        elif self.sniffing: tool_name = "SNIFFER"
+        if tool_name:
+            pyxel.text(54, TERM_Y + 2, tool_name, C_WARNING)
+
+        # Terminal lines
+        visible = self.terminal_lines[-(self.terminal_max):]
+        y = TERM_Y + 10
+        for line in visible:
+            # Truncate long lines
+            display = line[:75]
+            # Color coding based on content
+            c = C_TEXT
+            if "RSSI:" in line or "dBm" in line:
+                c = C_HACK_CYAN
+            elif "SSID:" in line or "AP:" in line:
+                c = C_SUCCESS
+            elif "error" in line.lower() or "fail" in line.lower():
+                c = C_ERROR
+            elif "PCAP" in line or "HCCAPX" in line or "handshake" in line.lower():
+                c = C_WARNING
+            elif line.startswith("  "):
+                c = C_DIM
+            pyxel.text(4, y, display, c)
+            y += 6
+            if y >= TERM_Y + TERM_H - 2:
+                break
+
+        # Cursor blink
+        if pyxel.frame_count % 30 < 20:
+            pyxel.text(4, y, "_", C_HACK_CYAN)
+
     # -- HUD top --
     def _draw_hud_top(self):
         pyxel.rect(0, 0, W, 12, C_HUD_BG)
@@ -776,14 +836,14 @@ class WatchDogsGame:
         # Zoom
         pyxel.text(W - 55, 3, f"Z:{self.proj.label}", C_DIM)
 
-    # -- Messages --
+    # -- Messages (above terminal) --
     def _draw_messages(self):
-        y = H - 26
+        y = TERM_Y - 10
         for text, timer, col in reversed(self.msgs):
             c = col if min(timer, 30) / 30 > 0.5 else C_COAST
             pyxel.text(4, y, text[:60], c)
             y -= 8
-            if y < 20: break
+            if y < HUD_TOP + 10: break
 
     # -- Radar --
     def _draw_radar(self):

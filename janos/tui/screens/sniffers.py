@@ -88,8 +88,11 @@ class SniffersScreen(urwid.WidgetWrap):
         self._cloud_hints.contents = [(w, ("pack", None)) for w in hints]
 
     def _launch_game(self) -> None:
-        """Launch Watch Dogs game — stops JanOS TUI, runs game fullscreen."""
-        serial_port = self.state.device or ""
+        """Launch Watch Dogs game as background overlay (JanOS keeps running)."""
+        if self.state.game_running:
+            self._status.set_text(("warning", "  Game already running"))
+            return
+
         loot_dir = ""
         if self._loot:
             loot_dir = self._loot.loot_root
@@ -99,14 +102,28 @@ class SniffersScreen(urwid.WidgetWrap):
 
         cmd = [
             "python3", "-m", "janos.game.watchdogs",
-            serial_port, loot_dir,
+            self.state.device or "", loot_dir,
         ]
         env = os.environ.copy()
         env.setdefault("DISPLAY", ":0")
 
         self.state.game_running = True
-        # Exit urwid main loop — game takes over the terminal/display
-        self._app.stop_and_run_game(cmd, pkg_dir, env)
+        self._status.set_text(("success", "  Watch Dogs game launched!"))
+
+        def _monitor():
+            try:
+                proc = subprocess.Popen(
+                    cmd, cwd=pkg_dir, env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                proc.wait()
+            except Exception:
+                pass
+            finally:
+                self.state.game_running = False
+
+        threading.Thread(target=_monitor, daemon=True).start()
 
     def _upload_wigle(self) -> None:
         """Upload wardriving CSVs to WiGLE."""

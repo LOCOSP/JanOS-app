@@ -1,6 +1,7 @@
 """Main TUI application — urwid.MainLoop, serial watcher, tab routing."""
 
 import logging
+import json
 import os
 import re
 import subprocess
@@ -627,8 +628,80 @@ class JanOSTUI:
     # Periodic refresh
     # ------------------------------------------------------------------
 
+    _GAME_STATE_FILE = "/tmp/janos_state.json"
+    _GAME_CMD_FILE = "/tmp/janos_game_cmd.txt"
+
+    def _export_game_state(self) -> None:
+        """Write state to shared file for Watch Dogs game overlay."""
+        if not self.state.game_running:
+            return
+        try:
+            # Collect BLE devices
+            ble_devs = []
+            if hasattr(self.state, "bt_devices"):
+                for mac, info in list(self.state.bt_devices.items())[:50]:
+                    if isinstance(info, dict):
+                        ble_devs.append(info)
+                    else:
+                        ble_devs.append({"mac": mac, "name": str(info), "rssi": -70})
+
+            # Collect WiFi networks
+            wifi_nets = []
+            if hasattr(self, "_scan") and hasattr(self._scan, "_networks"):
+                for net in list(self._scan._networks.values())[:50]:
+                    wifi_nets.append({
+                        "bssid": getattr(net, "bssid", ""),
+                        "ssid": getattr(net, "ssid", ""),
+                        "channel": getattr(net, "channel", 0),
+                        "rssi": getattr(net, "rssi", -70),
+                    })
+
+            data = {
+                "gps_lat": self.state.gps_latitude,
+                "gps_lon": self.state.gps_longitude,
+                "gps_fix": self.state.gps_fix_valid,
+                "esp32": self.state.connected,
+                "wardriving": self.state.wardriving_running,
+                "bt_scanning": self.state.bt_scan_running
+                    or self.state.bt_wardriving_running,
+                "sniffer": self.state.sniffer_running,
+                "handshake": self.state.handshake_running,
+                "handshakes": self.state.handshake_count
+                    if hasattr(self.state, "handshake_count") else 0,
+                "ble_devices": ble_devs,
+                "wifi_networks": wifi_nets,
+            }
+            with open(self._GAME_STATE_FILE, "w") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
+    def _poll_game_commands(self) -> None:
+        """Read and execute commands from Watch Dogs game overlay."""
+        if not self.state.game_running:
+            return
+        try:
+            with open(self._GAME_CMD_FILE, "r") as f:
+                lines = f.readlines()
+            if not lines:
+                return
+            # Clear file
+            with open(self._GAME_CMD_FILE, "w") as f:
+                pass
+            for line in lines:
+                cmd = line.strip()
+                if cmd and self.serial:
+                    self.serial.send_command(cmd)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()
+        # Game overlay IPC
+        self._export_game_state()
+        self._poll_game_commands()
         # Poll GPS every tick as fallback (watch_file may not fire for USB GPS)
         if self.state.gps_available:
             self._on_gps_data()
@@ -938,69 +1011,8 @@ class JanOSTUI:
     _STARTUP_WAV = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                                "assets", "startup.wav")
 
-    _game_cmd: list | None = None
-    _game_cwd: str | None = None
-    _game_env: dict | None = None
-
-    def stop_and_run_game(self, cmd: list, cwd: str, env: dict) -> None:
-        """Stop TUI loop, run game subprocess, then restart TUI."""
-        self._game_cmd = cmd
-        self._game_cwd = cwd
-        self._game_env = env
-        raise urwid.ExitMainLoop()
-
     def run(self) -> None:
         # Startup sound (use beep instead of startup.wav — less intrusive)
         if SOUND_ENABLED:
             self.beep()
-        while True:
-            self._loop.run()
-            # Check if we exited to launch game
-            if self._game_cmd:
-                cmd = self._game_cmd
-                cwd = self._game_cwd
-                env = self._game_env
-                self._game_cmd = None
-                self._game_cwd = None
-                self._game_env = None
-                # Close serial so game can use it
-                device = self.state.device
-                if self.serial and self.serial.is_open:
-                    try:
-                        self.serial.close()
-                    except Exception:
-                        pass
-                # Close GPS so game can use it
-                if self.gps:
-                    try:
-                        self.gps.close()
-                    except Exception:
-                        pass
-                # Stop urwid screen so game gets the display
-                self._loop.screen.stop()
-                try:
-                    proc = subprocess.Popen(cmd, cwd=cwd, env=env)
-                    proc.wait()
-                except Exception as e:
-                    log.error("Game launch failed: %s", e)
-                finally:
-                    self.state.game_running = False
-                # Restart urwid screen
-                self._loop.screen.start()
-                # Reopen serial + GPS
-                if device:
-                    try:
-                        self.serial.setup()
-                        self.state.connected = True
-                    except Exception as e:
-                        log.error("Serial reopen failed: %s", e)
-                        self.state.connected = False
-                if self.gps and self.state.gps_available:
-                    try:
-                        self.gps.setup()
-                    except Exception:
-                        pass
-                # Continue TUI loop
-                continue
-            else:
-                break  # Normal exit (quit)
+        self._loop.run()

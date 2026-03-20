@@ -87,13 +87,22 @@ class GpsManager:
                      device)
             return False
 
-        # No env var — probe default path, then auto-detect
-        if os.path.exists(device) and self._probe_nmea(device, self._baud):
-            if self._try_open(device):
-                return True
+        # No env var — probe known UART paths then auto-detect
+        # CM5: GPS on ttyAMA0, CM4: GPS on ttyS0, serial0 may point to either
+        uart_candidates = [device, "/dev/ttyAMA0", "/dev/ttyS0", "/dev/serial0"]
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        for candidate in uart_candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if os.path.exists(candidate) and self._probe_nmea(candidate, self._baud):
+                if self._try_open(candidate):
+                    self.device = candidate
+                    return True
 
-        log.info("GPS not on %s, scanning for USB GPS...", device)
-        detected = self._auto_detect(exclude={device})
+        log.info("GPS not on known UARTs, scanning for USB GPS...")
+        detected = self._auto_detect(exclude=seen)
         if detected:
             self.device = detected
             if self._try_open(detected):

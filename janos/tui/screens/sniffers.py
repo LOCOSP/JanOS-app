@@ -1,9 +1,5 @@
-"""Sniffers tab — menu wrapper for Wardriving, BT Wardriving, Packet Sniffer, and Watch Dogs Game."""
+"""Sniffers tab — menu wrapper for Wardriving, BT Wardriving, Packet Sniffer."""
 
-import os
-import subprocess
-import sys
-import threading
 import urwid
 
 from ...app_state import AppState
@@ -45,9 +41,6 @@ class SniffersScreen(urwid.WidgetWrap):
             urwid.Text(("default", "  [2] Wardriving BT")),
             urwid.Text(("default", "  [3] Packet Sniffer")),
             urwid.Divider(),
-            urwid.Text(("bold", "  \u2500\u2500 Game \u2500\u2500")),
-            urwid.Text(("default", "  [g] Watch Dogs Game")),
-            urwid.Divider(),
         ]
         # Cloud upload/download hints (only when configured)
         self._cloud_hints = urwid.Pile([])
@@ -87,68 +80,6 @@ class SniffersScreen(urwid.WidgetWrap):
         if hints:
             hints.insert(0, urwid.Text(("bold", "  \u2500\u2500 Cloud \u2500\u2500")))
         self._cloud_hints.contents = [(w, ("pack", None)) for w in hints]
-
-    def _launch_game(self) -> None:
-        """Launch Watch Dogs game as background overlay (JanOS keeps running)."""
-        if self.state.game_running:
-            self._status.set_text(("warning", "  Game already running"))
-            return
-
-        loot_dir = ""
-        if self._loot:
-            loot_dir = self._loot.loot_root
-        # Find project root (parent of janos/ package)
-        # __file__ = .../JanOS-app/janos/tui/screens/sniffers.py → 4x dirname
-        pkg_dir = os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))))
-
-        # Build a shell script that handles DISPLAY/XAUTHORITY/user
-        python = sys.executable
-        device = self.state.device or ""
-        sudo_user = os.environ.get("SUDO_USER", "")
-
-        # Write launcher script
-        script = "/tmp/janos_game_launch.sh"
-        with open(script, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write(f"cd '{pkg_dir}'\n")
-            f.write(f"export DISPLAY=:0\n")
-            if sudo_user:
-                # sudo -u preserves cwd, but pass PYTHONPATH as fallback
-                f.write(f"export PYTHONPATH='{pkg_dir}'\n")
-                f.write(f"exec sudo -u {sudo_user} "
-                        f"DISPLAY=:0 "
-                        f"XAUTHORITY=/home/{sudo_user}/.Xauthority "
-                        f"HOME=/home/{sudo_user} "
-                        f"PYTHONPATH='{pkg_dir}' "
-                        f"bash -c \"cd '{pkg_dir}' && "
-                        f"{python} -m janos.game.watchdogs "
-                        f"'{device}' '{loot_dir}'\" "
-                        f">/tmp/janos_game.log 2>&1\n")
-            else:
-                f.write(f"exec {python} -m janos.game.watchdogs "
-                        f"'{device}' '{loot_dir}' "
-                        f">/tmp/janos_game.log 2>&1\n")
-        os.chmod(script, 0o755)
-
-        self.state.game_running = True
-        self._status.set_text(("success", "  Watch Dogs game launched!"))
-
-        def _monitor():
-            try:
-                proc = subprocess.Popen(
-                    ["/bin/bash", script],
-                    cwd=pkg_dir,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                proc.wait()
-            except Exception:
-                pass
-            finally:
-                self.state.game_running = False
-
-        threading.Thread(target=_monitor, daemon=True).start()
 
     def _upload_wigle(self) -> None:
         """Upload wardriving CSVs to WiGLE."""
@@ -237,11 +168,6 @@ class SniffersScreen(urwid.WidgetWrap):
             return None
         if key == "3":
             self._enter_sub_screen(self._sniffer)
-            return None
-
-        # Game
-        if key == "g":
-            self._launch_game()
             return None
 
         # Cloud services (menu only)

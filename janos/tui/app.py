@@ -78,8 +78,6 @@ class JanOSTUI:
         self.state = AppState(device=device, start_time=time.time())
         self.serial = SerialManager(device)
         self.net_mgr = NetworkManager(self.state)
-        self._game_serial_buf: list[str] = []
-        self._game_serial_sent: int = 0
 
         # GPS module — optional, graceful degradation
         self.gps = GpsManager()
@@ -603,9 +601,6 @@ class JanOSTUI:
 
     def _dispatch_line(self, line: str) -> None:
         """Route an incoming serial line to the active screen's handler."""
-        # Buffer for game overlay terminal (always, game reads when running)
-        self._game_serial_buf.append(line)
-
         active_idx = self._tab_bar.active
         screen = self._screens[active_idx]
 
@@ -634,9 +629,6 @@ class JanOSTUI:
     # Periodic refresh
     # ------------------------------------------------------------------
 
-    _GAME_STATE_FILE = "/tmp/janos_state.json"
-    _GAME_CMD_FILE = "/tmp/janos_game_cmd.txt"
-
     def _count_session_hs(self) -> int:
         """Count handshake files in current loot session."""
         try:
@@ -648,69 +640,8 @@ class JanOSTUI:
         except Exception:
             return 0
 
-    def _export_game_state(self) -> None:
-        """Write state to shared file for Watch Dogs game overlay."""
-        try:
-            data = {
-                "gps_lat": self.state.gps_latitude,
-                "gps_lon": self.state.gps_longitude,
-                "gps_fix": self.state.gps_fix_valid,
-                "sats": getattr(self.state, "gps_satellites_visible", 0)
-                    or getattr(self.state, "gps_satellites", 0),
-                "esp32": self.state.connected,
-                "wardriving": self.state.wardriving_running,
-                "bt_scanning": getattr(self.state, "bt_scan_running", False)
-                    or getattr(self.state, "bt_wardriving_running", False),
-                "sniffer": self.state.sniffer_running,
-                "handshake": self.state.handshake_running,
-                "handshakes": self._count_session_hs(),
-                "serial_lines": self._game_serial_buf[self._game_serial_sent:],
-            }
-            self._game_serial_sent = len(self._game_serial_buf)
-            # Trim buffer to prevent unbounded growth
-            if len(self._game_serial_buf) > 200:
-                trim = len(self._game_serial_buf) - 100
-                self._game_serial_buf = self._game_serial_buf[trim:]
-                self._game_serial_sent = len(self._game_serial_buf)
-            with open(self._GAME_STATE_FILE, "w") as f:
-                json.dump(data, f)
-        except Exception as e:
-            log.debug("Game state export error: %s", e)
-
-    def _poll_game_commands(self) -> None:
-        """Read and execute commands from Watch Dogs game overlay."""
-        if not self.state.game_running:
-            return
-        try:
-            with open(self._GAME_CMD_FILE, "r") as f:
-                content = f.read()
-        except FileNotFoundError:
-            return
-        except Exception:
-            return
-        if not content.strip():
-            return
-        # Clear file
-        try:
-            with open(self._GAME_CMD_FILE, "w") as f:
-                pass
-        except Exception:
-            pass
-        for line in content.strip().split("\n"):
-            cmd = line.strip()
-            if not cmd:
-                continue
-            if self.serial and self.serial.is_open:
-                self.serial.send_command(cmd)
-            # Also append to serial buf so game sees feedback
-            self._game_serial_buf.append(f">>> {cmd}")
-
-
     def _tick(self, loop=None, data=None) -> None:
         self._refresh_ui()
-        # Game overlay IPC
-        self._export_game_state()
-        self._poll_game_commands()
         # Poll GPS every tick as fallback (watch_file may not fire for USB GPS)
         if self.state.gps_available:
             self._on_gps_data()

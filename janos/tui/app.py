@@ -563,17 +563,33 @@ class JanOSTUI:
             # Firmware version detection from serial output
             # Pattern 1: boot banner — === APP_MAIN START (v1.5.5) ===
             # Pattern 2: ESP-IDF log — I (xxx) main: JanOS version: 1.5.5
-            if not self.state.firmware_version:
-                if "APP_MAIN START" in line:
-                    m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
-                    if m:
-                        self.state.firmware_version = m.group(1)
-                        log.info("Firmware version detected (boot): %s", m.group(1))
-                elif "JanOS version:" in line:
-                    m = re.search(r"JanOS version:\s*v?(\d+\.\d+\.\d+)", line)
-                    if m:
-                        self.state.firmware_version = m.group(1)
-                        log.info("Firmware version detected (log): %s", m.group(1))
+            # Always update from serial (overrides saved file — serial is truth)
+            if "APP_MAIN START" in line:
+                m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
+                if m:
+                    detected = m.group(1)
+                    if self.state.firmware_version != detected:
+                        log.info("Firmware version from serial (boot): %s (was: %s)",
+                                 detected, self.state.firmware_version or "none")
+                    self.state.firmware_version = detected
+                    try:
+                        from .updater import save_local_fw_version
+                        save_local_fw_version(detected)
+                    except Exception:
+                        pass
+            elif "JanOS version:" in line:
+                m = re.search(r"JanOS version:\s*v?(\d+\.\d+\.\d+)", line)
+                if m:
+                    detected = m.group(1)
+                    if self.state.firmware_version != detected:
+                        log.info("Firmware version from serial (log): %s (was: %s)",
+                                 detected, self.state.firmware_version or "none")
+                    self.state.firmware_version = detected
+                    try:
+                        from .updater import save_local_fw_version
+                        save_local_fw_version(detected)
+                    except Exception:
+                        pass
             # Crash detection — collect all crash lines, show ONE overlay
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True

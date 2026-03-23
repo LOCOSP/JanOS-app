@@ -269,7 +269,18 @@ class JanOSTUI:
         if self._update_version:
             self._show_update_dialog()
         elif self._fw_remote_version:
-            self._show_fw_update_dialog()
+            # Re-check: serial may have updated firmware_version since
+            # the background thread ran (version cmd response arrived)
+            from ..updater import is_newer
+            live_fw = self.state.firmware_version
+            remote_clean = self._fw_remote_version.lstrip("v")
+            live_clean = (live_fw or "").lstrip("v")
+            if live_clean and not is_newer(remote_clean, live_clean):
+                log.info("Firmware update suppressed: live=%s >= remote=%s",
+                         live_clean, remote_clean)
+                self._fw_remote_version = None
+            else:
+                self._show_fw_update_dialog()
 
     # ------------------------------------------------------------------
     # Auto-update
@@ -563,49 +574,36 @@ class JanOSTUI:
             # Log every serial line to loot
             self.loot.log_serial(line)
             # Firmware version detection from serial output
-            # Pattern 1: boot banner — === APP_MAIN START (v1.5.5) ===
-            # Pattern 2: ESP-IDF log — I (xxx) main: JanOS version: 1.5.5
-            # Pattern 3: ping response — pong v1.5.5
             # Always update from serial (overrides saved file — serial is truth)
+            detected_fw = None
             if "APP_MAIN START" in line:
                 m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
                 if m:
-                    detected = m.group(1)
-                    if self.state.firmware_version != detected:
-                        log.info("Firmware version from serial (boot): %s (was: %s)",
-                                 detected, self.state.firmware_version or "none")
-                    self.state.firmware_version = detected
-                    try:
-                        from .updater import save_local_fw_version
-                        save_local_fw_version(detected)
-                    except Exception:
-                        pass
+                    detected_fw = m.group(1)
             elif "JanOS version:" in line:
                 m = re.search(r"JanOS version:\s*v?(\d+\.\d+\.\d+)", line)
                 if m:
-                    detected = m.group(1)
-                    if self.state.firmware_version != detected:
-                        log.info("Firmware version from serial (log): %s (was: %s)",
-                                 detected, self.state.firmware_version or "none")
-                    self.state.firmware_version = detected
-                    try:
-                        from .updater import save_local_fw_version
-                        save_local_fw_version(detected)
-                    except Exception:
-                        pass
+                    detected_fw = m.group(1)
             elif "pong v" in line or "pong V" in line:
                 m = re.search(r"pong\s+v?(\d+\.\d+\.\d+)", line, re.IGNORECASE)
                 if m:
-                    detected = m.group(1)
-                    if self.state.firmware_version != detected:
-                        log.info("Firmware version from ping: %s (was: %s)",
-                                 detected, self.state.firmware_version or "none")
-                    self.state.firmware_version = detected
-                    try:
-                        from .updater import save_local_fw_version
-                        save_local_fw_version(detected)
-                    except Exception:
-                        pass
+                    detected_fw = m.group(1)
+            if detected_fw:
+                if self.state.firmware_version != detected_fw:
+                    log.info("Firmware version from serial: %s (was: %s)",
+                             detected_fw, self.state.firmware_version or "none")
+                self.state.firmware_version = detected_fw
+                try:
+                    from .updater import save_local_fw_version
+                    save_local_fw_version(detected_fw)
+                except Exception:
+                    pass
+                # Cancel stale firmware update notification
+                if self._fw_remote_version:
+                    from ..updater import is_newer
+                    rc = self._fw_remote_version.lstrip("v")
+                    if not is_newer(rc, detected_fw):
+                        self._fw_remote_version = None
             # Crash detection — collect all crash lines, show ONE overlay
             if self.serial.is_crash_line(line):
                 self.state.firmware_crashed = True

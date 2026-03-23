@@ -118,6 +118,8 @@ class JanOSTUI:
             if self.serial.probe():
                 self.state.esp32_ready = True
                 log.info("ESP32 firmware ready")
+                # Ask firmware for version (response parsed in serial handler)
+                self.serial.send_command("version")
             else:
                 log.info("ESP32 port open but firmware not responding yet (booting)")
         except Exception as exc:
@@ -563,6 +565,7 @@ class JanOSTUI:
             # Firmware version detection from serial output
             # Pattern 1: boot banner — === APP_MAIN START (v1.5.5) ===
             # Pattern 2: ESP-IDF log — I (xxx) main: JanOS version: 1.5.5
+            # Pattern 3: ping response — pong v1.5.5
             # Always update from serial (overrides saved file — serial is truth)
             if "APP_MAIN START" in line:
                 m = re.search(r"\(v?(\d+\.\d+\.\d+)\)", line)
@@ -583,6 +586,19 @@ class JanOSTUI:
                     detected = m.group(1)
                     if self.state.firmware_version != detected:
                         log.info("Firmware version from serial (log): %s (was: %s)",
+                                 detected, self.state.firmware_version or "none")
+                    self.state.firmware_version = detected
+                    try:
+                        from .updater import save_local_fw_version
+                        save_local_fw_version(detected)
+                    except Exception:
+                        pass
+            elif "pong v" in line or "pong V" in line:
+                m = re.search(r"pong\s+v?(\d+\.\d+\.\d+)", line, re.IGNORECASE)
+                if m:
+                    detected = m.group(1)
+                    if self.state.firmware_version != detected:
+                        log.info("Firmware version from ping: %s (was: %s)",
                                  detected, self.state.firmware_version or "none")
                     self.state.firmware_version = detected
                     try:
@@ -693,6 +709,7 @@ class JanOSTUI:
                 if self.serial.probe():
                     self.state.esp32_ready = True
                     log.info("ESP32 firmware ready (after boot wait)")
+                    self.serial.send_command("version")
                     self._refresh_ui()
         self._loop.set_alarm_in(1, self._tick)
 
@@ -800,6 +817,8 @@ class JanOSTUI:
             self.state.esp32_ready = self.serial.probe()
             self._register_serial_watcher()
             log.info("Reconnected to %s (ready=%s)", detected, self.state.esp32_ready)
+            if self.state.esp32_ready:
+                self.serial.send_command("version")
             return True
         except Exception:
             return False

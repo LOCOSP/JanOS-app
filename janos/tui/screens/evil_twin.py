@@ -1,5 +1,8 @@
 """Evil Twin screen — target selection, setup wizard, live monitoring."""
 
+import base64
+import logging
+import os
 import re
 import time
 from urllib.parse import unquote_plus, parse_qs
@@ -14,12 +17,22 @@ from ...config import (
     CMD_LIST_SD,
     CMD_SELECT_HTML,
     CMD_SELECT_NETWORKS,
+    CMD_SET_HTML,
+    CMD_SET_HTML_BEGIN,
+    CMD_SET_HTML_END,
     CMD_START_EVIL_TWIN,
     CMD_STOP,
 )
 from ..widgets.log_viewer import LogViewer
 from ..widgets.file_picker import FilePicker
+from ..widgets.choice_dialog import ChoiceDialog
 from ..widgets.confirm_dialog import ConfirmDialog
+from .portal import _portals_dir, _ensure_portals_dir
+
+log = logging.getLogger(__name__)
+
+# Base64 chunk size — same as portal.py
+_B64_CHUNK = 256
 
 
 class EvilTwinScreen(urwid.WidgetWrap):
@@ -164,10 +177,83 @@ class EvilTwinScreen(urwid.WidgetWrap):
             self._target_channel = net.channel
             # Select that network on the ESP32
             self.serial.send_command(f"{CMD_SELECT_NETWORKS} {net.index}")
-            self._load_html_files()
+            # Step 2: choose HTML source
+            self._ask_html_choice()
 
         picker = FilePicker(names, on_pick, title="Select target network:")
         self._app.show_overlay(picker, 55, min(len(names) + 6, 20))
+
+    def _ask_html_choice(self) -> None:
+        """Show choice dialog: built-in / custom portal / SD card."""
+
+        def on_choice(answer: str) -> None:
+            self._app.dismiss_overlay()
+            if answer == "y":
+                self._confirm_start_default()
+            elif answer == "n":
+                self._show_local_portals()
+            else:  # 'c' — cancel
+                self._status.set_text(("dim", "  Setup cancelled"))
+
+        dialog = ChoiceDialog("Use built-in portal HTML?", on_choice)
+        self._app.show_overlay(dialog, 50, 8)
+
+    def _show_local_portals(self) -> None:
+        """Scan portals/ folder and show file picker."""
+        pdir = _ensure_portals_dir()
+        try:
+            files = sorted(
+                f for f in os.listdir(pdir)
+                if f.lower().endswith(".html")
+            )
+        except OSError:
+            files = []
+
+        if not files:
+            self._status.set_text(
+                ("error", f"  No .html files in portals/ — falling back to SD card")
+            )
+            self._load_html_files()
+            return
+
+        def on_pick(idx, name):
+            self._app.dismiss_overlay()
+            if idx < 0:
+                self._status.set_text(("dim", "  File selection cancelled"))
+                return
+            filepath = os.path.join(pdir, name)
+            self._send_custom_html(filepath, name)
+
+        picker = FilePicker(files, on_pick, title="Select portal HTML:")
+        self._app.show_overlay(picker, 55, min(len(files) + 6, 20))
+
+    def _send_custom_html(self, filepath: str, filename: str) -> None:
+        """Read local HTML, base64-encode, and send chunked to ESP32."""
+        try:
+            with open(filepath, "r", encoding="utf-8") as fh:
+                html = fh.read()
+        except OSError as exc:
+            self._status.set_text(("error", f"  Cannot read {filename}: {exc}"))
+            return
+
+        self.state.selected_html_name = filename
+        b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
+
+        self.serial.send_command(CMD_SET_HTML_BEGIN)
+        time.sleep(0.1)
+        for i in range(0, len(b64), _B64_CHUNK):
+            chunk = b64[i:i + _B64_CHUNK]
+            self.serial.send_command(f"{CMD_SET_HTML} {chunk}")
+            time.sleep(0.05)
+        time.sleep(0.1)
+        self.serial.send_command(CMD_SET_HTML_END)
+        time.sleep(0.3)
+
+        self._status.set_text(
+            ("success", f"  HTML sent: {filename} ({len(html)} bytes)")
+        )
+        log.info("Evil Twin custom HTML: %s (%d bytes)", filename, len(html))
+        self._confirm_start()
 
     def _load_html_files(self) -> None:
         self._fetching_files = True

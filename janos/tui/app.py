@@ -35,6 +35,7 @@ from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
 from .screens.addons import AddOnsScreen
 from .screens.subghz import SubGHzScreen
+from .screens.radio24 import Radio24Screen
 from .screens.map_screen import MapScreen
 from .screens.dragon_drain import DragonDrainScreen
 from .screens.mitm import MITMScreen
@@ -46,7 +47,7 @@ from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
 
-TAB_LABELS = ["Scan", "Sniffers", "Attacks", "SubGHz", "Add-ons", "Map"]
+TAB_LABELS = ["Scan", "Sniffers", "Attacks", "SubGHz", "2.4G/NFC", "Add-ons", "Map"]
 
 
 class _CrashDialog(urwid.WidgetWrap):
@@ -179,6 +180,9 @@ class JanOSTUI:
         # SubGHz screen (CC1101 — Monster RF / KOPENG)
         self._subghz = SubGHzScreen(self.state, self.serial, self)
 
+        # 2.4G / NFC / Zigbee screen (nRF24 + PN532 + 802.15.4 — Monster RF)
+        self._radio24 = Radio24Screen(self.state, self.serial, self)
+
         # Map screen
         self._map = MapScreen(self.state, self.loot)
         self._map_twinkle_active = False
@@ -189,6 +193,7 @@ class JanOSTUI:
             self._sniffer,
             self._attacks,
             self._subghz,
+            self._radio24,
             self._addons,
             self._map,
         ]
@@ -478,7 +483,7 @@ class JanOSTUI:
     # Tab switching
     # ------------------------------------------------------------------
 
-    _MAP_TAB = 5  # 0-based index of Map tab
+    _MAP_TAB = 6  # 0-based index of Map tab
     _MAP_TWINKLE_INTERVAL = 0.3  # seconds between twinkle frames
 
     def _on_tab_switch(self, index: int) -> None:
@@ -929,8 +934,8 @@ class JanOSTUI:
         if key in ("shift tab", "left"):
             self._tab_bar.prev_tab()
             return True
-        # Number keys switch tabs (1-6)
-        if key in ("1", "2", "3", "4", "5", "6"):
+        # Number keys switch tabs (1-7)
+        if key in ("1", "2", "3", "4", "5", "6", "7"):
             idx = int(key) - 1
             if idx < len(self._screens):
                 self._tab_bar.active = idx

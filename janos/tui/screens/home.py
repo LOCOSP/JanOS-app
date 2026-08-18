@@ -290,11 +290,16 @@ class SidebarPanel(urwid.WidgetWrap):
         else:
             self._wifi_line.set_text("")
 
-        # Firmware version (detected from ESP32 boot banner)
-        if self.state.firmware_version:
-            self._fw_version.set_text(
-                ("dim", f"  Firmware v{self.state.firmware_version}")
-            )
+        # Firmware version + board id (e.g. board_name=KOPENG → Monster RF)
+        if self.state.firmware_version or self.state.board_name:
+            parts = []
+            if self.state.firmware_version:
+                parts.append(f"v{self.state.firmware_version}")
+            if self.state.board_name:
+                pretty = ("Monster RF" if self.state.board_name.upper() == "KOPENG"
+                          else self.state.board_name)
+                parts.append(f"[{pretty}]")
+            self._fw_version.set_text(("dim", "  Firmware " + " ".join(parts)))
 
         # Runtime
         if self.state.start_time > 0:

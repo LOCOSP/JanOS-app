@@ -11,6 +11,10 @@ import time
 
 import urwid
 
+# Windows can't select() on serial/tty handles the way urwid's default event
+# loop expects, so we take an asyncio-based path there (see JanOSTUI.__init__).
+_IS_WINDOWS = os.name == "nt"
+
 from ..app_state import AppState
 from ..serial_manager import SerialManager
 from ..network_manager import NetworkManager
@@ -30,6 +34,7 @@ from .screens.attacks import AttacksScreen
 from .screens.portal import PortalScreen
 from .screens.evil_twin import EvilTwinScreen
 from .screens.addons import AddOnsScreen
+from .screens.subghz import SubGHzScreen
 from .screens.map_screen import MapScreen
 from .screens.dragon_drain import DragonDrainScreen
 from .screens.mitm import MITMScreen
@@ -41,7 +46,7 @@ from .widgets.startup_screen import StartupScreen, run_startup_checks
 
 log = logging.getLogger(__name__)
 
-TAB_LABELS = ["Scan", "Sniffers", "Attacks", "Add-ons", "Map"]
+TAB_LABELS = ["Scan", "Sniffers", "Attacks", "SubGHz", "Add-ons", "Map"]
 
 
 class _CrashDialog(urwid.WidgetWrap):
@@ -118,8 +123,9 @@ class JanOSTUI:
             if self.serial.probe():
                 self.state.esp32_ready = True
                 log.info("ESP32 firmware ready")
-                # Ask firmware for version (response parsed in serial handler)
+                # Ask firmware for version + board id (parsed in serial handler)
                 self.serial.send_command("version")
+                self.serial.send_command("board_name")
             else:
                 log.info("ESP32 port open but firmware not responding yet (booting)")
         except Exception as exc:
@@ -170,6 +176,9 @@ class JanOSTUI:
         # Add-ons screen
         self._addons = AddOnsScreen(self.state, self.serial, self, loot=self.loot)
 
+        # SubGHz screen (CC1101 — Monster RF / KOPENG)
+        self._subghz = SubGHzScreen(self.state, self.serial, self)
+
         # Map screen
         self._map = MapScreen(self.state, self.loot)
         self._map_twinkle_active = False
@@ -179,6 +188,7 @@ class JanOSTUI:
             self._scan,
             self._sniffer,
             self._attacks,
+            self._subghz,
             self._addons,
             self._map,
         ]
@@ -218,7 +228,11 @@ class JanOSTUI:
         self._frame = frame
         self._overlay_active = False
 
-        # urwid main loop — wrap in Overlay-capable widget
+        # urwid main loop — wrap in Overlay-capable widget.
+        # The default SelectEventLoop works on both platforms: on Windows urwid's
+        # _win32_raw_display delivers keyboard input over a socketpair that
+        # select() can watch. We only avoid select()-ing the *serial* handle on
+        # Windows (see _watch_serial), which is what actually breaks there.
         self._main_widget = urwid.WidgetPlaceholder(frame)
         self._loop = urwid.MainLoop(
             self._main_widget,
@@ -226,15 +240,15 @@ class JanOSTUI:
             unhandled_input=self._unhandled_input,
         )
 
-        # Serial FD watcher (if connected)
+        # Serial watcher (if connected)
         self._serial_watched = False
         self._reconnect_alarm = None
         if self.state.connected:
-            self._loop.watch_file(self.serial.fd, self._on_serial_data)
             self._serial_watched = True
+            self._watch_serial()
 
-        # GPS FD watcher (if available)
-        if self.state.gps_available:
+        # GPS FD watcher (if available) — POSIX only; Windows polls GPS in _tick
+        if self.state.gps_available and not _IS_WINDOWS:
             self._loop.watch_file(self.gps.fd, self._on_gps_data)
 
         # 1-second refresh timer + AIO counter
@@ -464,7 +478,7 @@ class JanOSTUI:
     # Tab switching
     # ------------------------------------------------------------------
 
-    _MAP_TAB = 4  # 0-based index of Map tab
+    _MAP_TAB = 5  # 0-based index of Map tab
     _MAP_TWINKLE_INTERVAL = 0.3  # seconds between twinkle frames
 
     def _on_tab_switch(self, index: int) -> None:
@@ -573,6 +587,12 @@ class JanOSTUI:
             log.debug("RX: %s", line)
             # Log every serial line to loot
             self.loot.log_serial(line)
+            # Board identification (e.g. "board_name=KOPENG" → Monster RF)
+            if line.startswith("board_name="):
+                bn = line.split("=", 1)[1].strip()
+                if bn and self.state.board_name != bn:
+                    self.state.board_name = bn
+                    log.info("Board: %s", bn)
             # Firmware version detection from serial output
             # Always update from serial (overrides saved file — serial is truth)
             detected_fw = None
@@ -728,15 +748,36 @@ class JanOSTUI:
         except Exception:
             pass
 
+    def _watch_serial(self) -> None:
+        """Start watching the serial device for incoming data.
+
+        POSIX: urwid watch_file() on the serial fd (edge-driven).
+        Windows: a self-rescheduling alarm polling read_available(), because
+        select() cannot watch a Windows serial handle.
+        """
+        if _IS_WINDOWS:
+            self._loop.set_alarm_in(0.03, self._poll_serial_win)
+        else:
+            self._loop.watch_file(self.serial.fd, self._on_serial_data)
+
+    def _poll_serial_win(self, loop=None, user_data=None) -> None:
+        if not self._serial_watched:
+            return
+        if self.state.connected:
+            self._on_serial_data()
+        # keep polling while we remain the active watcher
+        if self._serial_watched and self.state.connected:
+            self._loop.set_alarm_in(0.03, self._poll_serial_win)
+
     def _register_serial_watcher(self) -> None:
-        """Register serial FD watcher after reconnection."""
+        """Register serial watcher after reconnection."""
         if self._serial_watched or not self.state.connected:
             return
         try:
-            self._loop.watch_file(self.serial.fd, self._on_serial_data)
             self._serial_watched = True
+            self._watch_serial()
         except Exception:
-            pass
+            self._serial_watched = False
 
     # ------------------------------------------------------------------
     # ESP32 wait / reconnect
@@ -888,8 +929,8 @@ class JanOSTUI:
         if key in ("shift tab", "left"):
             self._tab_bar.prev_tab()
             return True
-        # Number keys switch tabs (1-4)
-        if key in ("1", "2", "3", "4", "5"):
+        # Number keys switch tabs (1-6)
+        if key in ("1", "2", "3", "4", "5", "6"):
             idx = int(key) - 1
             if idx < len(self._screens):
                 self._tab_bar.active = idx

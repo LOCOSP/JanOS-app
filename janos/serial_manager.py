@@ -161,15 +161,22 @@ class SerialManager:
     # ------------------------------------------------------------------
 
     def setup(self) -> None:
-        """Open the serial port. Raises on failure."""
-        if not os.path.exists(self.device):
-            raise FileNotFoundError(f"Device {self.device} does not exist")
+        """Open the serial port. Raises on failure.
 
-        if not os.access(self.device, os.R_OK | os.W_OK):
-            raise PermissionError(
-                f"No read/write access to '{self.device}'. "
-                "Try: sudo usermod -a -G dialout $USER"
-            )
+        POSIX device files (/dev/ttyUSB0, …) can be checked with
+        os.path.exists / os.access.  On Windows the device is a COM port name
+        (e.g. ``COM10``) which those calls do not understand, so we skip the
+        pre-checks there and let pyserial raise if the port is invalid.
+        """
+        if os.name == "posix":
+            if not os.path.exists(self.device):
+                raise FileNotFoundError(f"Device {self.device} does not exist")
+
+            if not os.access(self.device, os.R_OK | os.W_OK):
+                raise PermissionError(
+                    f"No read/write access to '{self.device}'. "
+                    "Try: sudo usermod -a -G dialout $USER"
+                )
 
         self.serial_conn = serial.Serial(
             port=self.device,

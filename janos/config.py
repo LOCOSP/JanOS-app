@@ -126,6 +126,21 @@ FLASH_BOARDS = {
             "projectZerobyLOCOSP-xiao.bin": "0x20000",
         },
     },
+    # LAB5 "Monster RF" (ESP32-C5, board_name=KOPENG). Its CH340 has no
+    # auto-reset, so the app sends the firmware `download` command to drop it
+    # into the ROM UART bootloader before esptool runs (--before no-reset).
+    # Uses the standard (WROOM) projectZero binary/offsets for the C5.
+    "monster": {
+        "label": "Monster RF (LAB5 C5)",
+        "baud": 460800,
+        "before": "no-reset",
+        "bin_name": "projectZerobyLOCOSP.bin",
+        "offsets": {
+            "bootloader.bin": "0x2000",
+            "partition-table.bin": "0x8000",
+            "projectZerobyLOCOSP.bin": "0x20000",
+        },
+    },
 }
 
 # Legacy aliases (backward compat)

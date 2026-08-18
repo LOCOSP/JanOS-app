@@ -373,10 +373,19 @@ class AddOnsScreen(urwid.WidgetWrap):
         if board is None:
             return
 
-        # XIAO: release serial BEFORE showing confirm dialog
-        # (user must press BOOT+RESET which disconnects the port)
-        if board == "xiao":
+        # Boards without esptool auto-reset (XIAO native-USB CDC, Monster CH340):
+        # release the serial port BEFORE the confirm dialog. The Monster is put
+        # into the bootloader by its firmware `download` command; the XIAO needs
+        # a manual BOOT+RESET.
+        manual_boot = board in ("xiao", "monster")
+        if manual_boot:
             self.state.flashing = True  # suppress reconnect polling
+            if board == "monster" and self.state.connected:
+                try:
+                    self.serial.send_command("download")  # → ROM UART bootloader
+                    time.sleep(0.3)
+                except Exception:
+                    pass
             if self.state.connected:
                 try:
                     self._app._loop.remove_watch_file(self.serial.fd)
@@ -391,6 +400,9 @@ class AddOnsScreen(urwid.WidgetWrap):
         if board == "xiao":
             hint = ("\nHold BOOT + press RESET, then release BOOT.\n"
                     "Press Yes when device is in bootloader mode.")
+        elif board == "monster":
+            hint = ("\nSent 'download' — Monster is entering the bootloader.\n"
+                    "Press Yes to flash.")
         else:
             hint = "\nesptool will auto-reset into bootloader."
 
@@ -398,7 +410,7 @@ class AddOnsScreen(urwid.WidgetWrap):
             self._app.dismiss_overlay()
             if yes:
                 self._begin_flash(board=board)
-            elif board == "xiao":
+            elif manual_boot:
                 # Cancelled — clear flashing flag and try to reconnect
                 self.state.flashing = False
                 self._reconnect_serial()
